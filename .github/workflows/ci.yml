@@ -23,7 +23,7 @@ jobs:
         # 1.87 is the minimum supported Rust version (rust-version in Cargo.toml).
         toolchain: [stable, beta, "1.87"]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Install Rust
         run: |
           rustup toolchain install "$TOOLCHAIN" --profile minimal --no-self-update
@@ -38,7 +38,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Install Rust
         run: |
           rustup toolchain install stable --profile minimal --component clippy,rustfmt --no-self-update

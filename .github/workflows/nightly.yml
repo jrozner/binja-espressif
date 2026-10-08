@@ -22,7 +22,7 @@ jobs:
     name: Exhaustive decode
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Install Rust
         run: |
           rustup toolchain install stable --profile minimal --no-self-update
@@ -35,12 +35,12 @@ jobs:
     name: Exhaustive objdump comparison
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Install Rust
         run: |
           rustup toolchain install stable --profile minimal --no-self-update
           rustup override set stable
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: target/oracle/xtensa-esp-elf
           key: oracle-toolchain-${{ hashFiles('scripts/oracle/fetch-toolchain.sh') }}
