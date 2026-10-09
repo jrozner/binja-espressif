@@ -300,6 +300,10 @@ for how in ["type", "calling_convention"]:
         start = bv.get_function_at(0x40080000)
         text = "\n".join(str(i) for i in start.mlil.instructions) if start else ""
         check("(1, 2, 3)" in text, "the windowed stub's arguments come from a10..a12")
+bv = load_bytes(tiny_image([(0x40080000, caller[:-2])]), ".bin")
+bv.update_analysis_and_wait()
+stub = bv.get_function_at(0x40080014)
+check(stub is not None and stub.calling_convention.name == "call0", "a ret.n at the very end of a segment is call0 too")
 
 print()
 if failures:

@@ -181,11 +181,14 @@ impl FunctionRecognizer for WindowRecognizer {
         func: &Function,
         _llil: &LowLevelILRegularFunction,
     ) -> bool {
+        // A function in the last two bytes of a segment (a `ret.n` stub,
+        // say) has no room for `entry`; it is still a call0 function.
         let mut code = [0u8; 3];
-        if bv.read(&mut code, func.start()) != 3 {
+        let len = bv.read(&mut code, func.start());
+        if len == 0 {
             return false;
         }
-        if crate::esp::is_entry_insn(&code) {
+        if crate::esp::is_entry_insn(&code[..len]) {
             let arch = func.arch();
             let clobbered: Vec<CoreRegister> = (8..=15)
                 .filter_map(|n| arch.register_from_id(RegisterId(n)))
