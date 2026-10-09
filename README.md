@@ -27,7 +27,9 @@ It provides:
 - **Calling conventions**: `windowed` (the `call8` ABI used for all ESP32
   family code; default there) and `call0` (the ESP8266 ABI, and hand-written
   code on the others). Functions that do not begin with `entry` on the
-  windowed cores are automatically switched to `call0`.
+  windowed cores are automatically switched to `call0`, unless you have given
+  the function a type or calling convention yourself (for example a windowed
+  stub with no `entry`, typed `__convention("windowed")`).
 - **Zero-overhead loops** (`loop`/`loopnez`/`loopgtz`) recovered as real loops.
 - An **`ESP` binary view** for raw firmware:
   - ESP32/ESP32-S2/ESP32-S3 application and bootloader images from any

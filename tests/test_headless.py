@@ -274,6 +274,33 @@ check(bv.view_type == "ESP" and bv.platform.name == "xtensa-esp32", "ESP32 image
 bv = load_bytes(tiny_image([(0x40080000, code + bytes(3) + bytes.fromhex("364100"))]), ".bin")
 check(bv.get_function_at(0x40080008) is not None, "entry at the very end of a segment is found")
 
+print("User calling conventions on functions without entry:")
+# entry a1, 32; movi a10, 1; movi a11, 2; movi a12, 3; call8 stub; retw.n
+# and at 0x40080014 the stub, a bare 4-byte ret.n (like the placeholders
+# for unresolved externals in a partially linked image, which windowed code
+# calls).
+caller = bytes.fromhex("364100" "a2a001" "b2a002" "c2a003" "650000" "1df0") + bytes(3) + bytes.fromhex("0df00000")
+for how in ["type", "calling_convention"]:
+    bv = load_bytes(tiny_image([(0x40080000, caller)]), ".bin")
+    bv.update_analysis_and_wait()
+    stub = bv.get_function_at(0x40080014)
+    if how == "type":
+        check(stub is not None and stub.calling_convention.name == "call0", "a function without entry defaults to call0")
+    if stub is None:
+        check(False, f"stub found ({how})")
+        continue
+    windowed = bv.arch.calling_conventions["windowed"]
+    if how == "type":
+        stub.type = bv.parse_type_string('int32_t __convention("windowed") stub(int32_t a, int32_t b, int32_t c)')[0]
+    else:
+        stub.calling_convention = windowed
+    bv.update_analysis_and_wait()
+    check(stub.calling_convention.name == "windowed", f"user-set windowed convention survives reanalysis ({how})")
+    if how == "type":
+        start = bv.get_function_at(0x40080000)
+        text = "\n".join(str(i) for i in start.mlil.instructions) if start else ""
+        check("(1, 2, 3)" in text, "the windowed stub's arguments come from a10..a12")
+
 print()
 if failures:
     print(f"{len(failures)} failure(s)")

@@ -158,7 +158,14 @@ pub fn register(arch: &'static Xtensa) -> Conventions {
 /// * Functions that do not start with `entry` get the `call0` convention:
 ///   every windowed-ABI function does, so these are hand-written routines
 ///   called with `call0`/`callx0` (or not functions in the C sense at all,
-///   such as exception vectors).
+///   such as exception vectors). This is only a default: a function with a
+///   user type is left alone, so a convention the user chose (with
+///   `__convention("windowed")` in its type, or by setting the calling
+///   convention, which also makes the type a user type) sticks. That matters
+///   for code that has no `entry` but is called with `call4`/`call8`/`call12`,
+///   such as placeholder stubs for unresolved externals: typed as `call0`,
+///   their callers' arguments would be read from `a2..a7` instead of
+///   `a10..a15`.
 /// * Windowed functions clobber exactly `a8..a15` of their caller (the
 ///   registers that become the callee's `a0..a7`). The core would otherwise
 ///   derive the clobbered set from the function's own writes to `a0..a7`,
@@ -189,9 +196,10 @@ impl FunctionRecognizer for WindowRecognizer {
             if current.confidence < MAX_CONFIDENCE || ids != (8..=15).collect::<Vec<u32>>() {
                 func.set_auto_clobbered_registers(clobbered, MAX_CONFIDENCE);
             }
-        } else if func
-            .calling_convention()
-            .is_none_or(|cc| cc.contents.name() != "call0")
+        } else if !func.has_user_type()
+            && func
+                .calling_convention()
+                .is_none_or(|cc| cc.contents.name() != "call0")
         {
             func.set_auto_calling_convention(Some(&*self.call0));
         }
