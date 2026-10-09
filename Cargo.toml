@@ -1,0 +1,22 @@
+[package]
+name = "binja-xtensa"
+version = "0.1.0"
+edition = "2024"
+description = "Binary Ninja architecture plugin for Xtensa (ESP8266, ESP32, ESP32-S2, ESP32-S3)"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+binaryninja = { git = "https://github.com/Vector35/binaryninja-api.git", branch = "dev" }
+binaryninjacore-sys = { git = "https://github.com/Vector35/binaryninja-api.git", branch = "dev" }
+xtensa = { path = "../xtensa" }
+tracing = "0.1"
+serde_json = "1"
+flate2 = "1"
+
+[build-dependencies]
+flate2 = "1"
+
