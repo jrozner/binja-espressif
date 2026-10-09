@@ -65,7 +65,12 @@ It provides:
   has no official SVD, so the view names its peripheral blocks itself.
 - **ELF support**: `EM_XTENSA` files open with the ELF view; the chip is
   recognised from the program headers (and, for ambiguous layouts, from
-  whether the entry point uses the windowed ABI).
+  whether the entry point uses the windowed ABI). To force a chip, set
+  Binary Ninja's standard `loader.platform` load setting to its platform
+  (`xtensa-esp32`, `xtensa-esp32s2`, `xtensa-esp32s3` or `xtensa-esp8266`):
+  *Open with Options* → *Platform*, or
+  `bn.load(path, options={"loader.platform": "xtensa-esp32s3"})`. It takes
+  precedence over the recognised chip.
 
 Patching and assembling are not supported.
 
