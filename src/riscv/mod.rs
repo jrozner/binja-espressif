@@ -17,9 +17,9 @@ use binaryninja::types::{
 };
 use binaryninja::variable::Variable;
 use binaryninjacore_sys::{
+    BNFreeRegisterValueWithConfidenceAndRegisterList, BNGetUserGlobalPointerValues,
     BNRegisterValue, BNRegisterValueType, BNRegisterValueWithConfidence,
     BNRegisterValueWithConfidenceAndRegister, BNSetUserGlobalPointerValues,
-    BNUserGlobalPointerValuesSet,
 };
 
 /// The name of Binary Ninja's architecture for these cores.
@@ -263,8 +263,24 @@ pub fn global_pointer(addr: u32, code: &[u8]) -> Option<u32> {
     None
 }
 
+/// The user global pointer values `existing` with `entry` added, or `None`
+/// if `existing` already has a value for `entry`'s register. Values for
+/// other registers are kept as they are.
+fn with_global_pointer(
+    existing: &[BNRegisterValueWithConfidenceAndRegister],
+    entry: BNRegisterValueWithConfidenceAndRegister,
+) -> Option<Vec<BNRegisterValueWithConfidenceAndRegister>> {
+    if existing.iter().any(|v| v.reg == entry.reg) {
+        return None;
+    }
+    let mut values = existing.to_vec();
+    values.push(entry);
+    Some(values)
+}
+
 /// Gives the analysis of `view` the value of `gp` the startup code sets,
-/// unless one was set already (by the user, or saved in a database).
+/// unless `gp` has one already (set by the user, or saved in a database).
+/// User values for other registers are kept.
 ///
 /// Binary Ninja infers `gp` itself from the function that sets it, but only
 /// once that function has been analyzed, after the functions that use `gp`;
@@ -290,10 +306,22 @@ pub fn set_global_pointer(view: &BinaryView, value: u32) {
             confidence: 255,
         },
     };
-    unsafe {
-        if !BNUserGlobalPointerValuesSet(view.handle) {
-            BNSetUserGlobalPointerValues(view.handle, &entry, 1);
-        }
+    // The core sets the whole list at once, so the existing values (owned by
+    // us until freed) are copied into the new list.
+    let values = unsafe {
+        let mut count = 0;
+        let existing = BNGetUserGlobalPointerValues(view.handle, &mut count);
+        let values = if existing.is_null() {
+            with_global_pointer(&[], entry)
+        } else {
+            let values = with_global_pointer(std::slice::from_raw_parts(existing, count), entry);
+            BNFreeRegisterValueWithConfidenceAndRegisterList(existing);
+            values
+        };
+        values
+    };
+    if let Some(values) = values {
+        unsafe { BNSetUserGlobalPointerValues(view.handle, values.as_ptr(), values.len()) };
     }
 }
 
@@ -668,6 +696,37 @@ mod tests {
             ilp32_locations(&[int.clone(), int.clone(), int], 2),
             [parts(&[Reg(0)]), parts(&[Reg(1)]), parts(&[Stack(0)])]
         );
+    }
+
+    fn pointer_value(reg: u32, value: i64) -> BNRegisterValueWithConfidenceAndRegister {
+        BNRegisterValueWithConfidenceAndRegister {
+            reg,
+            value: BNRegisterValueWithConfidence {
+                value: BNRegisterValue {
+                    state: BNRegisterValueType::ConstantPointerValue,
+                    value,
+                    offset: 0,
+                    size: 0,
+                },
+                confidence: 255,
+            },
+        }
+    }
+
+    #[test]
+    fn global_pointer_joins_other_user_values() {
+        let summary = |vs: &[BNRegisterValueWithConfidenceAndRegister]| {
+            vs.iter().map(|v| (v.reg, v.value.value.value)).collect::<Vec<_>>()
+        };
+        let (gp, tp) = (3, 4);
+        let new = pointer_value(gp, 0x3FC8_8400);
+        // No values yet, or one for another register: gp is added, the
+        // other value kept.
+        assert_eq!(summary(&with_global_pointer(&[], new).unwrap()), [(gp, 0x3FC8_8400)]);
+        let values = with_global_pointer(&[pointer_value(tp, 0x1000)], new).unwrap();
+        assert_eq!(summary(&values), [(tp, 0x1000), (gp, 0x3FC8_8400)]);
+        // A value for gp itself is never replaced.
+        assert!(with_global_pointer(&[pointer_value(tp, 0x1000), pointer_value(gp, 0x1234)], new).is_none());
     }
 
     #[test]

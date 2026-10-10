@@ -459,6 +459,22 @@ for chip in ("esp32c3", "esp32c6"):
     check(f"_csrwr(0x305, {syms['_vector_table'] | 1:#x})" in text and f"sub_{syms['start']:x}()" in text,
           f"{chip}: call_start_cpu0 sets mtvec and calls start")
 
+# User global pointer values saved in a database (here a user gp value and
+# one for tp) are what a reopened view uses. (They are restored after the
+# view sets gp, so adding gp next to other registers' values, which the view
+# does when it finds them, is covered by a unit test instead.)
+elf = os.path.join(DATA, "esp32c3.elf")
+bv = load_bytes(elf_to_image(elf, RISCV_CHIPS["esp32c3"]), ".bin")
+bv.set_user_global_pointer_values([("tp", bn.variable.ConstantPointerRegisterValue(0x1000)),
+                                   ("gp", bn.variable.ConstantPointerRegisterValue(0x1234))])
+db = os.path.join(user_dir, "gp_tp.bndb")
+bv.create_database(db)
+bv.file.close()
+bv = bn.load(db)
+values = {reg: v.value for reg, v in bv.user_global_pointer_values}
+check(values == {"tp": 0x1000, "gp": 0x1234}, f"saved user global pointer values are kept ({values})")
+bv.file.close()
+
 print("Malformed and unusual images:")
 
 
