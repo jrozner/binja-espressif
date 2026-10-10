@@ -8,11 +8,18 @@ pub mod rom_symbols;
 pub mod svd;
 pub mod view;
 
+use std::ffi::CString;
+
 use binaryninja::Endianness;
-use binaryninja::architecture::CoreArchitecture;
+use binaryninja::architecture::{ArchitectureExt, CoreArchitecture};
 use binaryninja::binary_view::{BinaryView, BinaryViewType, register_binary_view_type};
 use binaryninja::platform::Platform;
 use binaryninja::rc::Ref;
+use binaryninjacore_sys::{
+    BNFreeCallingConvention, BNFreePlatform, BNGetArchitectureByName,
+    BNGetArchitectureCallingConventionByName, BNGetPlatformByName,
+    BNRegisterPlatformCallingConvention,
+};
 
 use crate::espressif::image::Region;
 use crate::xtensa::{self, Core};
@@ -139,10 +146,37 @@ impl Chip {
         })
     }
 
-    /// The name of the architecture (and standalone platform) of the chip's
-    /// code.
+    /// The name of the architecture of the chip's code.
     pub fn arch_name(self) -> &'static str {
         self.cpu().arch_name()
+    }
+
+    /// The name of the chip's platform: the chip's ESP-IDF target name.
+    /// Chips with the same CPU core share an architecture, so the platform,
+    /// not the architecture, says which chip a view is for.
+    pub fn platform_name(self) -> &'static str {
+        match self {
+            Chip::Esp8266 => "esp8266",
+            Chip::Esp32 => "esp32",
+            Chip::Esp32S2 => "esp32s2",
+            Chip::Esp32S3 => "esp32s3",
+        }
+    }
+
+    /// The chip whose platform is `platform`. Each Xtensa core belongs to a
+    /// single chip, so the core's standalone platform (which databases
+    /// saved before the chip platforms existed, or a `loader.platform`
+    /// override, may use) also names it.
+    pub fn of_platform(platform: &Platform) -> Option<Chip> {
+        let name = platform.name();
+        Chip::ALL
+            .into_iter()
+            .find(|c| c.platform_name() == name)
+            .or_else(|| {
+                Chip::ALL
+                    .into_iter()
+                    .find(|c| matches!(c.cpu(), Cpu::Xtensa(_)) && c.arch_name() == name)
+            })
     }
 
     pub fn display_name(self) -> &'static str {
@@ -257,13 +291,65 @@ fn recognize_elf(view: &BinaryView, family: Family) -> Option<Ref<Platform>> {
         family.name(),
         chip.display_name()
     );
-    Platform::by_name(chip.arch_name())
+    Platform::by_name(chip.platform_name())
 }
 
-/// Registers the ESP firmware view, the SVD settings and activity, and the
-/// recognizer for Xtensa ELF files. The architectures must already be
-/// registered.
+/// The OS name the chip platforms are registered under.
+const PLATFORM_OS: &str = "espressif";
+
+/// Registers a platform for every chip on its CPU's architecture, with the
+/// architecture's calling conventions and the default calling convention of
+/// its standalone platform.
+fn register_platforms() {
+    for chip in Chip::ALL {
+        let Some(arch) = CoreArchitecture::by_name(chip.arch_name()) else {
+            tracing::error!("architecture {} is not registered", chip.arch_name());
+            continue;
+        };
+        let platform = Platform::new(&arch, chip.platform_name());
+        platform.register_os(PLATFORM_OS);
+        for cc in arch.calling_conventions().iter() {
+            add_calling_convention(chip.platform_name(), chip.arch_name(), &cc.name());
+        }
+        if let Some(cc) = arch
+            .standalone_platform()
+            .and_then(|p| p.get_default_calling_convention())
+        {
+            platform.set_default_calling_convention(&cc);
+        }
+    }
+}
+
+/// Adds an architecture's calling convention to a platform, so that types
+/// can name it. The Rust API has no wrapper for this, and does not expose
+/// the platform and calling convention handles, so the core is called with
+/// handles looked up by name.
+fn add_calling_convention(platform: &str, arch: &str, cc: &str) {
+    let (platform, arch, cc) = (
+        CString::new(platform).unwrap(),
+        CString::new(arch).unwrap(),
+        CString::new(cc).unwrap(),
+    );
+    unsafe {
+        let platform = BNGetPlatformByName(platform.as_ptr());
+        let arch = BNGetArchitectureByName(arch.as_ptr());
+        if platform.is_null() || arch.is_null() {
+            return;
+        }
+        let cc = BNGetArchitectureCallingConventionByName(arch, cc.as_ptr());
+        if !cc.is_null() {
+            BNRegisterPlatformCallingConvention(platform, cc);
+            BNFreeCallingConvention(cc);
+        }
+        BNFreePlatform(platform);
+    }
+}
+
+/// Registers the chip platforms, the ESP firmware view, the SVD settings
+/// and activity, and the recognizer for Xtensa ELF files. The architectures
+/// must already be registered.
 pub fn register() {
+    register_platforms();
     svd::register_settings();
     svd::register_activity();
     register_binary_view_type(view::EspViewType);

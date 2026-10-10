@@ -54,7 +54,7 @@ def func(bv, name):
 
 
 def check_program(bv, chip, label):
-    check(bv.platform is not None and bv.platform.name == f"xtensa-{chip}", f"{label}: platform {bv.platform}")
+    check(bv.platform is not None and bv.platform.name == chip, f"{label}: platform {bv.platform}")
     windowed = chip != "esp8266"
     add3 = func(bv, "add3") or bv.get_function_at(symbols[chip]["add3"])
     check(add3 is not None and len(add3.parameter_vars) == 3, f"{label}: add3 has 3 parameters")
@@ -143,7 +143,7 @@ for chip, chip_id in CHIPS.items():
     if chip_id is not None:
         for base in (0, 0x1000):
             bv = load_bytes(flash_dump(elf_to_image(elf, chip_id), base), ".bin")
-            check(bv.view_type == "ESP" and bv.platform.name == f"xtensa-{chip}", f"flash dump based at {base:#x}")
+            check(bv.view_type == "ESP" and bv.platform.name == chip, f"flash dump based at {base:#x}")
 
 print("ESP8266 flash dumps:")
 esp8266_image = elf_to_image(os.path.join(DATA, "esp8266.elf"), None)
@@ -224,6 +224,20 @@ check(not bv.get_symbols(0x3FF48000, 1), "espressif.svd.autoLoad = false leaves 
 bv = load_bytes(elf_to_image(os.path.join(DATA, "esp8266.elf"), None), ".bin")
 check({s.name for s in bv.get_symbols(0x60000000, 1)} == {"uart0"}, "ESP8266 peripherals are named (no official SVD)")
 
+print("Chip platforms:")
+for chip in CHIPS:
+    platform = bn.Platform[chip]
+    arch = bn.Architecture[f"xtensa-{chip}"]
+    names = {cc.name for cc in platform.calling_conventions}
+    expected = {"call0"} if chip == "esp8266" else {"call0", "windowed"}
+    check(platform.arch == arch and names >= expected, f"{chip}: on {arch.name}, conventions {sorted(names)}")
+    check(platform.default_calling_convention == arch.standalone_platform.default_calling_convention,
+          f"{chip}: default convention {platform.default_calling_convention}")
+check({p.name for p in bn.Platform.get_list(os="espressif")} == set(CHIPS), "registered under the espressif OS")
+for name in ("esp32s3", "xtensa-esp32s3"):
+    bv = bn.load(os.path.join(DATA, "esp32s2.elf"), options={"loader.platform": name})
+    check(bv.platform.name == name, f"loader.platform = {name} overrides the ELF's chip")
+
 print("Lifting semantics:")
 esp32 = bn.Architecture["xtensa-esp32"]
 
@@ -270,7 +284,7 @@ check(bv.view_type == "ESP" and bv.get_symbol_by_raw_name("esp_app_desc") is Non
 bv = load_bytes(tiny_image([(0x40080000, code), (0x3F400020, magic + bytes(252))]), ".bin")
 check(bv.get_symbol_by_raw_name("esp_app_desc") is not None, "complete app descriptor is recognized")
 bv = load_bytes(tiny_image([(0x40080000, bytes.fromhex("3df00000"))]), ".bin")
-check(bv.view_type == "ESP" and bv.platform.name == "xtensa-esp32", "ESP32 image with a call0 entry stub")
+check(bv.view_type == "ESP" and bv.platform.name == "esp32", "ESP32 image with a call0 entry stub")
 bv = load_bytes(tiny_image([(0x40080000, code + bytes(3) + bytes.fromhex("364100"))]), ".bin")
 check(bv.get_function_at(0x40080008) is not None, "entry at the very end of a segment is found")
 

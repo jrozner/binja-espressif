@@ -68,7 +68,7 @@ fn extract(chip: Chip) -> Option<PathBuf> {
     let dir = cache_dir();
     let path = dir.join(format!(
         "{}-{:016x}.svd",
-        chip.arch_name(),
+        chip.platform_name(),
         fnv1a(compressed)
     ));
     if path.is_file() {
@@ -79,7 +79,7 @@ fn extract(chip: Chip) -> Option<PathBuf> {
         flate2::read::GzDecoder::new(compressed).read_to_end(&mut svd)?;
         std::fs::create_dir_all(&dir)?;
         // Write and rename, so a concurrent open never sees a partial file.
-        let partial = dir.join(format!(".{}.{}", chip.arch_name(), std::process::id()));
+        let partial = dir.join(format!(".{}.{}", chip.platform_name(), std::process::id()));
         std::fs::write(&partial, &svd)?;
         std::fs::rename(&partial, &path)
     })();
@@ -114,10 +114,7 @@ pub fn register_activity() {
         let Some(platform) = view.default_platform() else {
             return;
         };
-        if let Some(chip) = Chip::ALL
-            .into_iter()
-            .find(|c| c.arch_name() == platform.name())
-        {
+        if let Some(chip) = Chip::of_platform(&platform) {
             configure(&view, chip);
         }
     });

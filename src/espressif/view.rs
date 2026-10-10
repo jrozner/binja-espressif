@@ -397,8 +397,8 @@ impl EspView {
 impl CustomBinaryView for EspView {
     fn initialize(&mut self, view: &BinaryView) -> bool {
         let chip = self.chip();
-        let Some(platform) = Platform::by_name(chip.arch_name()) else {
-            tracing::error!("platform {} is not registered", chip.arch_name());
+        let Some(platform) = Platform::by_name(chip.platform_name()) else {
+            tracing::error!("platform {} is not registered", chip.platform_name());
             return false;
         };
         let image = &self.firmware.image;

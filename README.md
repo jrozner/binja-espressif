@@ -13,6 +13,12 @@ It provides:
   implements (including MAC16, booleans, FPU, the ESP32 DFP assist,
   the S2 dedicated-GPIO TIE and the S3 PIE vector extension), and a
   standalone platform of the same name.
+- **Platforms** `esp8266`, `esp32`, `esp32s2` and `esp32s3` (the ESP-IDF
+  target names, under the OS `espressif`), one per chip, on the chip's
+  architecture and with its calling conventions. ESP images and ELF files
+  open with these; the chip, for example for the SVD file, is taken from
+  the platform. (The architectures' standalone platforms, used before the
+  chip platforms existed, still work.)
 - **Disassembly** in GNU objdump syntax, with branch/call targets and `l32r`
   literals as address tokens.
 - **Lifting** of the whole ISA to LLIL: every decodable instruction lifts
@@ -67,9 +73,9 @@ It provides:
   recognised from the program headers (and, for ambiguous layouts, from
   whether the entry point uses the windowed ABI). To force a chip, set
   Binary Ninja's standard `loader.platform` load setting to its platform
-  (`xtensa-esp32`, `xtensa-esp32s2`, `xtensa-esp32s3` or `xtensa-esp8266`):
+  (`esp32`, `esp32s2`, `esp32s3` or `esp8266`):
   *Open with Options* → *Platform*, or
-  `bn.load(path, options={"loader.platform": "xtensa-esp32s3"})`. It takes
+  `bn.load(path, options={"loader.platform": "esp32s3"})`. It takes
   precedence over the recognised chip.
 
 Patching and assembling are not supported.
