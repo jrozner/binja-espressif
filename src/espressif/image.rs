@@ -149,7 +149,7 @@ pub static ESP32S3_REGIONS: &[Region] = &[
     r("irom", 0x4200_0000, 0x4400_0000, K::Irom),
     r("rtc_slow", 0x5000_0000, 0x5000_2000, K::RtcData),
     r("peripherals", 0x6000_0000, 0x600D_1000, K::Peripheral),
-    r("rtc_fast", 0x600F_E000, 0x6010_0000, K::RtcCode),
+    r("rtc_fast", 0x600F_E000, 0x6010_0000, K::RtcRam),
 ];
 
 // The RISC-V chips. The ESP32-C2 and C3 have separate instruction and data

@@ -200,6 +200,20 @@ for min_rev, expected in [(0, False), (300, True)]:
     named = sym is not None and sym.name == "ets_use_secure_boot_v2"
     check(named == expected, f"min revision v{min_rev // 100}: ets_use_secure_boot_v2 {'named' if expected else 'not named'}")
 
+print("ESP32-S3 RTC fast memory:")
+# Code and retained data share RTC fast memory at 0x600FE000 (ESP-IDF
+# aliases rtc_data_seg to rtc_iram_seg): initialized data there stays
+# writable, and the rest is mapped.
+s3_image = struct.pack("<BBBBI", 0xE9, 2, 2, 0, 0x40378000) + bytes([0xEE, 0, 0, 0]) + struct.pack("<H", 9) + bytes(10)
+for addr, body in ((0x40378000, bytes.fromhex("3641001df0")), (0x600FE000, b"\x01\x00\x00\x00")):
+    s3_image += struct.pack("<II", addr, len(body)) + body
+bv = load_bytes(s3_image, ".bin")
+data, gap = bv.get_segment_at(0x600FE000), bv.get_segment_at(0x600FE010)
+check(bv.platform.name == "esp32s3" and data is not None and data.writable,
+      "esp32s3: initialized RTC data at 0x600FE000 is writable")
+check(gap is not None and gap.writable and not gap.executable,
+      "esp32s3: uninitialized RTC memory at 0x600FE010 is mapped as data")
+
 print("SVD files on the ESP view:")
 esp32_image = elf_to_image(os.path.join(DATA, "esp32.elf"), 0)
 bv = load_bytes(esp32_image, ".bin")
