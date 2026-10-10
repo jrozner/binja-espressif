@@ -252,10 +252,11 @@ impl Chip {
             Chip::Esp32 => (r::ESP32, r::ESP32_REVISIONS),
             Chip::Esp32S2 => (r::ESP32S2, r::ESP32S2_REVISIONS),
             Chip::Esp32S3 => (r::ESP32S3, r::ESP32S3_REVISIONS),
-            // wired up when rom_symbols.rs is regenerated
-            Chip::Esp32C2 | Chip::Esp32C3 | Chip::Esp32C6 | Chip::Esp32H2 | Chip::Esp32C5 => {
-                (&[], &[])
-            }
+            Chip::Esp32C2 => (r::ESP32C2, r::ESP32C2_REVISIONS),
+            Chip::Esp32C3 => (r::ESP32C3, r::ESP32C3_REVISIONS),
+            Chip::Esp32C6 => (r::ESP32C6, r::ESP32C6_REVISIONS),
+            Chip::Esp32H2 => (r::ESP32H2, r::ESP32H2_REVISIONS),
+            Chip::Esp32C5 => (r::ESP32C5, r::ESP32C5_REVISIONS),
         }
     }
 
