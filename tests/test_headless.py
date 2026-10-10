@@ -504,6 +504,188 @@ values = {reg: v.value for reg, v in bv.user_global_pointer_values}
 check(values == {"tp": 0x1000, "gp": 0x1234}, f"saved user global pointer values are kept ({values})")
 bv.file.close()
 
+print("RISC-V ELF files:")
+
+
+def riscv_elf(vaddr, flags=0x1, abs_symbols=(), memsz=None):
+    """A minimal executable RV32 ELF: `li a0, 1; ret` loaded at `vaddr`,
+    with `e_flags` = `flags` (0x1 = RVC, soft-float) and a symbol table of
+    `ABS` symbols. `memsz` makes the segment that much bigger in memory."""
+    code = struct.pack("<II", 0x00100513, 0x00008067)
+    strtab = b"\0"
+    syms = bytes(16)
+    for name, addr in abs_symbols:
+        syms += struct.pack("<IIIBBH", len(strtab), addr, 0, 0x12, 0, 0xFFF1)
+        strtab += name.encode() + b"\0"
+    shstrtab = b"\0.text\0.symtab\0.strtab\0.shstrtab\0"
+    text_off = 0x100
+    symtab_off = text_off + len(code)
+    strtab_off = symtab_off + len(syms)
+    shstrtab_off = strtab_off + len(strtab)
+    shoff = (shstrtab_off + len(shstrtab) + 3) & ~3
+    header = b"\x7fELF\x01\x01\x01" + bytes(9) + struct.pack(
+        "<HHIIIIIHHHHHH", 2, 243, 1, vaddr, 52, shoff, flags, 52, 32, 1, 40, 5, 4)
+    phdr = struct.pack("<IIIIIIII", 1, text_off, vaddr, vaddr, len(code), memsz or len(code), 5, 4)
+    sections = bytes(40) + b"".join(struct.pack("<IIIIIIIIII", *s) for s in [
+        (1, 1, 6, vaddr, text_off, len(code), 0, 0, 4, 0),
+        (7, 2, 0, 0, symtab_off, len(syms), 3, 1, 4, 16),
+        (15, 3, 0, 0, strtab_off, len(strtab), 0, 0, 1, 0),
+        (23, 3, 0, 0, shstrtab_off, len(shstrtab), 0, 0, 1, 0),
+    ])
+    out = header + phdr
+    out += bytes(text_off - len(out)) + code + syms + strtab + shstrtab
+    return out + bytes(shoff - len(out)) + sections
+
+
+for chip in ("esp32c3", "esp32c6"):
+    bv = bn.load(os.path.join(DATA, f"{chip}.elf"))
+    check(bv.view_type == "ELF" and bv.platform.name == chip, f"{chip}.elf: ELF view on {bv.platform}")
+    check(bv.platform.default_calling_convention.name == "ilp32", f"{chip}.elf: ilp32 by default")
+# Not Espressif firmware: Binary Ninja's own platform is kept.
+for label, blob in [("loaded at 0x10000", riscv_elf(0x10000)),
+                    ("hard-float", riscv_elf(0x42000020, flags=0x3)),
+                    ("partly outside every chip's memory", riscv_elf(0x4087FFFC)),
+                    # Both ends in the C3's memory map (its ROM data alias
+                    # and its ROM), with 896 KiB of unmapped memory between.
+                    ("spanning unmapped memory", riscv_elf(0x3FF1FFF8, memsz=0x40000008 - 0x3FF1FFF8))]:
+    bv = load_bytes(blob, ".elf")
+    check(bv.view_type == "ELF" and bv.arch.name == "rv32gc" and bv.platform.name not in RISCV_CHIPS,
+          f"a RISC-V ELF {label} keeps {bv.platform}")
+bv = load_bytes(riscv_elf(0x42000020), ".elf")
+check(bv.platform.name == "esp32c3", f"a soft-float ELF in the C3's flash is ESP32-C3 code ({bv.platform})")
+# The C6, H2 and C5 share these addresses; the ROM symbols the file uses
+# decide. memcpy and memset are at different addresses in each ROM;
+# ets_printf is at the same address in the C6's and the H2's.
+h2_rom = [("memcpy", 0x400004A4), ("memset", 0x400004A0), ("ets_printf", 0x40000028)]
+bv = load_bytes(riscv_elf(0x40800000), ".elf")
+check(bv.platform.name == "esp32c6", f"unified SRAM without ROM symbols: ESP32-C6 ({bv.platform})")
+bv = load_bytes(riscv_elf(0x40800000, abs_symbols=h2_rom), ".elf")
+check(bv.platform.name == "esp32h2", f"H2 ROM symbols pick the ESP32-H2 ({bv.platform})")
+bv = bn.load(os.path.join(DATA, "esp32c3.elf"), options={"loader.platform": "esp32c2"})
+check(bv.platform.name == "esp32c2", "loader.platform overrides a RISC-V ELF's chip")
+path = os.path.join(user_dir, "h2_rom.elf")
+with open(path, "wb") as f:
+    f.write(riscv_elf(0x40800000, abs_symbols=h2_rom))
+bv = bn.load(path, options={"loader.platform": "esp32c5"})
+check(bv.platform.name == "esp32c5", "loader.platform overrides ROM symbols")
+
+print("ESP-IDF ELF fix-ups:")
+# tests/data/idf_*.elf: laid out like ESP-IDF apps, with a writable
+# `.flash.rodata` (WA, in an RW segment) holding a 12-entry jump table, and
+# the mask ROM's symbols as `ABS` symbols.
+IDF_ELFS = {
+    "esp32": dict(jump=0x400d0066, peripheral=(0x3FF48000, "RTC_CNTL"),
+                  functions=["ets_printf", "memcpy", "memset"], data=["_global_impure_ptr", "_ctype_"]),
+    "esp32c3": dict(jump=0x42000058, peripheral=(0x60000000, "UART0"),
+                    functions=["ets_printf", "memset", "memcpy"], data=["g_coex_param_ptr"]),
+    "esp32c6": dict(jump=0x42000058, peripheral=(0x60000000, "UART0"),
+                    functions=["memcpy"], data=["crc8_be_table_ptr"]),
+}
+
+
+def check_idf_elf(bv, chip, case, syms, label):
+    rodata = bv.get_section_by_name(".flash.rodata")
+    check(rodata is not None and rodata.semantics == bn.SectionSemantics.ReadOnlyDataSectionSemantics,
+          f"{label}: .flash.rodata is read-only data")
+    targets = {b.dest_addr for f in bv.get_functions_containing(case["jump"])
+               for b in f.indirect_branches if b.source_addr == case["jump"]}
+    check(len(targets) == 12, f"{label}: the jump table at {case['jump']:#x} resolves ({len(targets)} targets)")
+    for kinds, expected in ((case["functions"], bn.SymbolType.ImportedFunctionSymbol),
+                            (case["data"], bn.SymbolType.DataSymbol)):
+        for name in kinds:
+            sym = bv.get_symbol_by_raw_name(name)
+            check(sym is not None and sym.address == syms[name] and sym.type == expected,
+                  f"{label}: ROM {name} is a {expected.name} at {syms[name]:#x}")
+    if chip != "esp32":
+        gp = syms["__global_pointer$"]
+        values = bv.user_global_pointer_values
+        check(len(values) == 1 and values[0][1].value == gp, f"{label}: gp {gp:#x} from __global_pointer$")
+    addr, name = case["peripheral"]
+    check(name in {s.name for s in bv.get_symbols(addr, 1)}, f"{label}: bundled SVD names {name}")
+
+
+for chip, case in IDF_ELFS.items():
+    elf = os.path.join(DATA, f"idf_{chip}.elf")
+    syms = elf_symbols(elf)
+    bv = bn.load(elf)
+    check(bv.view_type == "ELF" and bv.platform.name == chip, f"idf_{chip}.elf: ELF on {chip}")
+    check_idf_elf(bv, chip, case, syms, f"idf_{chip}.elf")
+    if chip == "esp32":
+        # Not in the ELF: from the bundled table, every revision's only.
+        sym = bv.get_symbol_by_raw_name("ets_delay_us")
+        check(sym is not None and sym.address == 0x40008534, "idf_esp32.elf: bundled ROM table fills in ets_delay_us")
+        check(bv.get_symbol_by_raw_name("ets_use_secure_boot_v2") is None,
+              "idf_esp32.elf: revision-specific ROM symbols are not guessed")
+    sections = len(bv.sections)
+    db = os.path.join(user_dir, f"idf_{chip}.bndb")
+    check(bv.create_database(db), f"idf_{chip}.elf: saved")
+    bv.file.close()
+    bv = bn.load(db)
+    check_idf_elf(bv, chip, case, syms, f"idf_{chip}.bndb")
+    check(len(bv.sections) == sections, f"idf_{chip}.bndb: no duplicate sections")
+    bv.file.close()
+
+
+def c5_psram_elf():
+    """A C5 ELF with `.flash.rodata` (WA, with contents) and a NOLOAD
+    `.ext_ram.bss` in the flash window, which the C5 shares with PSRAM."""
+    code = struct.pack("<II", 0x00100513, 0x00008067)  # li a0, 1; ret
+    rodata = bytes(range(16))
+    shstrtab = b"\0.text\0.flash.rodata\0.ext_ram.bss\0.shstrtab\0"
+    text_off, rodata_off = 0x100, 0x108
+    shstrtab_off = rodata_off + len(rodata)
+    shoff = (shstrtab_off + len(shstrtab) + 3) & ~3
+    header = b"\x7fELF\x01\x01\x01" + bytes(9) + struct.pack(
+        "<HHIIIIIHHHHHH", 2, 243, 1, 0x42000020, 52, shoff, 0x1, 52, 32, 3, 40, 5, 4)
+    phdrs = b"".join(struct.pack("<IIIIIIII", *p) for p in [
+        (1, text_off, 0x42000020, 0x42000020, len(code), len(code), 5, 4),
+        (1, rodata_off, 0x42000040, 0x42000040, len(rodata), len(rodata), 6, 4),
+        (1, shstrtab_off, 0x42800000, 0x42800000, 0, 0x100, 6, 4),
+    ])
+    sections = bytes(40) + b"".join(struct.pack("<IIIIIIIIII", *s) for s in [
+        (1, 1, 6, 0x42000020, text_off, len(code), 0, 0, 4, 0),      # PROGBITS, AX
+        (7, 1, 3, 0x42000040, rodata_off, len(rodata), 0, 0, 4, 0),  # PROGBITS, WA
+        (21, 8, 3, 0x42800000, shstrtab_off, 0x100, 0, 0, 4, 0),     # NOBITS, WA
+        (34, 3, 0, 0, shstrtab_off, len(shstrtab), 0, 0, 1, 0),
+    ])
+    out = header + phdrs
+    out += bytes(text_off - len(out)) + code + rodata + shstrtab
+    return out + bytes(shoff - len(out)) + sections
+
+
+path = os.path.join(user_dir, "c5_psram.elf")
+with open(path, "wb") as f:
+    f.write(c5_psram_elf())
+bv = bn.load(path, options={"loader.platform": "esp32c5"})
+rodata = bv.get_section_by_name(".flash.rodata")
+ext_ram = bv.get_section_by_name(".ext_ram.bss")
+check(bv.platform.name == "esp32c5" and rodata is not None
+      and rodata.semantics == bn.SectionSemantics.ReadOnlyDataSectionSemantics,
+      "C5 ELF: .flash.rodata in the shared window is read-only data")
+check(ext_ram is not None and ext_ram.semantics != bn.SectionSemantics.ReadOnlyDataSectionSemantics,
+      f"C5 ELF: PSRAM .ext_ram.bss in the shared window stays writable ({ext_ram and ext_ram.semantics})")
+seg = bv.get_segment_at(0x42800000)
+check(seg is not None and seg.writable, "C5 ELF: the PSRAM segment stays writable")
+bv.file.close()
+
+# Revision-specific ROM data in RAM that the ELF names (g_ble_lll_rfmgmt_env_p
+# is only in the C2 v2.0 ROM's table) is defined; revision-specific symbols the
+# ELF does not carry (AES_FSb_ptr, also v2.0 only) are not. The one C3 symbol,
+# listed by two C3 revision tables, must not tie the C2's.
+c2_rom = [("GetSecurityInfoProc", 0x400000B0), ("MMU_Get_Page_Mode", 0x40000700),
+          ("wDevCheckBlockError", 0x400017B4), ("g_ble_lll_rfmgmt_env_p", 0x3FCDF3CC)]
+path = os.path.join(user_dir, "c2_rom.elf")
+with open(path, "wb") as f:
+    f.write(riscv_elf(0x40380000, abs_symbols=c2_rom))
+bv = bn.load(path)
+check(bv.platform.name == "esp32c2", f"C2 ROM symbols pick the ESP32-C2 over a doubly listed C3 one ({bv.platform})")
+sym = bv.get_symbol_by_raw_name("g_ble_lll_rfmgmt_env_p")
+check(sym is not None and sym.address == 0x3FCDF3CC and sym.type == bn.SymbolType.DataSymbol,
+      f"C2 ELF: revision-specific ROM data it names is defined ({sym})")
+check(bv.get_symbol_by_raw_name("AES_FSb_ptr") is None,
+      "C2 ELF: revision-specific ROM symbols it lacks are not defined")
+bv.file.close()
+
 print("Malformed and unusual images:")
 
 

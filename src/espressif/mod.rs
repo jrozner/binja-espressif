@@ -3,6 +3,7 @@
 //! firmware. Each chip's code is analyzed with the architecture of its CPU
 //! core, looked up by name.
 
+pub mod elf;
 pub mod image;
 pub mod rom_symbols;
 pub mod svd;
@@ -360,21 +361,37 @@ impl Chip {
     }
 }
 
-/// The parts of an ELF32 file that tell the chip apart.
+/// The parts of a little-endian ELF32 file that tell the chip apart.
 struct ElfProgram {
-    /// The load addresses of the `PT_LOAD` segments.
-    addrs: Vec<u32>,
+    /// `e_flags`.
+    flags: u32,
+    /// The address and size in memory of the `PT_LOAD` segments.
+    segments: Vec<(u32, u32)>,
     /// The first bytes at the entry point, if it is in a segment.
     entry_code: Option<Vec<u8>>,
+    /// The names and values of the `ABS` symbols in the symbol table.
+    abs_symbols: Vec<(String, u32)>,
+}
+
+/// Limits on what is read from a (possibly malformed) ELF file.
+const MAX_SEGMENTS: usize = 64;
+const MAX_SECTIONS: usize = 4096;
+const MAX_SYMBOLS: usize = 1 << 20;
+const MAX_STRTAB: usize = 64 << 20;
+
+fn u16_at(b: &[u8], o: usize) -> usize {
+    u16::from_le_bytes([b[o], b[o + 1]]) as usize
+}
+
+fn u32_at(b: &[u8], o: usize) -> u32 {
+    u32::from_le_bytes(b[o..o + 4].try_into().unwrap())
 }
 
 fn read_elf_program(view: &BinaryView) -> Option<ElfProgram> {
     let header = view.read_vec(0, 0x34);
-    if header.len() < 0x34 || header[4] != 1 {
-        return None; // not ELF32
+    if header.len() < 0x34 || header[4] != 1 || header[5] != 1 {
+        return None; // not little-endian ELF32
     }
-    let u16_at = |b: &[u8], o: usize| u16::from_le_bytes([b[o], b[o + 1]]) as usize;
-    let u32_at = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let entry = u32_at(&header, 0x18);
     let (phoff, phentsize, phnum) = (
         u32_at(&header, 0x1c) as u64,
@@ -382,16 +399,23 @@ fn read_elf_program(view: &BinaryView) -> Option<ElfProgram> {
         u16_at(&header, 0x2c),
     );
     let mut program = ElfProgram {
-        addrs: Vec::new(),
+        flags: u32_at(&header, 0x24),
+        segments: Vec::new(),
         entry_code: None,
+        abs_symbols: read_abs_symbols(view, &header),
     };
-    for i in 0..phnum.min(64) {
+    for i in 0..phnum.min(MAX_SEGMENTS) {
         let ph = view.read_vec(phoff + (i * phentsize) as u64, 32);
         if ph.len() < 32 || u32_at(&ph, 0) != 1 {
             continue; // PT_LOAD only
         }
-        let (offset, vaddr, filesz) = (u32_at(&ph, 4), u32_at(&ph, 8), u32_at(&ph, 16));
-        program.addrs.push(vaddr);
+        let (offset, vaddr, filesz, memsz) = (
+            u32_at(&ph, 4),
+            u32_at(&ph, 8),
+            u32_at(&ph, 16),
+            u32_at(&ph, 20),
+        );
+        program.segments.push((vaddr, memsz));
         if vaddr <= entry && entry < vaddr.wrapping_add(filesz) {
             program.entry_code = Some(view.read_vec((offset + entry - vaddr) as u64, 4));
         }
@@ -399,13 +423,95 @@ fn read_elf_program(view: &BinaryView) -> Option<ElfProgram> {
     Some(program)
 }
 
-/// Picks the chip of an ELF file of `family` from its program headers.
+/// The `ABS` symbols of the ELF file's symbol table (`SHT_SYMTAB`), or none
+/// if it has none or it is malformed.
+fn read_abs_symbols(view: &BinaryView, header: &[u8]) -> Vec<(String, u32)> {
+    const SHT_SYMTAB: u32 = 2;
+    const SHN_ABS: usize = 0xfff1;
+    let (shoff, shentsize, shnum) = (
+        u32_at(header, 0x20) as u64,
+        u16_at(header, 0x2e),
+        u16_at(header, 0x30),
+    );
+    if shoff == 0 || shentsize < 40 || shnum > MAX_SECTIONS {
+        return Vec::new();
+    }
+    let section = |i: usize| {
+        let sh = view.read_vec(shoff + (i * shentsize) as u64, 40);
+        (sh.len() == 40).then_some(sh)
+    };
+    let Some(symtab) = (0..shnum)
+        .filter_map(section)
+        .find(|sh| u32_at(sh, 4) == SHT_SYMTAB)
+    else {
+        return Vec::new();
+    };
+    let (offset, size, link) = (
+        u32_at(&symtab, 16) as u64,
+        u32_at(&symtab, 20) as usize,
+        u32_at(&symtab, 24) as usize,
+    );
+    let Some(strtab) = (link < shnum).then(|| section(link)).flatten() else {
+        return Vec::new();
+    };
+    let (str_offset, str_size) = (u32_at(&strtab, 16) as u64, u32_at(&strtab, 20) as usize);
+    if size / 16 > MAX_SYMBOLS || str_size > MAX_STRTAB {
+        return Vec::new();
+    }
+    let symbols = view.read_vec(offset, size);
+    let names = view.read_vec(str_offset, str_size);
+    symbols
+        .chunks_exact(16)
+        .filter(|sym| u16_at(sym, 14) == SHN_ABS)
+        .filter_map(|sym| {
+            let name = names.get(u32_at(sym, 0) as usize..)?;
+            let name = &name[..name.iter().position(|&c| c == 0)?];
+            (!name.is_empty()).then(|| (String::from_utf8_lossy(name).into_owned(), u32_at(sym, 4)))
+        })
+        .collect()
+}
+
+/// `EF_RISCV_FLOAT_ABI`: the float ABI bits of a RISC-V ELF's `e_flags`;
+/// zero for the soft-float ABI that all supported Espressif chips use.
+const EF_RISCV_FLOAT_ABI: u32 = 0x6;
+/// `EF_RISCV_RVE`: the RV32E base ISA.
+const EF_RISCV_RVE: u32 = 0x8;
+
+/// Is the ELF file plausibly firmware for one of the family's chips? Xtensa
+/// files always are (Espressif's are the only Xtensa cores supported). A
+/// RISC-V file must use the soft-float ilp32 ABI and load only into a
+/// supported chip's memory.
+fn is_espressif_elf(family: Family, program: &ElfProgram) -> bool {
+    match family {
+        Family::Xtensa => true,
+        Family::RiscV => {
+            program.flags & (EF_RISCV_FLOAT_ABI | EF_RISCV_RVE) == 0
+                && !program.segments.is_empty()
+                && Chip::ALL.into_iter().any(|chip| {
+                    chip.cpu().family() == family
+                        && image::fits_memory_map(chip, &program.segments)
+                })
+        }
+    }
+}
+
+/// Picks the chip of an ELF file of `family` from its program headers and
+/// its `ABS` (ROM) symbols, or returns `None` for a file that is not
+/// Espressif firmware, so that it keeps Binary Ninja's own platform.
 fn recognize_elf(view: &BinaryView, family: Family) -> Option<Ref<Platform>> {
     let program = read_elf_program(view)?;
-    let hint = program.entry_code.and_then(|code| family.entry_hint(&code));
-    let chip = image::guess_chip(family, &program.addrs, hint);
+    if !is_espressif_elf(family, &program) {
+        tracing::debug!("{} ELF is not Espressif firmware", family.name());
+        return None;
+    }
+    let hint = program
+        .entry_code
+        .as_deref()
+        .and_then(|code| family.entry_hint(code));
+    let (chip, matches) =
+        image::guess_elf_chip(family, &program.segments, hint, &program.abs_symbols);
     tracing::info!(
-        "{} ELF looks like {} code",
+        "{} ELF looks like {} code ({matches} ROM symbols match)",
         family.name(),
         chip.display_name()
     );
@@ -473,24 +579,33 @@ fn add_calling_convention(platform: &str, arch: &str, cc: &str) {
 }
 
 /// Registers the chip platforms, the ESP firmware view, the SVD settings
-/// and activity, and the recognizer for Xtensa ELF files. The architectures
-/// must already be registered.
+/// and activity, the ELF fix-ups, and the recognizers for Xtensa and RISC-V
+/// ELF files. The architectures must already be registered.
 pub fn register() {
     register_platforms();
     svd::register_settings();
     svd::register_activity();
+    elf::register_activity();
     register_binary_view_type(view::EspViewType);
 
     if let Some(elf) = BinaryViewType::by_name("ELF") {
-        let family = Family::Xtensa;
+        // EM_XTENSA has no architecture of its own; EM_RISCV belongs to
+        // Binary Ninja's RISC-V plugin, whose platforms are kept for RISC-V
+        // files that are not Espressif firmware.
         if let Some(esp32) = CoreArchitecture::by_name(Chip::Esp32.arch_name()) {
-            elf.register_arch(family.elf_machine(), Endianness::LittleEndian, &esp32);
+            elf.register_arch(
+                Family::Xtensa.elf_machine(),
+                Endianness::LittleEndian,
+                &esp32,
+            );
         }
-        elf.register_platform_recognizer(
-            family.elf_machine(),
-            Endianness::LittleEndian,
-            move |view, _| recognize_elf(view, family),
-        );
+        for family in [Family::Xtensa, Family::RiscV] {
+            elf.register_platform_recognizer(
+                family.elf_machine(),
+                Endianness::LittleEndian,
+                move |view, _| recognize_elf(view, family),
+            );
+        }
     }
 }
 

@@ -83,7 +83,7 @@ It provides:
   ESP32-S2, ESP32-S3, ESP32-C2, ESP32-C3, ESP32-C6 and ESP32-H2
   (https://github.com/espressif/svd, Apache-2.0) are
   bundled (the `svd` git submodule) and applied automatically to ESP
-  firmware images by Binary Ninja's SVD loader, naming and typing every
+  firmware images and ELF files by Binary Ninja's SVD loader, naming and typing every
   peripheral register (`UART0.INT_CLR.RXFIFO_FULL_INT_CLR = 9`). An SVD file chosen in *Open with
   Options* (*SVD File*, `analysis.svd.autoLoadFile`) takes precedence, and
   `espressif.svd.autoLoad` turns this off. The files are unpacked once to
@@ -91,16 +91,42 @@ It provides:
   plugin (`svd_ninja`); without it, peripherals are left unnamed. The ESP8266
   has no official SVD, so the view names its peripheral blocks itself; there
   is no SVD file for the ESP32-C5 yet.
-- **ELF support**: `EM_XTENSA` files open with the ELF view; the chip is
-  recognised from the program headers (and, for ambiguous layouts, from
-  whether the entry point uses the windowed ABI). To force a chip, set
-  Binary Ninja's standard `loader.platform` load setting to its platform
-  (`esp32`, `esp32s2`, `esp32s3` or `esp8266`):
+- **ELF support**: `EM_XTENSA` and `EM_RISCV` files open with the ELF view
+  on the chip's platform. A RISC-V file counts as Espressif firmware only if
+  it is 32-bit, uses the soft-float ABI and loads entirely into one
+  supported chip's memory; any other RISC-V file keeps Binary Ninja's own
+  platform (`linux-rv32gc`). The chip is the one whose memory map holds
+  every loaded segment. Where several do (the C2 and C3; the C6, H2 and C5;
+  some Xtensa layouts), the `ABS` symbols ESP-IDF puts in the ELF for the ROM
+  functions it calls decide: the chip whose ROM has the most of them, by
+  name and address. Failing that, the load addresses (and, for Xtensa,
+  whether the entry point uses the windowed ABI) pick the most likely chip.
+  To force a chip, set Binary Ninja's standard `loader.platform` load
+  setting to its platform (`esp32`, `esp32c3`, ...):
   *Open with Options* → *Platform*, or
   `bn.load(path, options={"loader.platform": "esp32s3"})`. It takes
   precedence over the recognised chip.
+- **ESP-IDF ELF files** analyze like firmware images: sections in the
+  chip's flash data (`.flash.rodata`, which ESP-IDF marks writable) are made
+  read-only data, so jump tables and constants in them resolve; the mask
+  ROM's functions and data are named from the ELF's `ABS` symbols, and from
+  the bundled ROM table for names it lacks (the symbols of every chip
+  revision only, as an ELF does not say which revision it needs); and the
+  RISC-V global pointer is taken from `__global_pointer$`.
 
 Patching and assembling are not supported.
+
+Not supported for now:
+
+- **ESP32-P4.** Its images are not loaded, and its ELFs are not recognised
+  as Espressif firmware. Its custom instructions (the PIE SIMD extension,
+  in two incompatible versions for chip revisions before and from v3.0, and
+  the hardware loops) are not decoded; Binary Ninja's `rv32gc` treats them
+  as invalid instructions.
+- **Zcb/Zcmp on the ESP32-C5.** ESP-IDF only emits them with
+  `CONFIG_COMPILER_ENABLE_RISCV_ZCMP` (off by default). `rv32gc` decodes
+  `cm.push`/`cm.pop` as `fsd` and does not decode the Zcb instructions, so
+  firmware built with that option analyzes incorrectly.
 
 ## Building and installing
 

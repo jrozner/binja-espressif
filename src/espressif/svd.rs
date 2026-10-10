@@ -3,7 +3,8 @@
 //! Binary Ninja's bundled SVD loader (`svd_ninja`) runs as an analysis step
 //! (`analysis.svd.loader`) and applies the file named by the
 //! `analysis.svd.autoLoadFile` setting of the view. This plugin registers a
-//! step right before it that, for ESP views, points that setting at
+//! step right before it that, for ESP views and ELF files on a chip
+//! platform, points that setting at
 //! Espressif's SVD for the chip, bundled with the plugin. The files come
 //! from the `svd` git submodule (https://github.com/espressif/svd,
 //! Apache-2.0), are gzip-compressed by build.rs and embedded, and are written
@@ -107,12 +108,13 @@ pub fn register_activity() {
     let config = activity::Config::action(
         "espressif.svd.select",
         "Select Espressif SVD",
-        "Points the SVD loader at Espressif's SVD file for the chip of an ESP firmware image.",
+        "Points the SVD loader at Espressif's SVD file for the chip of an ESP firmware image or ELF file.",
     )
     .eligibility(activity::Eligibility::auto().run_once(true));
     let select = Activity::new_with_action(config, |ctx: &AnalysisContext| {
         let view = ctx.view();
-        if view.view_type() != crate::espressif::view::EspViewType::NAME {
+        let view_type = view.view_type();
+        if view_type != crate::espressif::view::EspViewType::NAME && view_type != "ELF" {
             return;
         }
         let Some(platform) = view.default_platform() else {
