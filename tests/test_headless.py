@@ -139,6 +139,9 @@ for chip, chip_id in CHIPS.items():
     check(bv.view_type == "ESP", f"image: view type {bv.view_type}")
     check_program(bv, chip, "image")
     check(bv.entry_point == struct.unpack_from("<I", open(elf, "rb").read(), 0x18)[0], "image: entry point")
+    check(not bv.user_global_pointer_values and bv.get_symbol_by_raw_name("__global_pointer$") is None
+          and bv.get_symbol_by_raw_name("_vector_table") is None,
+          "image: no RISC-V global pointer or vector table")
 
     if chip_id is not None:
         for base in (0, 0x1000):
@@ -197,6 +200,20 @@ for min_rev, expected in [(0, False), (300, True)]:
     named = sym is not None and sym.name == "ets_use_secure_boot_v2"
     check(named == expected, f"min revision v{min_rev // 100}: ets_use_secure_boot_v2 {'named' if expected else 'not named'}")
 
+print("ESP32-S3 RTC fast memory:")
+# Code and retained data share RTC fast memory at 0x600FE000 (ESP-IDF
+# aliases rtc_data_seg to rtc_iram_seg): initialized data there stays
+# writable, and the rest is mapped.
+s3_image = struct.pack("<BBBBI", 0xE9, 2, 2, 0, 0x40378000) + bytes([0xEE, 0, 0, 0]) + struct.pack("<H", 9) + bytes(10)
+for addr, body in ((0x40378000, bytes.fromhex("3641001df0")), (0x600FE000, b"\x01\x00\x00\x00")):
+    s3_image += struct.pack("<II", addr, len(body)) + body
+bv = load_bytes(s3_image, ".bin")
+data, gap = bv.get_segment_at(0x600FE000), bv.get_segment_at(0x600FE010)
+check(bv.platform.name == "esp32s3" and data is not None and data.writable,
+      "esp32s3: initialized RTC data at 0x600FE000 is writable")
+check(gap is not None and gap.writable and not gap.executable,
+      "esp32s3: uninitialized RTC memory at 0x600FE010 is mapped as data")
+
 print("SVD files on the ESP view:")
 esp32_image = elf_to_image(os.path.join(DATA, "esp32.elf"), 0)
 bv = load_bytes(esp32_image, ".bin")
@@ -233,7 +250,93 @@ for chip in CHIPS:
     check(platform.arch == arch and names >= expected, f"{chip}: on {arch.name}, conventions {sorted(names)}")
     check(platform.default_calling_convention == arch.standalone_platform.default_calling_convention,
           f"{chip}: default convention {platform.default_calling_convention}")
-check({p.name for p in bn.Platform.get_list(os="espressif")} == set(CHIPS), "registered under the espressif OS")
+RISCV_CHIPS = {"esp32c2": 12, "esp32c3": 5, "esp32c6": 13, "esp32h2": 16, "esp32c5": 23}
+for chip in RISCV_CHIPS:
+    platform = bn.Platform[chip]
+    names = {cc.name for cc in platform.calling_conventions}
+    check(platform.arch.name == "rv32gc" and names >= {"ilp32", "default"},
+          f"{chip}: on {platform.arch.name}, conventions {sorted(names)}")
+    check(platform.default_calling_convention.name == "ilp32", f"{chip}: default convention {platform.default_calling_convention}")
+ilp32 = bn.Architecture["rv32gc"].calling_conventions["ilp32"]
+check(ilp32.float_arg_regs == [] and ilp32.int_arg_regs == [f"a{n}" for n in range(8)]
+      and ilp32.float_return_reg is None and ilp32.global_pointer_reg == "gp",
+      "ilp32 passes everything in a0..a7")
+
+
+def layout(cc, params, ret=None):
+    """Each parameter's (or the return value's) location as a list of
+    'a0'-style register names and 'sp+N' stack offsets, with '*' for a
+    pointer to the value."""
+    def describe(loc):
+        out = []
+        for c in loc.components:
+            v = c.var
+            out.append(f"sp+{v.storage}" if v.source_type == bn.VariableSourceType.StackVariableSourceType
+                       else cc.arch.get_reg_name(v.storage))
+        return ("*" if getattr(loc, "indirect", False) else "") + ",".join(out)
+    result = cc.get_call_layout(None, ret or bn.Type.void(),
+                                [t if isinstance(t, bn.FunctionParameter) else bn.FunctionParameter(t, f"p{i}")
+                                 for i, t in enumerate(params)])
+    return describe(result.return_value) if ret else [describe(p) for p in result.parameters]
+
+
+# What Espressif GCC 15.2 does with -march=rv32imc -mabi=ilp32.
+I32, F32, F64, U64 = bn.Type.int(4), bn.Type.float(4), bn.Type.float(8), bn.Type.int(8, False)
+def struct_of(n):
+    s = bn.StructureBuilder.create()
+    for i in range(n):
+        s.append(I32, f"f{i}")
+    return bn.Type.structure_type(s)
+
+
+PAIR, TRIPLE = struct_of(2), struct_of(3)
+for label, params, expected in [
+    ("float", [F32], ["a0"]),
+    ("double", [F64], ["a0,a1"]),
+    ("uint64_t", [U64], ["a0,a1"]),
+    ("int, double", [I32, F64], ["a0", "a1,a2"]),
+    ("int, float, int", [I32, F32, I32], ["a0", "a1", "a2"]),
+    ("7 ints, double", [I32] * 7 + [F64], [f"a{n}" for n in range(7)] + ["a7,sp+0"]),
+    ("5 doubles", [F64] * 5, ["a0,a1", "a2,a3", "a4,a5", "a6,a7", "sp+0"]),
+    ("9 ints, double", [I32] * 9 + [F64], [f"a{n}" for n in range(8)] + ["sp+0", "sp+8"]),
+    ("8-byte struct", [PAIR], ["a0,a1"]),
+    ("12-byte struct", [TRIPLE], ["*a0"]),
+]:
+    got = layout(ilp32, params)
+    check(got == expected, f"ilp32 f({label}): {got}")
+for label, ret, expected in [("float", F32, "a0"), ("double", F64, "a0,a1"), ("uint64_t", U64, "a0,a1")]:
+    got = layout(ilp32, [], ret)
+    check(got == expected, f"ilp32 returns {label} in {got}")
+
+
+# Parameters with a location the user gave them: the ones after them skip
+# its registers and stack. Binary Ninja's own `default` convention does the
+# same where the fixed register is the next one, but otherwise reuses it
+# (a3 fixed, 4 ints: a0, a1, a2, a3), overlapping the fixed parameter.
+def fixed_at(loc, ty=I32):
+    var = (bn.variable.CoreVariable(bn.VariableSourceType.StackVariableSourceType, 0, loc) if isinstance(loc, int)
+           else bn.variable.CoreVariable(bn.VariableSourceType.RegisterVariableSourceType, 0,
+                                         ilp32.arch.get_reg_index(loc)))
+    return bn.FunctionParameter(ty, "fixed", var)
+
+
+default_cc = ilp32.arch.calling_conventions["default"]
+for label, params, expected, as_default in [
+    ("a0 fixed, int", [fixed_at("a0"), I32], ["a0", "a1"], True),
+    ("a3 fixed, 4 ints", [fixed_at("a3")] + [I32] * 4, ["a3", "a0", "a1", "a2", "a4"], False),
+    ("int, a0 fixed, int", [I32, fixed_at("a0"), I32], ["a0", "a0", "a1"], True),
+    ("sp+4 fixed, 9 ints", [fixed_at(4)] + [I32] * 9, ["sp+4"] + [f"a{n}" for n in range(8)] + ["sp+8"], True),
+]:
+    got = layout(ilp32, params)
+    check(got == expected and (got == layout(default_cc, params)) == as_default,
+          f"ilp32 f({label}): {got} (default: {layout(default_cc, params)})")
+check(layout(ilp32, [fixed_at("a1"), F64]) == ["a1", "a0,a2"], "ilp32: a double skips a fixed register")
+# A 2-byte value fixed at sp+6 ends at sp+8; a double split after seven ints
+# has its high word there, word-aligned.
+got = layout(ilp32, [fixed_at(6, bn.Type.int(2))] + [I32] * 7 + [F64])
+check(got[-1] == "a7,sp+8", f"ilp32: the stack after an unaligned fixed slot is word-aligned ({got})")
+check({p.name for p in bn.Platform.get_list(os="espressif")} == set(CHIPS) | set(RISCV_CHIPS),
+      "registered under the espressif OS")
 for name in ("esp32s3", "xtensa-esp32s3"):
     bv = bn.load(os.path.join(DATA, "esp32s2.elf"), options={"loader.platform": name})
     check(bv.platform.name == name, f"loader.platform = {name} overrides the ELF's chip")
@@ -262,6 +365,144 @@ nop = bytes.fromhex("f02000")
 check(len(esp32.get_instruction_info(nop, 0x40080021).branches) == 2, "ESP32: loop end branches back")
 check(not bn.Architecture["xtensa-esp8266"].get_instruction_info(nop, 0x40080021).branches,
       "ESP8266: no loop edge from an ESP32 loop at the same address")
+
+print("RISC-V images:")
+
+
+def riscv_image(chip_id, segments, entry):
+    out = struct.pack("<BBBBI", 0xE9, len(segments), 2, 0, entry)
+    out += bytes([0xEE, 0, 0, 0]) + struct.pack("<H", chip_id) + bytes(10)
+    for addr, body in segments:
+        out += struct.pack("<II", addr, len(body)) + body
+    return out
+
+
+def section_at(bv, addr):
+    sections = bv.get_sections_at(addr)
+    return sections[0] if sections else None
+
+
+# addi sp, sp, -16; sw ra, 12(sp); li a0, 1; lw ra, 12(sp); addi sp, sp, 16; ret
+rv_code = bytes.fromhex("130101ff" "06c6" "0545" "b240" "4101" "8280")
+app_desc = struct.pack("<I", 0xABCD5432) + bytes(252)
+layouts = {
+    # chip: (code address, rodata address, a .bss address, ROM data in SRAM)
+    "esp32c3": (0x40380000, 0x3C000020, 0x3FC90000, 0x3FCDF800),
+    "esp32c6": (0x40800000, 0x42000020, 0x40810000, 0x4087FF00),
+}
+for chip, (code_addr, rodata_addr, bss_addr, rom_data_addr) in layouts.items():
+    blob = riscv_image(RISCV_CHIPS[chip], [(rodata_addr, app_desc), (code_addr, rv_code)], code_addr)
+    bv = load_bytes(blob, ".bin")
+    bv.update_analysis_and_wait()
+    check(bv.view_type == "ESP" and bv.platform.name == chip and bv.arch.name == "rv32gc",
+          f"{chip}: ESP view on {bv.platform.name if bv.platform else None}")
+    sym = bv.get_symbol_at(code_addr)
+    check(sym is not None and sym.name == "call_start_cpu0", f"{chip}: entry symbol")
+    f = bv.get_function_at(code_addr)
+    check(f is not None and f.calling_convention.name == "ilp32", f"{chip}: entry function uses ilp32")
+    check(f is not None and "return 1" in hlil_text(f), f"{chip}: entry function decompiles")
+    check(bv.get_symbol_by_raw_name("esp_app_desc") is not None and bv.get_symbol_by_raw_name("esp_app_desc").address == rodata_addr,
+          f"{chip}: esp_app_desc in the rodata segment")
+    code_seg, rodata_seg = bv.get_segment_at(code_addr), bv.get_segment_at(rodata_addr)
+    check(code_seg is not None and code_seg.executable, f"{chip}: code segment is executable")
+    check(rodata_seg is not None and not rodata_seg.writable, f"{chip}: rodata segment is read-only")
+    bss = bv.get_segment_at(bss_addr)
+    check(bss is not None and bss.writable and not bss.executable, f"{chip}: .bss gap mapped as data")
+    check(bv.get_segment_at(rom_data_addr) is not None, f"{chip}: the ROM's data in SRAM is mapped")
+    check({s.name for s in bv.get_symbols(0x60000000, 1)} == {"UART0"}, f"{chip}: bundled SVD loaded automatically")
+    check(not bv.user_global_pointer_values, f"{chip}: no gp without ESP-IDF's startup code")
+    if chip == "esp32c6":
+        check(code_seg.writable, "esp32c6: unified SRAM is writable (code and data share it)")
+        sec = section_at(bv, rodata_addr)
+        check(sec is not None and sec.semantics == bn.SectionSemantics.ReadOnlyCodeSectionSemantics,
+              "esp32c6: the shared flash window is read-only code")
+    else:
+        check(not code_seg.writable, "esp32c3: IRAM is mapped read-only")
+        sec = section_at(bv, rodata_addr)
+        check(sec is not None and sec.semantics == bn.SectionSemantics.ReadOnlyDataSectionSemantics,
+              "esp32c3: DROM is read-only data")
+bv = load_bytes(riscv_image(23, [(0x40800000, rv_code)], 0x40800000), ".bin")
+check(bv.view_type == "ESP" and bv.platform.name == "esp32c5", "esp32c5: ESP view (no SVD)")
+bv = load_bytes(riscv_image(18, [(0x4FF00000, rv_code)], 0x4FF00000), ".bin")
+check(bv.view_type != "ESP", "ESP32-P4 images are not loaded")
+
+print("RISC-V ROM symbols:")
+# On the C6, H2 and C5 the ROM's data shares its address range with its code.
+rom_kinds = {
+    "esp32c6": {"memcpy": "Function", "he_max_apep_length": "Data", "crc8_be_table_ptr": "Data",
+                "g_coex_param_ptr": "Data"},
+    "esp32h2": {"memcpy": "Function", "ets_printf": "Function", "crc8_be_table_ptr": "Data"},
+    "esp32c3": {"memcpy": "Function", "g_coex_param_ptr": "Data"},
+}
+code_addrs = {"esp32c6": 0x40800000, "esp32h2": 0x40800000, "esp32c3": 0x40380000}
+for chip, kinds in rom_kinds.items():
+    bv = load_bytes(riscv_image(RISCV_CHIPS[chip], [(code_addrs[chip], rv_code)], code_addrs[chip]), ".bin")
+    for name, kind in kinds.items():
+        sym = bv.get_symbol_by_raw_name(name)
+        expected = bn.SymbolType.ImportedFunctionSymbol if kind == "Function" else bn.SymbolType.DataSymbol
+        check(sym is not None and sym.type == expected,
+              f"{chip}: ROM {name} is {kind.lower()} ({sym.type.name if sym else 'missing'})")
+# RTC (C3) and LP (C6) memory holds code and retained data at one address:
+# initialized data there stays writable, and the rest (`.rtc.bss`,
+# `.rtc_noinit`) is mapped.
+for chip, code_addr in (("esp32c3", 0x40380000), ("esp32c6", 0x40800000)):
+    bv = load_bytes(riscv_image(RISCV_CHIPS[chip], [(code_addr, rv_code), (0x50000000, b"\x01\x00\x00\x00")],
+                                code_addr), ".bin")
+    data, gap = bv.get_segment_at(0x50000000), bv.get_segment_at(0x50000010)
+    check(data is not None and data.writable, f"{chip}: initialized RTC data at 0x50000000 is writable")
+    check(gap is not None and gap.writable and not gap.executable,
+          f"{chip}: uninitialized RTC memory at 0x50000010 is mapped as data")
+# A pre-ESP-IDF 5.0 C3 image (no min_chip_rev_full) requiring v0.3: the
+# legacy byte is the C3's minor revision. The v0.3 (ECO3) ROM symbols apply;
+# the v1.1 (ECO7) ones do not.
+legacy_c3 = bytearray(riscv_image(5, [(0x40380000, rv_code)], 0x40380000))
+legacy_c3[8 + 6] = 3
+bv = load_bytes(bytes(legacy_c3), ".bin")
+sym = bv.get_symbol_by_raw_name("wDevCheckBlockError")
+check(sym is not None and sym.address == 0x400017B4, "legacy C3 v0.3 image: ECO3 ROM symbols")
+check(bv.get_symbol_by_raw_name("r_bt_bb_isr_hack") is None, "legacy C3 v0.3 image: no ECO7 ROM symbols")
+
+print("RISC-V images built by GCC:")
+# tests/data/esp32c{3,6}.elf: ESP-IDF-style startup (`la gp,
+# __global_pointer$`, mtvec at a 32-entry `_vector_table`) and the corpus.
+for chip in ("esp32c3", "esp32c6"):
+    elf = os.path.join(DATA, f"{chip}.elf")
+    syms = elf_symbols(elf)
+    bv = load_bytes(elf_to_image(elf, RISCV_CHIPS[chip]), ".bin")
+    gp = syms["__global_pointer$"]
+    values = bv.user_global_pointer_values
+    check(len(values) == 1 and values[0][0] == "gp" and values[0][1].value == gp,
+          f"{chip}: gp {gp:#x} recovered from call_start_cpu0 ({values})")
+    sym = bv.get_symbol_by_raw_name("__global_pointer$")
+    check(sym is not None and sym.address == gp, f"{chip}: __global_pointer$ defined")
+    start = bv.get_function_at(syms["start"])
+    text = hlil_text(start) if start else ""
+    check(f"&data_{syms['sink']:x}, 1, 2)" in text and f"data_{syms['fp']:x}(4, 5, 6)" in text,
+          f"{chip}: gp-relative accesses in start resolve to sink and fp")
+    check("gp" not in text, f"{chip}: start does not take gp as an input")
+    for name in ("_vector_table", "_panic_handler", "_interrupt_handler"):
+        f = bv.get_function_at(syms[name])
+        check(f is not None and f.name == name, f"{chip}: {name} found and named")
+    entry = bv.get_function_at(bv.entry_point)
+    text = hlil_text(entry) if entry else ""
+    check(f"_csrwr(0x305, {syms['_vector_table'] | 1:#x})" in text and f"sub_{syms['start']:x}()" in text,
+          f"{chip}: call_start_cpu0 sets mtvec and calls start")
+
+# User global pointer values saved in a database (here a user gp value and
+# one for tp) are what a reopened view uses. (They are restored after the
+# view sets gp, so adding gp next to other registers' values, which the view
+# does when it finds them, is covered by a unit test instead.)
+elf = os.path.join(DATA, "esp32c3.elf")
+bv = load_bytes(elf_to_image(elf, RISCV_CHIPS["esp32c3"]), ".bin")
+bv.set_user_global_pointer_values([("tp", bn.variable.ConstantPointerRegisterValue(0x1000)),
+                                   ("gp", bn.variable.ConstantPointerRegisterValue(0x1234))])
+db = os.path.join(user_dir, "gp_tp.bndb")
+bv.create_database(db)
+bv.file.close()
+bv = bn.load(db)
+values = {reg: v.value for reg, v in bv.user_global_pointer_values}
+check(values == {"tp": 0x1000, "gp": 0x1234}, f"saved user global pointer values are kept ({values})")
+bv.file.close()
 
 print("Malformed and unusual images:")
 

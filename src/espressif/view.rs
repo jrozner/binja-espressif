@@ -157,7 +157,17 @@ fn flags_for(kind: RegionKind) -> SegmentFlags {
         RegionKind::Iram | RegionKind::Irom | RegionKind::RtcCode | RegionKind::Rom => {
             f.executable(true).contains_code(true)
         }
-        RegionKind::Drom => f.contains_data(true),
+        // Read-only, so that the jump tables and constants among the code
+        // are read as constants.
+        RegionKind::Flash => f.executable(true).contains_code(true).contains_data(true),
+        // A segment here may be code or initialized data; it has to stay
+        // writable for the data's sake.
+        RegionKind::Sram | RegionKind::RtcRam => f
+            .writable(true)
+            .executable(true)
+            .contains_code(true)
+            .contains_data(true),
+        RegionKind::Drom | RegionKind::RomData => f.contains_data(true),
         RegionKind::Dram | RegionKind::RtcData | RegionKind::ExtRam | RegionKind::Peripheral => {
             f.writable(true).contains_data(true)
         }
@@ -166,10 +176,13 @@ fn flags_for(kind: RegionKind) -> SegmentFlags {
 
 fn semantics_for(kind: RegionKind) -> Semantics {
     match kind {
-        RegionKind::Iram | RegionKind::Irom | RegionKind::RtcCode | RegionKind::Rom => {
-            Semantics::ReadOnlyCode
-        }
-        RegionKind::Drom => Semantics::ReadOnlyData,
+        RegionKind::Iram
+        | RegionKind::Irom
+        | RegionKind::RtcCode
+        | RegionKind::Rom
+        | RegionKind::Flash => Semantics::ReadOnlyCode,
+        RegionKind::Drom | RegionKind::RomData => Semantics::ReadOnlyData,
+        RegionKind::Sram | RegionKind::RtcRam => Semantics::DefaultSection,
         _ => Semantics::ReadWriteData,
     }
 }
@@ -258,10 +271,21 @@ impl EspView {
         for region in self.chip().regions() {
             if !matches!(
                 region.kind,
-                RegionKind::Dram | RegionKind::RtcData | RegionKind::Peripheral
+                RegionKind::Dram
+                    | RegionKind::Sram
+                    | RegionKind::RtcData
+                    | RegionKind::RtcRam
+                    | RegionKind::Peripheral
             ) {
                 continue;
             }
+            // What is left of unified SRAM is `.bss`, heap and stack; of RTC
+            // memory, the retained `.rtc.bss` and `.rtc_noinit`.
+            let kind = match region.kind {
+                RegionKind::Sram => RegionKind::Dram,
+                RegionKind::RtcRam => RegionKind::RtcData,
+                kind => kind,
+            };
             let mut cursor = region.start as u64;
             let end = region.end as u64;
             let mut inside: Vec<(u64, u64)> = mapped
@@ -283,7 +307,7 @@ impl EspView {
             for (s, e) in gaps {
                 view.add_segment(
                     SegmentBuilder::new(s..e)
-                        .flags(flags_for(region.kind))
+                        .flags(flags_for(kind))
                         .is_auto(true),
                 );
                 let name = if region.kind == RegionKind::Peripheral {
@@ -293,15 +317,16 @@ impl EspView {
                 };
                 view.add_section(
                     SectionBuilder::new(name, s..e)
-                        .semantics(semantics_for(region.kind))
+                        .semantics(semantics_for(kind))
                         .is_auto(true),
                 );
             }
         }
     }
 
-    /// Seeds functions from the prologues the chip's CPU core finds in the
-    /// image's code segments (see [`crate::espressif::Cpu::function_starts`]).
+    /// Seeds functions, and names them where possible, from what the chip's
+    /// CPU core finds in the image's code segments (see
+    /// [`crate::espressif::Cpu::scan_code`]).
     fn add_scanned_functions(&self, view: &BinaryView, platform: &Platform) {
         let cpu = self.chip().cpu();
         let mut found = 0;
@@ -313,21 +338,62 @@ impl EspView {
                 continue;
             }
             let data = &self.bytes[seg.offset..seg.offset + seg.size as usize];
-            for addr in cpu.function_starts(seg.addr, data) {
+            let scan = cpu.scan_code(seg.addr, data);
+            for (addr, name) in scan.functions {
                 view.add_auto_function_with_platform(addr as u64, platform);
+                if let Some(name) = name {
+                    let sym = SymbolBuilder::new(SymbolType::Function, name, addr as u64).create();
+                    view.define_auto_symbol(&sym);
+                }
                 found += 1;
+            }
+            for (addr, name, len) in scan.pointer_tables {
+                let code_ptr = Type::pointer(&platform.arch(), &Type::void());
+                let sym = SymbolBuilder::new(SymbolType::Data, name, addr as u64).create();
+                view.define_auto_symbol_with_type(
+                    &sym,
+                    platform,
+                    &*Type::array(&code_ptr, len as u64),
+                );
             }
         }
         if found > 0 {
-            tracing::info!("found {found} functions from their prologues");
+            tracing::info!("found {found} functions by scanning the code");
         }
+    }
+
+    /// Names the global pointer the startup code at the entry point sets,
+    /// and gives it to the analysis, so that `gp`-relative accesses to
+    /// small data resolve (see [`crate::riscv::set_global_pointer`]).
+    fn define_global_pointer(&self, view: &BinaryView) {
+        let entry = self.firmware.image.entry;
+        let Some(seg) = self
+            .firmware
+            .image
+            .segments
+            .iter()
+            .find(|s| s.addr <= entry && entry - s.addr < s.size)
+        else {
+            return;
+        };
+        let code =
+            &self.bytes[seg.offset + (entry - seg.addr) as usize..seg.offset + seg.size as usize];
+        let Some(gp) = self.chip().cpu().global_pointer(entry, code) else {
+            return;
+        };
+        tracing::info!("the startup code sets gp to {gp:#x}");
+        view.define_auto_symbol(
+            &SymbolBuilder::new(SymbolType::Data, "__global_pointer$", gp as u64).create(),
+        );
+        crate::riscv::set_global_pointer(view, gp);
     }
 
     /// Names the mask ROM's functions and data (and, on the ESP8266, the
     /// peripheral register blocks; the other chips' peripherals come from
     /// Espressif's SVD files through Binary Ninja's SVD loader). The ROM is
     /// not part of the image, so its functions are defined
-    /// as imported functions at their (unmapped) addresses.
+    /// as imported functions at their (unmapped) addresses
+    /// (see [`Chip::is_rom_function`]).
     ///
     /// Some functions only exist in the ROM of later chip revisions (the
     /// ESP32 v3.0 ROM's Secure Boot v2 API); those are named only when the
@@ -344,9 +410,10 @@ impl EspView {
                 .map(|&(_, table)| table),
         );
         for &(name, addr) in tables.flatten() {
-            let kind = match image::region_of(chip, addr) {
-                Some(r) if r.kind == RegionKind::Rom => SymbolType::ImportedFunction,
-                _ => SymbolType::Data,
+            let kind = if chip.is_rom_function(addr) {
+                SymbolType::ImportedFunction
+            } else {
+                SymbolType::Data
             };
             view.define_auto_symbol(&SymbolBuilder::new(kind, name, addr as u64).create());
         }
@@ -429,6 +496,7 @@ impl CustomBinaryView for EspView {
             &SymbolBuilder::new(SymbolType::Function, chip.entry_symbol_name(), entry).create(),
         );
         view.add_entry_point(entry);
+        self.define_global_pointer(view);
         self.add_scanned_functions(view, &platform);
         self.define_app_desc(view, &platform);
         self.define_rom_symbols(view);

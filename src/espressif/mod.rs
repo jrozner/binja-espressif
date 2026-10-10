@@ -21,19 +21,16 @@ use binaryninjacore_sys::{
     BNRegisterPlatformCallingConvention,
 };
 
-use crate::espressif::image::Region;
+use crate::espressif::image::{Region, RegionKind};
+use crate::riscv;
 use crate::xtensa::{self, Core};
-
-/// Espressif's RISC-V CPU cores. None are supported yet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum RiscVCore {}
 
 /// The CPU core of a chip, which decides the architecture its code is
 /// analyzed with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Cpu {
     Xtensa(Core),
-    RiscV(RiscVCore),
+    RiscV(riscv::Core),
 }
 
 impl Cpu {
@@ -41,7 +38,7 @@ impl Cpu {
     pub fn arch_name(self) -> &'static str {
         match self {
             Cpu::Xtensa(core) => core.arch_name(),
-            Cpu::RiscV(core) => match core {},
+            Cpu::RiscV(_) => riscv::ARCH_NAME,
         }
     }
 
@@ -50,25 +47,67 @@ impl Cpu {
     pub fn windowed(self) -> bool {
         match self {
             Cpu::Xtensa(core) => core.windowed(),
-            Cpu::RiscV(core) => match core {},
+            Cpu::RiscV(_) => false,
         }
     }
 
     pub fn family(self) -> Family {
         match self {
             Cpu::Xtensa(_) => Family::Xtensa,
-            Cpu::RiscV(core) => match core {},
+            Cpu::RiscV(_) => Family::RiscV,
         }
     }
 
-    /// The addresses of the functions found by scanning `code`, loaded at
-    /// `addr`, for function prologues. These find code that is only reached
-    /// through function pointers (callbacks, tasks, interrupt handlers),
-    /// which call-target analysis cannot see.
-    pub fn function_starts(self, addr: u32, code: &[u8]) -> Vec<u32> {
+    /// The name of the default calling convention of the chip platforms.
+    /// The Xtensa cores' is the architecture's own; on the RISC-V cores it
+    /// is the soft-float `ilp32` rather than `rv32gc`'s hard-float default.
+    pub fn default_calling_convention(self) -> Option<&'static str> {
         match self {
-            Cpu::Xtensa(core) => core.function_starts(addr, code),
-            Cpu::RiscV(core) => match core {},
+            Cpu::Xtensa(_) => None,
+            Cpu::RiscV(_) => Some(riscv::ILP32),
+        }
+    }
+
+    /// What scanning `code`, loaded at `addr`, finds: functions that are
+    /// only reached through function pointers (callbacks, tasks, interrupt
+    /// handlers), which call-target analysis cannot see. On the Xtensa
+    /// cores, the windowed functions' `entry` instructions; on the RISC-V
+    /// cores, the interrupt vector tables and their handlers.
+    pub fn scan_code(self, addr: u32, code: &[u8]) -> CodeScan {
+        let mut scan = CodeScan::default();
+        match self {
+            Cpu::Xtensa(core) => {
+                scan.functions = core
+                    .function_starts(addr, code)
+                    .into_iter()
+                    .map(|a| (a, None))
+                    .collect();
+            }
+            Cpu::RiscV(_) => {
+                for table in riscv::vector_tables(addr, code) {
+                    match table.kind {
+                        // The table is code: entry n is a jump taken for cause n.
+                        riscv::VectorTableKind::Jumps => {
+                            scan.functions.push((table.addr, Some(table.name())));
+                        }
+                        riscv::VectorTableKind::Pointers => {
+                            scan.pointer_tables
+                                .push((table.addr, table.name(), table.entries()));
+                        }
+                    }
+                    scan.functions.extend(table.handlers);
+                }
+            }
+        }
+        scan
+    }
+
+    /// The value of the global pointer register set by the code at the
+    /// entry point, `code`, loaded at `addr`.
+    pub fn global_pointer(self, addr: u32, code: &[u8]) -> Option<u32> {
+        match self {
+            Cpu::Xtensa(_) => None,
+            Cpu::RiscV(_) => riscv::global_pointer(addr, code),
         }
     }
 
@@ -76,9 +115,18 @@ impl Cpu {
     pub fn is_prologue(self, code: &[u8]) -> bool {
         match self {
             Cpu::Xtensa(core) => core.is_prologue(code),
-            Cpu::RiscV(core) => match core {},
+            Cpu::RiscV(core) => core.is_prologue(code),
         }
     }
+}
+
+/// What [`Cpu::scan_code`] found in a code segment.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct CodeScan {
+    /// Function starts, with their names where they are known.
+    pub functions: Vec<(u32, Option<&'static str>)>,
+    /// Tables of code addresses: address, name and number of entries.
+    pub pointer_tables: Vec<(u32, &'static str, usize)>,
 }
 
 /// An instruction set family. Chips are told apart within a family by
@@ -86,12 +134,14 @@ impl Cpu {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Family {
     Xtensa,
+    RiscV,
 }
 
 impl Family {
     pub fn name(self) -> &'static str {
         match self {
             Family::Xtensa => "Xtensa",
+            Family::RiscV => "RISC-V",
         }
     }
 
@@ -99,6 +149,7 @@ impl Family {
     pub fn elf_machine(self) -> u32 {
         match self {
             Family::Xtensa => 94, // EM_XTENSA
+            Family::RiscV => 243, // EM_RISCV
         }
     }
 
@@ -108,6 +159,8 @@ impl Family {
         match self {
             Family::Xtensa if xtensa::is_entry_insn(code) => Some(EntryHint::Windowed),
             Family::Xtensa => Some(EntryHint::Call0),
+            // ESP-IDF's RISC-V entry points all start the same way.
+            Family::RiscV => None,
         }
     }
 }
@@ -131,19 +184,36 @@ pub enum Chip {
     Esp32,
     Esp32S2,
     Esp32S3,
+    Esp32C2,
+    Esp32C3,
+    Esp32C6,
+    Esp32H2,
+    Esp32C5,
 }
 
 impl Chip {
-    pub const ALL: [Chip; 4] = [Chip::Esp8266, Chip::Esp32, Chip::Esp32S2, Chip::Esp32S3];
+    pub const ALL: [Chip; 9] = [
+        Chip::Esp8266,
+        Chip::Esp32,
+        Chip::Esp32S2,
+        Chip::Esp32S3,
+        Chip::Esp32C2,
+        Chip::Esp32C3,
+        Chip::Esp32C6,
+        Chip::Esp32H2,
+        Chip::Esp32C5,
+    ];
 
     /// The chip's CPU core.
     pub fn cpu(self) -> Cpu {
-        Cpu::Xtensa(match self {
-            Chip::Esp8266 => Core::Esp8266,
-            Chip::Esp32 => Core::Esp32,
-            Chip::Esp32S2 => Core::Esp32S2,
-            Chip::Esp32S3 => Core::Esp32S3,
-        })
+        match self {
+            Chip::Esp8266 => Cpu::Xtensa(Core::Esp8266),
+            Chip::Esp32 => Cpu::Xtensa(Core::Esp32),
+            Chip::Esp32S2 => Cpu::Xtensa(Core::Esp32S2),
+            Chip::Esp32S3 => Cpu::Xtensa(Core::Esp32S3),
+            Chip::Esp32C2 | Chip::Esp32C3 => Cpu::RiscV(riscv::Core::Rv32imc),
+            Chip::Esp32C6 | Chip::Esp32H2 | Chip::Esp32C5 => Cpu::RiscV(riscv::Core::Rv32imac),
+        }
     }
 
     /// The name of the architecture of the chip's code.
@@ -160,6 +230,11 @@ impl Chip {
             Chip::Esp32 => "esp32",
             Chip::Esp32S2 => "esp32s2",
             Chip::Esp32S3 => "esp32s3",
+            Chip::Esp32C2 => "esp32c2",
+            Chip::Esp32C3 => "esp32c3",
+            Chip::Esp32C6 => "esp32c6",
+            Chip::Esp32H2 => "esp32h2",
+            Chip::Esp32C5 => "esp32c5",
         }
     }
 
@@ -169,6 +244,11 @@ impl Chip {
             Chip::Esp32 => "ESP32",
             Chip::Esp32S2 => "ESP32-S2",
             Chip::Esp32S3 => "ESP32-S3",
+            Chip::Esp32C2 => "ESP32-C2",
+            Chip::Esp32C3 => "ESP32-C3",
+            Chip::Esp32C6 => "ESP32-C6",
+            Chip::Esp32H2 => "ESP32-H2",
+            Chip::Esp32C5 => "ESP32-C5",
         }
     }
 
@@ -180,6 +260,23 @@ impl Chip {
             Chip::Esp32 => Some(0),
             Chip::Esp32S2 => Some(2),
             Chip::Esp32S3 => Some(9),
+            Chip::Esp32C2 => Some(12),
+            Chip::Esp32C3 => Some(5),
+            Chip::Esp32C6 => Some(13),
+            Chip::Esp32H2 => Some(16),
+            Chip::Esp32C5 => Some(23),
+        }
+    }
+
+    /// The minimum chip revision (major * 100 + minor) in the legacy
+    /// `min_chip_rev` byte of an ESP-IDF image header, for images without
+    /// `min_chip_rev_full`. ESP-IDF's `esp_app_format.h`: the byte is "a
+    /// Major version for most of the chips and [...] a Minor version for the
+    /// ESP32-C3".
+    pub fn legacy_chip_rev(self, byte: u8) -> u16 {
+        match self {
+            Chip::Esp32C3 => byte as u16,
+            _ => byte as u16 * 100,
         }
     }
 
@@ -190,6 +287,11 @@ impl Chip {
             Chip::Esp32 => image::ESP32_REGIONS,
             Chip::Esp32S2 => image::ESP32S2_REGIONS,
             Chip::Esp32S3 => image::ESP32S3_REGIONS,
+            Chip::Esp32C2 => image::ESP32C2_REGIONS,
+            Chip::Esp32C3 => image::ESP32C3_REGIONS,
+            Chip::Esp32C6 => image::ESP32C6_REGIONS,
+            Chip::Esp32H2 => image::ESP32H2_REGIONS,
+            Chip::Esp32C5 => image::ESP32C5_REGIONS,
         }
     }
 
@@ -203,17 +305,49 @@ impl Chip {
             Chip::Esp32 => (r::ESP32, r::ESP32_REVISIONS),
             Chip::Esp32S2 => (r::ESP32S2, r::ESP32S2_REVISIONS),
             Chip::Esp32S3 => (r::ESP32S3, r::ESP32S3_REVISIONS),
+            Chip::Esp32C2 => (r::ESP32C2, r::ESP32C2_REVISIONS),
+            Chip::Esp32C3 => (r::ESP32C3, r::ESP32C3_REVISIONS),
+            Chip::Esp32C6 => (r::ESP32C6, r::ESP32C6_REVISIONS),
+            Chip::Esp32H2 => (r::ESP32H2, r::ESP32H2_REVISIONS),
+            Chip::Esp32C5 => (r::ESP32C5, r::ESP32C5_REVISIONS),
         }
     }
 
-    /// The gzip-compressed Espressif SVD file for the chip; the ESP8266 has
-    /// none.
+    /// The address ranges of the mask ROM's code, on the chips whose ROM
+    /// code and data share an address range (from Espressif's ROM ELF
+    /// files). On the others the memory map tells them apart.
+    pub fn rom_code(self) -> Option<&'static [(u32, u32)]> {
+        use rom_symbols as r;
+        match self {
+            Chip::Esp8266 | Chip::Esp32 | Chip::Esp32S2 | Chip::Esp32S3 => None,
+            Chip::Esp32C2 => Some(r::ESP32C2_ROM_CODE),
+            Chip::Esp32C3 => Some(r::ESP32C3_ROM_CODE),
+            Chip::Esp32C6 => Some(r::ESP32C6_ROM_CODE),
+            Chip::Esp32H2 => Some(r::ESP32H2_ROM_CODE),
+            Chip::Esp32C5 => Some(r::ESP32C5_ROM_CODE),
+        }
+    }
+
+    /// Is the ROM symbol at `addr` a function (rather than data)?
+    pub fn is_rom_function(self, addr: u32) -> bool {
+        match self.rom_code() {
+            Some(code) => code.iter().any(|&(start, end)| start <= addr && addr < end),
+            None => image::region_of(self, addr).is_some_and(|r| r.kind == RegionKind::Rom),
+        }
+    }
+
+    /// The gzip-compressed Espressif SVD file for the chip; the ESP8266 and
+    /// the ESP32-C5 have none.
     pub fn bundled_svd(self) -> Option<&'static [u8]> {
         match self {
-            Chip::Esp8266 => None,
+            Chip::Esp8266 | Chip::Esp32C5 => None,
             Chip::Esp32 => Some(svd::ESP32),
             Chip::Esp32S2 => Some(svd::ESP32S2),
             Chip::Esp32S3 => Some(svd::ESP32S3),
+            Chip::Esp32C2 => Some(svd::ESP32C2),
+            Chip::Esp32C3 => Some(svd::ESP32C3),
+            Chip::Esp32C6 => Some(svd::ESP32C6),
+            Chip::Esp32H2 => Some(svd::ESP32H2),
         }
     }
 
@@ -282,12 +416,18 @@ fn recognize_elf(view: &BinaryView, family: Family) -> Option<Ref<Platform>> {
 const PLATFORM_OS: &str = "espressif";
 
 /// Registers a platform for every chip on its CPU's architecture, with the
-/// architecture's calling conventions and the default calling convention of
-/// its standalone platform.
+/// architecture's calling conventions. The default calling convention is
+/// the CPU's (see [`Cpu::default_calling_convention`]), or else that of the
+/// architecture's standalone platform.
 fn register_platforms() {
     for chip in Chip::ALL {
         let Some(arch) = CoreArchitecture::by_name(chip.arch_name()) else {
-            tracing::error!("architecture {} is not registered", chip.arch_name());
+            // Binary Ninja's RISC-V architecture plugin may be disabled.
+            tracing::warn!(
+                "architecture {} is not registered; {} is not supported",
+                chip.arch_name(),
+                chip.display_name()
+            );
             continue;
         };
         let platform = Platform::new(&arch, chip.platform_name());
@@ -295,10 +435,13 @@ fn register_platforms() {
         for cc in arch.calling_conventions().iter() {
             add_calling_convention(chip.platform_name(), chip.arch_name(), &cc.name());
         }
-        if let Some(cc) = arch
-            .standalone_platform()
-            .and_then(|p| p.get_default_calling_convention())
-        {
+        let default = match chip.cpu().default_calling_convention() {
+            Some(name) => arch.calling_convention_by_name(name),
+            None => arch
+                .standalone_platform()
+                .and_then(|p| p.get_default_calling_convention()),
+        };
+        if let Some(cc) = default {
             platform.set_default_calling_convention(&cc);
         }
     }
@@ -348,5 +491,65 @@ pub fn register() {
             Endianness::LittleEndian,
             move |view, _| recognize_elf(view, family),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rom_symbol(chip: Chip, name: &str) -> u32 {
+        let (base, revisions) = chip.rom_symbols();
+        let tables = std::iter::once(base).chain(revisions.iter().map(|&(_, t)| t));
+        tables
+            .flatten()
+            .find(|&&(n, _)| n == name)
+            .unwrap_or_else(|| panic!("{name} is not a {} ROM symbol", chip.display_name()))
+            .1
+    }
+
+    #[test]
+    fn rom_symbol_kinds() {
+        for chip in Chip::ALL {
+            let f = |name| chip.is_rom_function(rom_symbol(chip, name));
+            assert!(f("memcpy"), "{chip:?} memcpy");
+            assert!(f("ets_printf"), "{chip:?} ets_printf");
+        }
+        // Data next to the code in the RISC-V ROMs' address range, and in
+        // the ROM's RAM.
+        for chip in [Chip::Esp32C6, Chip::Esp32C5] {
+            assert!(!chip.is_rom_function(rom_symbol(chip, "he_max_apep_length")));
+            assert!(!chip.is_rom_function(rom_symbol(chip, "g_coex_param_ptr")));
+        }
+        assert!(!Chip::Esp32H2.is_rom_function(rom_symbol(Chip::Esp32H2, "crc8_be_table_ptr")));
+        assert!(!Chip::Esp32C2.is_rom_function(rom_symbol(Chip::Esp32C2, "crc8_be_table_ptr")));
+        assert!(!Chip::Esp32C3.is_rom_function(rom_symbol(Chip::Esp32C3, "g_coex_param_ptr")));
+        // The Xtensa chips go by region.
+        assert!(!Chip::Esp32.is_rom_function(rom_symbol(Chip::Esp32, "_ctype_")));
+        assert!(!Chip::Esp32S2.is_rom_function(rom_symbol(Chip::Esp32S2, "_ctype_")));
+    }
+
+    #[test]
+    fn rom_code_is_in_the_rom() {
+        for chip in Chip::ALL {
+            let Some(code) = chip.rom_code() else {
+                continue;
+            };
+            assert!(!code.is_empty());
+            for &(start, end) in code {
+                let region = image::region_of(chip, start).unwrap();
+                assert_eq!(region.kind, RegionKind::Rom, "{chip:?} {start:#x}");
+                assert!(region.contains(end - 1), "{chip:?} {end:#x}");
+            }
+            // ROM functions are only ever in the ROM.
+            let (base, revisions) = chip.rom_symbols();
+            let tables = std::iter::once(base).chain(revisions.iter().map(|&(_, t)| t));
+            for &(name, addr) in tables.flatten() {
+                if chip.is_rom_function(addr) {
+                    let region = image::region_of(chip, addr).map(|r| r.kind);
+                    assert_eq!(region, Some(RegionKind::Rom), "{chip:?} {name}");
+                }
+            }
+        }
     }
 }
