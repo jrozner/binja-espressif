@@ -19,7 +19,7 @@ use binaryninja::variable::{Variable, VariableSourceType};
 use binaryninjacore_sys::{
     BNFreeRegisterValueWithConfidenceAndRegisterList, BNGetUserGlobalPointerValues,
     BNRegisterValue, BNRegisterValueType, BNRegisterValueWithConfidence,
-    BNRegisterValueWithConfidenceAndRegister, BNSetUserGlobalPointerValues,
+    BNRegisterValueWithConfidenceAndRegister, BNSetUserGlobalPointerValues, BNUserGlobalPointerValuesSet,
 };
 
 /// The name of Binary Ninja's architecture for these cores.
@@ -264,13 +264,16 @@ pub fn global_pointer(addr: u32, code: &[u8]) -> Option<u32> {
 }
 
 /// The user global pointer values `existing` with `entry` added, or `None`
-/// if `existing` already has a value for `entry`'s register. Values for
-/// other registers are kept as they are.
+/// if they are to be left alone: when `existing` already has a value for
+/// `entry`'s register, or when the user explicitly set them to an empty
+/// list (`is_set` with no values), which the core tells apart from values
+/// never set. Values for other registers are kept as they are.
 fn with_global_pointer(
     existing: &[BNRegisterValueWithConfidenceAndRegister],
+    is_set: bool,
     entry: BNRegisterValueWithConfidenceAndRegister,
 ) -> Option<Vec<BNRegisterValueWithConfidenceAndRegister>> {
-    if existing.iter().any(|v| v.reg == entry.reg) {
+    if (is_set && existing.is_empty()) || existing.iter().any(|v| v.reg == entry.reg) {
         return None;
     }
     let mut values = existing.to_vec();
@@ -279,8 +282,8 @@ fn with_global_pointer(
 }
 
 /// Gives the analysis of `view` the value of `gp` the startup code sets,
-/// unless `gp` has one already (set by the user, or saved in a database).
-/// User values for other registers are kept.
+/// unless `gp` has one already (set by the user, or saved in a database) or
+/// the user cleared the values. User values for other registers are kept.
 ///
 /// Binary Ninja infers `gp` itself from the function that sets it, but only
 /// once that function has been analyzed, after the functions that use `gp`;
@@ -309,12 +312,13 @@ pub fn set_global_pointer(view: &BinaryView, value: u32) {
     // The core sets the whole list at once, so the existing values (owned by
     // us until freed) are copied into the new list.
     let values = unsafe {
+        let is_set = BNUserGlobalPointerValuesSet(view.handle);
         let mut count = 0;
         let existing = BNGetUserGlobalPointerValues(view.handle, &mut count);
         let values = if existing.is_null() {
-            with_global_pointer(&[], entry)
+            with_global_pointer(&[], is_set, entry)
         } else {
-            let values = with_global_pointer(std::slice::from_raw_parts(existing, count), entry);
+            let values = with_global_pointer(std::slice::from_raw_parts(existing, count), is_set, entry);
             BNFreeRegisterValueWithConfidenceAndRegisterList(existing);
             values
         };
@@ -821,13 +825,15 @@ mod tests {
         };
         let (gp, tp) = (3, 4);
         let new = pointer_value(gp, 0x3FC8_8400);
-        // No values yet, or one for another register: gp is added, the
-        // other value kept.
-        assert_eq!(summary(&with_global_pointer(&[], new).unwrap()), [(gp, 0x3FC8_8400)]);
-        let values = with_global_pointer(&[pointer_value(tp, 0x1000)], new).unwrap();
+        // No values set: gp is added.
+        assert_eq!(summary(&with_global_pointer(&[], false, new).unwrap()), [(gp, 0x3FC8_8400)]);
+        // Explicitly set to no values: left empty.
+        assert!(with_global_pointer(&[], true, new).is_none());
+        // A value for another register: gp is added, the other value kept.
+        let values = with_global_pointer(&[pointer_value(tp, 0x1000)], true, new).unwrap();
         assert_eq!(summary(&values), [(tp, 0x1000), (gp, 0x3FC8_8400)]);
         // A value for gp itself is never replaced.
-        assert!(with_global_pointer(&[pointer_value(tp, 0x1000), pointer_value(gp, 0x1234)], new).is_none());
+        assert!(with_global_pointer(&[pointer_value(tp, 0x1000), pointer_value(gp, 0x1234)], true, new).is_none());
     }
 
     #[test]
