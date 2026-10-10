@@ -668,6 +668,24 @@ seg = bv.get_segment_at(0x42800000)
 check(seg is not None and seg.writable, "C5 ELF: the PSRAM segment stays writable")
 bv.file.close()
 
+# Revision-specific ROM data in RAM that the ELF names (g_ble_lll_rfmgmt_env_p
+# is only in the C2 v2.0 ROM's table) is defined; revision-specific symbols the
+# ELF does not carry (AES_FSb_ptr, also v2.0 only) are not. The one C3 symbol,
+# listed by two C3 revision tables, must not tie the C2's.
+c2_rom = [("GetSecurityInfoProc", 0x400000B0), ("MMU_Get_Page_Mode", 0x40000700),
+          ("wDevCheckBlockError", 0x400017B4), ("g_ble_lll_rfmgmt_env_p", 0x3FCDF3CC)]
+path = os.path.join(user_dir, "c2_rom.elf")
+with open(path, "wb") as f:
+    f.write(riscv_elf(0x40380000, abs_symbols=c2_rom))
+bv = bn.load(path)
+check(bv.platform.name == "esp32c2", f"C2 ROM symbols pick the ESP32-C2 over a doubly listed C3 one ({bv.platform})")
+sym = bv.get_symbol_by_raw_name("g_ble_lll_rfmgmt_env_p")
+check(sym is not None and sym.address == 0x3FCDF3CC and sym.type == bn.SymbolType.DataSymbol,
+      f"C2 ELF: revision-specific ROM data it names is defined ({sym})")
+check(bv.get_symbol_by_raw_name("AES_FSb_ptr") is None,
+      "C2 ELF: revision-specific ROM symbols it lacks are not defined")
+bv.file.close()
+
 print("Malformed and unusual images:")
 
 

@@ -157,10 +157,17 @@ fn read_only_copy(section: &Section, name: String) -> SectionBuilder {
 /// are taken from the table; an application linked against a later
 /// revision's ROM carries those as `ABS` symbols itself.
 ///
+/// An `ABS` symbol is taken as a ROM symbol if it is in the ROM, if its
+/// name and address are in one of the chip's tables (of any revision: ROM
+/// variables live in RAM, and the ELF says this one exists), or if its
+/// address is in the every-revision table (the same ROM function or
+/// variable under another name).
+///
 /// Addresses that already have a symbol, and table names the ELF defines
 /// elsewhere (an application's own `memcpy`, say), are left alone.
 fn define_rom_symbols(view: &BinaryView, chip: Chip, symbols: &[ElfSymbol]) {
     let (table, _) = chip.rom_symbols();
+    let every_revision = image::rom_symbol_set(chip);
     let mut defined = 0;
     let mut define = |name: &str, addr: u32| {
         if view.symbol_by_address(addr as u64).is_some() {
@@ -175,8 +182,9 @@ fn define_rom_symbols(view: &BinaryView, chip: Chip, symbols: &[ElfSymbol]) {
         defined += 1;
     };
     for s in symbols.iter().filter(|s| s.absolute && !s.name.is_empty()) {
+        let named_in_table = every_revision.contains(&(s.name.as_str(), s.value));
         let in_rom_table = table.iter().any(|&(_, addr)| addr == s.value);
-        if in_rom_table || is_rom(chip, s.value) {
+        if named_in_table || in_rom_table || is_rom(chip, s.value) {
             define(&s.name, s.value);
         }
     }
