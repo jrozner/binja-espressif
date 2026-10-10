@@ -507,10 +507,10 @@ bv.file.close()
 print("RISC-V ELF files:")
 
 
-def riscv_elf(vaddr, flags=0x1, abs_symbols=()):
+def riscv_elf(vaddr, flags=0x1, abs_symbols=(), memsz=None):
     """A minimal executable RV32 ELF: `li a0, 1; ret` loaded at `vaddr`,
     with `e_flags` = `flags` (0x1 = RVC, soft-float) and a symbol table of
-    `ABS` symbols."""
+    `ABS` symbols. `memsz` makes the segment that much bigger in memory."""
     code = struct.pack("<II", 0x00100513, 0x00008067)
     strtab = b"\0"
     syms = bytes(16)
@@ -525,7 +525,7 @@ def riscv_elf(vaddr, flags=0x1, abs_symbols=()):
     shoff = (shstrtab_off + len(shstrtab) + 3) & ~3
     header = b"\x7fELF\x01\x01\x01" + bytes(9) + struct.pack(
         "<HHIIIIIHHHHHH", 2, 243, 1, vaddr, 52, shoff, flags, 52, 32, 1, 40, 5, 4)
-    phdr = struct.pack("<IIIIIIII", 1, text_off, vaddr, vaddr, len(code), len(code), 5, 4)
+    phdr = struct.pack("<IIIIIIII", 1, text_off, vaddr, vaddr, len(code), memsz or len(code), 5, 4)
     sections = bytes(40) + b"".join(struct.pack("<IIIIIIIIII", *s) for s in [
         (1, 1, 6, vaddr, text_off, len(code), 0, 0, 4, 0),
         (7, 2, 0, 0, symtab_off, len(syms), 3, 1, 4, 16),
@@ -544,7 +544,10 @@ for chip in ("esp32c3", "esp32c6"):
 # Not Espressif firmware: Binary Ninja's own platform is kept.
 for label, blob in [("loaded at 0x10000", riscv_elf(0x10000)),
                     ("hard-float", riscv_elf(0x42000020, flags=0x3)),
-                    ("partly outside every chip's memory", riscv_elf(0x4087FFFC))]:
+                    ("partly outside every chip's memory", riscv_elf(0x4087FFFC)),
+                    # Both ends in the C3's memory map (its ROM data alias
+                    # and its ROM), with 896 KiB of unmapped memory between.
+                    ("spanning unmapped memory", riscv_elf(0x3FF1FFF8, memsz=0x40000008 - 0x3FF1FFF8))]:
     bv = load_bytes(blob, ".elf")
     check(bv.view_type == "ELF" and bv.arch.name == "rv32gc" and bv.platform.name not in RISCV_CHIPS,
           f"a RISC-V ELF {label} keeps {bv.platform}")

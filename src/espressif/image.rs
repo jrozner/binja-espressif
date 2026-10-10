@@ -233,11 +233,25 @@ pub fn guess_chip(family: Family, addrs: &[u32], hint: Option<EntryHint>) -> Chi
 }
 
 /// Does every `(address, size)` range of `segments` lie in `chip`'s memory
-/// map (each end in one of its regions)?
+/// map? Each range must be covered entirely, by one region or by adjacent
+/// ones; an empty range only needs its address mapped.
 pub fn fits_memory_map(chip: Chip, segments: &[(u32, u32)]) -> bool {
     segments.iter().all(|&(addr, size)| {
         let last = addr.wrapping_add(size.max(1) - 1);
-        last >= addr && region_of(chip, addr).is_some() && region_of(chip, last).is_some()
+        if last < addr {
+            return false;
+        }
+        let mut cursor = addr;
+        loop {
+            let Some(region) = region_of(chip, cursor) else {
+                return false;
+            };
+            // Region ends are exclusive, so `region.end - 1` is its last byte.
+            if last <= region.end - 1 {
+                return true;
+            }
+            cursor = region.end;
+        }
     })
 }
 
@@ -1044,6 +1058,13 @@ mod tests {
         assert!(!fits_memory_map(Chip::Esp32C3, &[(0x6000_0000, 0xFFFF_FFFF)]));
         // Empty segments only need their address mapped.
         assert!(fits_memory_map(Chip::Esp32C3, &[(0x3FC8_8000, 0)]));
+        // Both ends mapped, but with unmapped memory between them: DROM to DRAM.
+        assert!(!fits_memory_map(Chip::Esp32C3, &[(0x3C00_0020, 0x3FC8_8000 - 0x3C00_0020)]));
+        // Spanning adjacent regions is fine: the ESP32's DRAM runs into its ROM.
+        assert!(fits_memory_map(Chip::Esp32, &[(0x3FFF_FFF0, 0x20)]));
+        // ... and up to the very last byte of a region, but not past it.
+        assert!(fits_memory_map(Chip::Esp32C3, &[(0x3C00_0000, 0x80_0000)]));
+        assert!(!fits_memory_map(Chip::Esp32C3, &[(0x3C00_0000, 0x80_0001)]));
     }
 
     #[test]
