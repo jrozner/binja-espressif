@@ -10,7 +10,7 @@
 //! to a cache in the user directory on first use, because the loader takes a
 //! path.
 //!
-//! An SVD the user chose is left alone, and `xtensa.svd.autoLoad` turns the
+//! An SVD the user chose is left alone, and `espressif.svd.autoLoad` turns the
 //! behaviour off. This has to happen in an analysis step rather than when the
 //! view is initialized: the options given to *Open with Options* are applied
 //! to the view only after initialization, so the view cannot see them yet.
@@ -29,7 +29,7 @@ use crate::espressif::Chip;
 const SVD_LOADER: &str = "analysis.svd.loader";
 const SVD_FILE: &str = "analysis.svd.autoLoadFile";
 /// This plugin's switch.
-pub const AUTO_LOAD: &str = "xtensa.svd.autoLoad";
+pub const AUTO_LOAD: &str = "espressif.svd.autoLoad";
 
 // Compressed from the `svd` submodule by build.rs.
 static ESP32: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32.svd.gz"));
@@ -48,21 +48,21 @@ fn bundled(chip: Chip) -> Option<&'static [u8]> {
 
 pub fn register_settings() {
     let settings = Settings::global();
-    settings.register_group("xtensa", "Xtensa");
+    settings.register_group("espressif", "Espressif");
     settings.register_setting_json(
         AUTO_LOAD,
         r#"{
             "title": "Load Espressif SVD automatically",
             "type": "boolean",
             "default": true,
-            "description": "Have the SVD loader apply Espressif's SVD file for the chip (bundled with the Xtensa plugin) to ESP firmware images, naming and typing the peripheral registers. Ignored if an SVD file is chosen explicitly. Requires the SVD loader plugin.",
+            "description": "Have the SVD loader apply Espressif's SVD file for the chip (bundled with this plugin) to ESP firmware images, naming and typing the peripheral registers. Ignored if an SVD file is chosen explicitly. Requires the SVD loader plugin.",
             "ignore": ["SettingsProjectScope"]
         }"#,
     );
 }
 
 fn cache_dir() -> PathBuf {
-    binaryninja::user_directory().join("xtensa").join("svd")
+    binaryninja::user_directory().join("espressif").join("svd")
 }
 
 /// FNV-1a, to version the cached files by content.
@@ -111,7 +111,7 @@ fn extract(chip: Chip) -> Option<PathBuf> {
 /// plugin dependency in lib.rs).
 pub fn register_activity() {
     let config = activity::Config::action(
-        "xtensa.svd.select",
+        "espressif.svd.select",
         "Select Espressif SVD",
         "Points the SVD loader at Espressif's SVD file for the chip of an ESP firmware image.",
     )

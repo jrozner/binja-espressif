@@ -59,8 +59,8 @@ It provides:
   firmware images by Binary Ninja's SVD loader, naming and typing every
   peripheral register (`UART0.INT_CLR.RXFIFO_FULL_INT_CLR = 9`). An SVD file chosen in *Open with
   Options* (*SVD File*, `analysis.svd.autoLoadFile`) takes precedence, and
-  `xtensa.svd.autoLoad` turns this off. The files are unpacked once to
-  `<user directory>/xtensa/svd/`. This needs Binary Ninja's SVD loader
+  `espressif.svd.autoLoad` turns this off. The files are unpacked once to
+  `<user directory>/espressif/svd/`. This needs Binary Ninja's SVD loader
   plugin (`svd_ninja`); without it, peripherals are left unnamed. The ESP8266
   has no official SVD, so the view names its peripheral blocks itself.
 - **ELF support**: `EM_XTENSA` files open with the ELF view; the chip is

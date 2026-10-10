@@ -218,8 +218,8 @@ bv = bn.load(image, options={"analysis.svd.autoLoadFile": svd})
 check({s.name for s in bv.get_symbols(0x3FF48000, 1)} == {"MY_RTC"}, "an SVD the user chose wins")
 check(not bv.get_symbols(0x3FF40000, 1), "the bundled SVD is not applied as well")
 
-bv = bn.load(image, options={"xtensa.svd.autoLoad": False})
-check(not bv.get_symbols(0x3FF48000, 1), "xtensa.svd.autoLoad = false leaves peripherals unnamed")
+bv = bn.load(image, options={"espressif.svd.autoLoad": False})
+check(not bv.get_symbols(0x3FF48000, 1), "espressif.svd.autoLoad = false leaves peripherals unnamed")
 
 bv = load_bytes(elf_to_image(os.path.join(DATA, "esp8266.elf"), None), ".bin")
 check({s.name for s in bv.get_symbols(0x60000000, 1)} == {"uart0"}, "ESP8266 peripherals are named (no official SVD)")

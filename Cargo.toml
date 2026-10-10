@@ -2,7 +2,7 @@
 name = "binja-xtensa"
 version = "0.1.0"
 edition = "2024"
-description = "Binary Ninja architecture plugin for Xtensa (ESP8266, ESP32, ESP32-S2, ESP32-S3)"
+description = "Binary Ninja plugin for Espressif chips: Xtensa architectures (ESP8266, ESP32, ESP32-S2, ESP32-S3) and Espressif firmware loading"
 license = "MIT"
 publish = false
 
