@@ -459,17 +459,14 @@ impl CallingConvention for Ilp32 {
             .map(|p| match &p.location {
                 ValueLocationSource::Custom(loc) => {
                     let mut regs_used = Vec::new();
-                    let mut stack_end = 0;
+                    let mut stack = Vec::new();
                     for c in &loc.components {
                         match c.variable.ty {
                             VariableSourceType::RegisterVariableSourceType => regs_used.extend(
                                 regs.iter().position(|r| r.0 as i64 == c.variable.storage),
                             ),
                             VariableSourceType::StackVariableSourceType => {
-                                let size = c.size.unwrap_or_else(|| p.ty.contents.width());
-                                let end = (c.variable.storage.max(0) as u64)
-                                    + size.max(1).next_multiple_of(WORD as u64);
-                                stack_end = stack_end.max(end);
+                                stack.push((c.variable.storage, c.size))
                             }
                             _ => {}
                         }
@@ -477,7 +474,7 @@ impl CallingConvention for Ilp32 {
                     Ilp32Arg::Fixed {
                         loc: loc.clone(),
                         regs_used,
-                        stack_end,
+                        stack_end: fixed_stack_end(&stack, loc.indirect, p.ty.contents.width()),
                     }
                 }
                 source => Ilp32Arg::Value {
@@ -544,6 +541,22 @@ enum Ilp32Arg {
         /// Passed by value whatever its size.
         by_value: bool,
     },
+}
+
+/// The end of the stack a fixed location's stack components (offset and
+/// size, if given) occupy: the stack arguments after it start there. An
+/// unsized component holds the whole value, `width` bytes, or for an
+/// indirect location only the pointer to it.
+fn fixed_stack_end(components: &[(i64, Option<u64>)], indirect: bool, width: u64) -> u64 {
+    let word = WORD as u64;
+    components
+        .iter()
+        .map(|&(offset, size)| {
+            let size = size.unwrap_or(if indirect { word } else { width });
+            offset.max(0) as u64 + size.max(1).next_multiple_of(word)
+        })
+        .max()
+        .unwrap_or(0)
 }
 
 /// Where an argument goes.
@@ -801,6 +814,27 @@ mod tests {
         let locs = auto(ilp32_locations(&args, 8));
         assert_eq!(locs[0], parts(&[Reg(0)]));
         assert_eq!(locs[8], parts(&[Stack(8)]));
+    }
+
+    #[test]
+    fn ilp32_fixed_stack_ends() {
+        use Ilp32Part::Stack;
+        // An unsized stack component holds the whole value...
+        assert_eq!(fixed_stack_end(&[(0, None)], false, 12), 12);
+        assert_eq!(fixed_stack_end(&[(4, None)], false, 8), 12);
+        // ...or, for an indirect location, the pointer to it.
+        assert_eq!(fixed_stack_end(&[(0, None)], true, 12), 4);
+        // Explicit sizes are kept, and the highest end of all components
+        // counts.
+        assert_eq!(fixed_stack_end(&[(0, Some(4)), (4, Some(4))], false, 8), 8);
+        assert_eq!(fixed_stack_end(&[], false, 8), 0);
+        // A fixed indirect 12-byte structure (its pointer at sp+0) after
+        // eight register arguments: the next int goes to sp+4.
+        let int = value(4, 4);
+        let mut args = vec![int.clone(); 8];
+        args.push(fixed(&[], fixed_stack_end(&[(0, None)], true, 12)));
+        args.push(int);
+        assert_eq!(ilp32_locations(&args, 8)[9], parts(&[Stack(4)]));
     }
 
     fn pointer_value(reg: u32, value: i64) -> BNRegisterValueWithConfidenceAndRegister {
