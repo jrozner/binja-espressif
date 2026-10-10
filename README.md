@@ -116,6 +116,18 @@ It provides:
 
 Patching and assembling are not supported.
 
+Not supported for now:
+
+- **ESP32-P4.** Its images are not loaded, and its ELFs are not recognised
+  as Espressif firmware. Its custom instructions (the PIE SIMD extension,
+  in two incompatible versions for chip revisions before and from v3.0, and
+  the hardware loops) are not decoded; Binary Ninja's `rv32gc` treats them
+  as invalid instructions.
+- **Zcb/Zcmp on the ESP32-C5.** ESP-IDF only emits them with
+  `CONFIG_COMPILER_ENABLE_RISCV_ZCMP` (off by default). `rv32gc` decodes
+  `cm.push`/`cm.pop` as `fsd` and does not decode the Zcb instructions, so
+  firmware built with that option analyzes incorrectly.
+
 ## Building and installing
 
 Requires a Rust toolchain recent enough for the binaryninja-api `dev` branch
