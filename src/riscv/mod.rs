@@ -544,16 +544,16 @@ enum Ilp32Arg {
 }
 
 /// The end of the stack a fixed location's stack components (offset and
-/// size, if given) occupy: the stack arguments after it start there. An
-/// unsized component holds the whole value, `width` bytes, or for an
-/// indirect location only the pointer to it.
+/// size, if given) occupy, rounded up to a word: the stack arguments after
+/// it start there. An unsized component holds the whole value, `width`
+/// bytes, or for an indirect location only the pointer to it.
 fn fixed_stack_end(components: &[(i64, Option<u64>)], indirect: bool, width: u64) -> u64 {
     let word = WORD as u64;
     components
         .iter()
         .map(|&(offset, size)| {
             let size = size.unwrap_or(if indirect { word } else { width });
-            offset.max(0) as u64 + size.max(1).next_multiple_of(word)
+            (offset.max(0) as u64 + size.max(1)).next_multiple_of(word)
         })
         .max()
         .unwrap_or(0)
@@ -639,6 +639,7 @@ fn ilp32_locations(args: &[Ilp32Arg], nregs: usize) -> Vec<Ilp32Loc> {
                     if let Some(second) = take(&mut used, &mut next_reg) {
                         parts.push(Ilp32Part::Reg(second));
                     } else {
+                        stack = stack.next_multiple_of(word);
                         parts.push(Ilp32Part::Stack(stack));
                         stack += word;
                     }
@@ -828,13 +829,28 @@ mod tests {
         // counts.
         assert_eq!(fixed_stack_end(&[(0, Some(4)), (4, Some(4))], false, 8), 8);
         assert_eq!(fixed_stack_end(&[], false, 8), 0);
+        // The end is rounded up to a word after adding the offset: a 2-byte
+        // value at sp+6 ends at sp+8, not sp+10.
+        assert_eq!(fixed_stack_end(&[(6, None)], false, 2), 8);
+        assert_eq!(fixed_stack_end(&[(5, Some(1))], false, 4), 8);
         // A fixed indirect 12-byte structure (its pointer at sp+0) after
         // eight register arguments: the next int goes to sp+4.
         let int = value(4, 4);
         let mut args = vec![int.clone(); 8];
         args.push(fixed(&[], fixed_stack_end(&[(0, None)], true, 12)));
-        args.push(int);
+        args.push(int.clone());
         assert_eq!(ilp32_locations(&args, 8)[9], parts(&[Stack(4)]));
+        // A 2-byte fixed parameter at sp+6, seven ints and a double: the
+        // double's high word in the next whole word, sp+8.
+        let mut args = vec![fixed(&[], fixed_stack_end(&[(6, None)], false, 2))];
+        args.extend(vec![int; 7]);
+        args.push(value(8, 8));
+        assert_eq!(ilp32_locations(&args, 8)[8], parts(&[Ilp32Part::Reg(7), Stack(8)]));
+        // Even after an unaligned end the split word stays word-aligned.
+        let mut args = vec![fixed(&[], 6)];
+        args.extend(vec![value(4, 4); 7]);
+        args.push(value(8, 8));
+        assert_eq!(ilp32_locations(&args, 8)[8], parts(&[Ilp32Part::Reg(7), Stack(8)]));
     }
 
     fn pointer_value(reg: u32, value: i64) -> BNRegisterValueWithConfidenceAndRegister {
