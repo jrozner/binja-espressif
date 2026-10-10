@@ -12,6 +12,9 @@
 #
 # Usage: scripts/oracle/build_corpus.sh [TOOLCHAIN_DIR]   (default: target/oracle/xtensa-esp-elf)
 set -euo pipefail
+# nm sorts symbols with strcoll, and the order of `nm -u` decides the
+# addresses given to external functions, so the output depends on the locale.
+export LC_ALL=C
 
 toolchain=$(realpath "${1:-target/oracle/xtensa-esp-elf}")
 prefix=$toolchain/bin/xtensa-esp-elf-
