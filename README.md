@@ -91,11 +91,18 @@ It provides:
   plugin (`svd_ninja`); without it, peripherals are left unnamed. The ESP8266
   has no official SVD, so the view names its peripheral blocks itself; there
   is no SVD file for the ESP32-C5 yet.
-- **ELF support**: `EM_XTENSA` files open with the ELF view; the chip is
-  recognised from the program headers (and, for ambiguous layouts, from
-  whether the entry point uses the windowed ABI). To force a chip, set
-  Binary Ninja's standard `loader.platform` load setting to its platform
-  (`esp32`, `esp32s2`, `esp32s3` or `esp8266`):
+- **ELF support**: `EM_XTENSA` and `EM_RISCV` files open with the ELF view
+  on the chip's platform. A RISC-V file counts as Espressif firmware only if
+  it is 32-bit, uses the soft-float ABI and loads entirely into one
+  supported chip's memory; any other RISC-V file keeps Binary Ninja's own
+  platform (`linux-rv32gc`). The chip is the one whose memory map holds
+  every loaded segment. Where several do (the C2 and C3; the C6, H2 and C5;
+  some Xtensa layouts), the `ABS` symbols ESP-IDF puts in the ELF for the ROM
+  functions it calls decide: the chip whose ROM has the most of them, by
+  name and address. Failing that, the load addresses (and, for Xtensa,
+  whether the entry point uses the windowed ABI) pick the most likely chip.
+  To force a chip, set Binary Ninja's standard `loader.platform` load
+  setting to its platform (`esp32`, `esp32c3`, ...):
   *Open with Options* → *Platform*, or
   `bn.load(path, options={"loader.platform": "esp32s3"})`. It takes
   precedence over the recognised chip.

@@ -22,6 +22,8 @@
 //!   dumps without a partition table (NONOS SDK) are additionally mapped as
 //!   a whole at the flash cache window `0x40200000`, where `irom0` lives.
 
+use std::collections::HashSet;
+
 use crate::espressif::{Chip, EntryHint, Family};
 
 pub const IMAGE_MAGIC: u8 = 0xE9;
@@ -227,6 +229,69 @@ pub fn guess_chip(family: Family, addrs: &[u32], hint: Option<EntryHint>) -> Chi
     match family {
         Family::Xtensa => guess_xtensa_chip(addrs, hint),
         Family::RiscV => guess_riscv_chip(addrs),
+    }
+}
+
+/// Does every `(address, size)` range of `segments` lie in `chip`'s memory
+/// map (each end in one of its regions)?
+pub fn fits_memory_map(chip: Chip, segments: &[(u32, u32)]) -> bool {
+    segments.iter().all(|&(addr, size)| {
+        let last = addr.wrapping_add(size.max(1) - 1);
+        last >= addr && region_of(chip, addr).is_some() && region_of(chip, last).is_some()
+    })
+}
+
+/// How many of a program's `ABS` symbols (name and address) are ROM
+/// symbols of `chip`, of any chip revision. ESP-IDF ELF files carry one for
+/// each ROM function or variable they use.
+pub fn rom_matches(chip: Chip, symbols: &HashSet<(&str, u32)>) -> usize {
+    let (base, revisions) = chip.rom_symbols();
+    std::iter::once(base)
+        .chain(revisions.iter().map(|&(_, table)| table))
+        .flatten()
+        .filter(|&&(name, addr)| symbols.contains(&(name, addr)))
+        .count()
+}
+
+/// Guesses the chip of an ELF file of `family`: among the family's chips
+/// whose memory map holds every loaded segment, the one whose ROM symbols
+/// the file's `ABS` symbols match best, if any match. Otherwise (no match,
+/// or a tie) the load addresses decide, as in [`guess_chip`]. Returns the
+/// chip and the number of matching ROM symbols.
+pub fn guess_elf_chip(
+    family: Family,
+    segments: &[(u32, u32)],
+    hint: Option<EntryHint>,
+    abs_symbols: &[(String, u32)],
+) -> (Chip, usize) {
+    let addrs: Vec<u32> = segments.iter().map(|&(addr, _)| addr).collect();
+    let fallback = guess_chip(family, &addrs, hint);
+    let family_chips = || Chip::ALL.into_iter().filter(|c| c.cpu().family() == family);
+    let mut candidates: Vec<Chip> = family_chips()
+        .filter(|&c| fits_memory_map(c, segments))
+        .collect();
+    if candidates.is_empty() {
+        candidates = family_chips().collect();
+    }
+    let symbols: HashSet<(&str, u32)> = abs_symbols
+        .iter()
+        .map(|(name, addr)| (name.as_str(), *addr))
+        .collect();
+    let scores: Vec<(Chip, usize)> = candidates
+        .into_iter()
+        .map(|c| (c, rom_matches(c, &symbols)))
+        .collect();
+    let best = scores.iter().map(|&(_, n)| n).max().unwrap_or(0);
+    let leaders: Vec<Chip> = scores
+        .iter()
+        .filter(|&&(_, n)| n == best)
+        .map(|&(c, _)| c)
+        .collect();
+    match leaders.as_slice() {
+        _ if best == 0 => (fallback, 0),
+        [chip] => (*chip, best),
+        tied if tied.contains(&fallback) => (fallback, best),
+        tied => (tied[0], best),
     }
 }
 
@@ -892,6 +957,72 @@ mod tests {
         assert_eq!(guess(&[0x4083_EFD0]), Chip::Esp32C6); // an H2 bootloader
         assert_eq!(guess(&[0x4300_0020, 0x4080_0000]), Chip::Esp32C5);
         assert_eq!(guess(&[0x4200_0020]), Chip::Esp32C3);
+    }
+
+    /// `n` ROM symbols of `chip` that no chip in `others` has (same name at
+    /// the same address).
+    fn rom_fingerprint(chip: Chip, others: &[Chip], n: usize) -> Vec<(String, u32)> {
+        let (base, _) = chip.rom_symbols();
+        let mut out = Vec::new();
+        for &(name, addr) in base {
+            let elsewhere = others.iter().any(|&o| {
+                rom_matches(o, &HashSet::from([(name, addr)])) > 0
+            });
+            if !elsewhere {
+                out.push((name.to_string(), addr));
+            }
+            if out.len() == n {
+                break;
+            }
+        }
+        assert_eq!(out.len(), n, "{chip:?} has too few distinct ROM symbols");
+        out
+    }
+
+    #[test]
+    fn rom_fingerprints_pick_the_chip() {
+        let guess = |family, segments: &[(u32, u32)], symbols: &[(String, u32)]| {
+            guess_elf_chip(family, segments, None, symbols)
+        };
+        // Unified SRAM: the C6, H2 and C5 share these addresses.
+        let sram = [(0x4080_0000, 0x1000), (0x4200_0020, 0x100)];
+        let unified = [Chip::Esp32C6, Chip::Esp32H2, Chip::Esp32C5];
+        assert_eq!(guess(Family::RiscV, &sram, &[]), (Chip::Esp32C6, 0));
+        for chip in unified {
+            let others: Vec<Chip> = unified.into_iter().filter(|&c| c != chip).collect();
+            let symbols = rom_fingerprint(chip, &others, 3);
+            assert_eq!(guess(Family::RiscV, &sram, &symbols), (chip, 3), "{chip:?}");
+        }
+        // The C2's memory map is inside the C3's.
+        let iram = [(0x4038_0000, 0x1000), (0x3FCA_0000, 0x100)];
+        let c2 = rom_fingerprint(Chip::Esp32C2, &[Chip::Esp32C3], 4);
+        assert_eq!(guess(Family::RiscV, &iram, &c2), (Chip::Esp32C2, 4));
+        assert_eq!(guess(Family::RiscV, &iram, &[]), (Chip::Esp32C3, 0));
+        // Symbols that are no chip's ROM symbols change nothing.
+        let junk = [("memcpy".to_string(), 0x1234), ("x".to_string(), 0x4000_0000)];
+        assert_eq!(guess(Family::RiscV, &sram, &junk), (Chip::Esp32C6, 0));
+        // A chip whose memory map does not hold the program is never picked,
+        // however its ROM symbols match.
+        let c5 = rom_fingerprint(Chip::Esp32C5, &[Chip::Esp32C6], 3);
+        let c6_only = [(0x4087_0000, 0x100)];
+        assert_eq!(guess(Family::RiscV, &c6_only, &c5).0, Chip::Esp32C6);
+        // Xtensa: the memory map already decides; ROM symbols agree.
+        let esp32 = [(0x4008_0000, 0x100), (0x3FFB_0000, 0x100)];
+        let symbols = rom_fingerprint(Chip::Esp32, &[], 2);
+        assert_eq!(guess(Family::Xtensa, &esp32, &symbols), (Chip::Esp32, 2));
+        assert_eq!(guess(Family::Xtensa, &esp32, &[]), (Chip::Esp32, 0));
+    }
+
+    #[test]
+    fn segments_fit_memory_maps() {
+        assert!(fits_memory_map(Chip::Esp32C3, &[(0x4200_0020, 0x1000)]));
+        // Running off the end of the C6's SRAM, or into unmapped memory.
+        assert!(!fits_memory_map(Chip::Esp32C6, &[(0x4087_F000, 0x2000)]));
+        assert!(!fits_memory_map(Chip::Esp32C3, &[(0x1_0000, 0x100)]));
+        // Wrapping around the address space.
+        assert!(!fits_memory_map(Chip::Esp32C3, &[(0x6000_0000, 0xFFFF_FFFF)]));
+        // Empty segments only need their address mapped.
+        assert!(fits_memory_map(Chip::Esp32C3, &[(0x3FC8_8000, 0)]));
     }
 
     #[test]

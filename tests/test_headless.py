@@ -504,6 +504,68 @@ values = {reg: v.value for reg, v in bv.user_global_pointer_values}
 check(values == {"tp": 0x1000, "gp": 0x1234}, f"saved user global pointer values are kept ({values})")
 bv.file.close()
 
+print("RISC-V ELF files:")
+
+
+def riscv_elf(vaddr, flags=0x1, abs_symbols=()):
+    """A minimal executable RV32 ELF: `li a0, 1; ret` loaded at `vaddr`,
+    with `e_flags` = `flags` (0x1 = RVC, soft-float) and a symbol table of
+    `ABS` symbols."""
+    code = struct.pack("<II", 0x00100513, 0x00008067)
+    strtab = b"\0"
+    syms = bytes(16)
+    for name, addr in abs_symbols:
+        syms += struct.pack("<IIIBBH", len(strtab), addr, 0, 0x12, 0, 0xFFF1)
+        strtab += name.encode() + b"\0"
+    shstrtab = b"\0.text\0.symtab\0.strtab\0.shstrtab\0"
+    text_off = 0x100
+    symtab_off = text_off + len(code)
+    strtab_off = symtab_off + len(syms)
+    shstrtab_off = strtab_off + len(strtab)
+    shoff = (shstrtab_off + len(shstrtab) + 3) & ~3
+    header = b"\x7fELF\x01\x01\x01" + bytes(9) + struct.pack(
+        "<HHIIIIIHHHHHH", 2, 243, 1, vaddr, 52, shoff, flags, 52, 32, 1, 40, 5, 4)
+    phdr = struct.pack("<IIIIIIII", 1, text_off, vaddr, vaddr, len(code), len(code), 5, 4)
+    sections = bytes(40) + b"".join(struct.pack("<IIIIIIIIII", *s) for s in [
+        (1, 1, 6, vaddr, text_off, len(code), 0, 0, 4, 0),
+        (7, 2, 0, 0, symtab_off, len(syms), 3, 1, 4, 16),
+        (15, 3, 0, 0, strtab_off, len(strtab), 0, 0, 1, 0),
+        (23, 3, 0, 0, shstrtab_off, len(shstrtab), 0, 0, 1, 0),
+    ])
+    out = header + phdr
+    out += bytes(text_off - len(out)) + code + syms + strtab + shstrtab
+    return out + bytes(shoff - len(out)) + sections
+
+
+for chip in ("esp32c3", "esp32c6"):
+    bv = bn.load(os.path.join(DATA, f"{chip}.elf"))
+    check(bv.view_type == "ELF" and bv.platform.name == chip, f"{chip}.elf: ELF view on {bv.platform}")
+    check(bv.platform.default_calling_convention.name == "ilp32", f"{chip}.elf: ilp32 by default")
+# Not Espressif firmware: Binary Ninja's own platform is kept.
+for label, blob in [("loaded at 0x10000", riscv_elf(0x10000)),
+                    ("hard-float", riscv_elf(0x42000020, flags=0x3)),
+                    ("partly outside every chip's memory", riscv_elf(0x4087FFFC))]:
+    bv = load_bytes(blob, ".elf")
+    check(bv.view_type == "ELF" and bv.arch.name == "rv32gc" and bv.platform.name not in RISCV_CHIPS,
+          f"a RISC-V ELF {label} keeps {bv.platform}")
+bv = load_bytes(riscv_elf(0x42000020), ".elf")
+check(bv.platform.name == "esp32c3", f"a soft-float ELF in the C3's flash is ESP32-C3 code ({bv.platform})")
+# The C6, H2 and C5 share these addresses; the ROM symbols the file uses
+# decide. memcpy and memset are at different addresses in each ROM;
+# ets_printf is at the same address in the C6's and the H2's.
+h2_rom = [("memcpy", 0x400004A4), ("memset", 0x400004A0), ("ets_printf", 0x40000028)]
+bv = load_bytes(riscv_elf(0x40800000), ".elf")
+check(bv.platform.name == "esp32c6", f"unified SRAM without ROM symbols: ESP32-C6 ({bv.platform})")
+bv = load_bytes(riscv_elf(0x40800000, abs_symbols=h2_rom), ".elf")
+check(bv.platform.name == "esp32h2", f"H2 ROM symbols pick the ESP32-H2 ({bv.platform})")
+bv = bn.load(os.path.join(DATA, "esp32c3.elf"), options={"loader.platform": "esp32c2"})
+check(bv.platform.name == "esp32c2", "loader.platform overrides a RISC-V ELF's chip")
+path = os.path.join(user_dir, "h2_rom.elf")
+with open(path, "wb") as f:
+    f.write(riscv_elf(0x40800000, abs_symbols=h2_rom))
+bv = bn.load(path, options={"loader.platform": "esp32c5"})
+check(bv.platform.name == "esp32c5", "loader.platform overrides ROM symbols")
+
 print("Malformed and unusual images:")
 
 
