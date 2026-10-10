@@ -114,7 +114,8 @@ pub fn register_activity() {
         let Some(platform) = view.default_platform() else {
             return;
         };
-        if let Some(chip) = Chip::of_platform(&platform) {
+        let name = platform.name();
+        if let Some(chip) = Chip::ALL.into_iter().find(|c| c.platform_name() == name) {
             configure(&view, chip);
         }
     });

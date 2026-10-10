@@ -17,8 +17,8 @@ It provides:
   target names, under the OS `espressif`), one per chip, on the chip's
   architecture and with its calling conventions. ESP images and ELF files
   open with these; the chip, for example for the SVD file, is taken from
-  the platform. (The architectures' standalone platforms, used before the
-  chip platforms existed, still work.)
+  the platform. The architectures' standalone platforms remain available
+  (e.g. for `loader.platform`), but do not identify a chip.
 - **Disassembly** in GNU objdump syntax, with branch/call targets and `l32r`
   literals as address tokens.
 - **Lifting** of the whole ISA to LLIL: every decodable instruction lifts

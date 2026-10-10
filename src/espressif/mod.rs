@@ -163,22 +163,6 @@ impl Chip {
         }
     }
 
-    /// The chip whose platform is `platform`. Each Xtensa core belongs to a
-    /// single chip, so the core's standalone platform (which databases
-    /// saved before the chip platforms existed, or a `loader.platform`
-    /// override, may use) also names it.
-    pub fn of_platform(platform: &Platform) -> Option<Chip> {
-        let name = platform.name();
-        Chip::ALL
-            .into_iter()
-            .find(|c| c.platform_name() == name)
-            .or_else(|| {
-                Chip::ALL
-                    .into_iter()
-                    .find(|c| matches!(c.cpu(), Cpu::Xtensa(_)) && c.arch_name() == name)
-            })
-    }
-
     pub fn display_name(self) -> &'static str {
         match self {
             Chip::Esp8266 => "ESP8266",
