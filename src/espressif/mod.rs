@@ -14,7 +14,42 @@ use binaryninja::binary_view::{BinaryView, BinaryViewType, register_binary_view_
 use binaryninja::platform::Platform;
 use binaryninja::rc::Ref;
 
+use crate::espressif::image::Region;
 use crate::xtensa::{self, Core};
+
+/// Espressif's RISC-V CPU cores. None are supported yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RiscVCore {}
+
+/// The CPU core of a chip, which decides the architecture its code is
+/// analyzed with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Cpu {
+    Xtensa(Core),
+    RiscV(RiscVCore),
+}
+
+impl Cpu {
+    /// The name of the architecture (and standalone platform).
+    pub fn arch_name(self) -> &'static str {
+        match self {
+            Cpu::Xtensa(core) => core.arch_name(),
+            Cpu::RiscV(core) => match core {},
+        }
+    }
+
+    /// Does the core's code use the Xtensa windowed ABI, whose functions
+    /// start with `entry`?
+    pub fn windowed(self) -> bool {
+        match self {
+            Cpu::Xtensa(core) => core.windowed(),
+            Cpu::RiscV(core) => match core {},
+        }
+    }
+}
+
+/// A symbol table: names and addresses.
+pub type Symbols = &'static [(&'static str, u32)];
 
 /// A supported chip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -29,19 +64,19 @@ impl Chip {
     pub const ALL: [Chip; 4] = [Chip::Esp8266, Chip::Esp32, Chip::Esp32S2, Chip::Esp32S3];
 
     /// The chip's CPU core.
-    pub fn core(self) -> Core {
-        match self {
+    pub fn cpu(self) -> Cpu {
+        Cpu::Xtensa(match self {
             Chip::Esp8266 => Core::Esp8266,
             Chip::Esp32 => Core::Esp32,
             Chip::Esp32S2 => Core::Esp32S2,
             Chip::Esp32S3 => Core::Esp32S3,
-        }
+        })
     }
 
     /// The name of the architecture (and standalone platform) of the chip's
     /// code.
     pub fn arch_name(self) -> &'static str {
-        self.core().arch_name()
+        self.cpu().arch_name()
     }
 
     pub fn display_name(self) -> &'static str {
@@ -50,6 +85,59 @@ impl Chip {
             Chip::Esp32 => "ESP32",
             Chip::Esp32S2 => "ESP32-S2",
             Chip::Esp32S3 => "ESP32-S3",
+        }
+    }
+
+    /// The chip's `chip_id` in an ESP-IDF image's extended header; ESP8266
+    /// images have none.
+    pub fn image_chip_id(self) -> Option<u16> {
+        match self {
+            Chip::Esp8266 => None,
+            Chip::Esp32 => Some(0),
+            Chip::Esp32S2 => Some(2),
+            Chip::Esp32S3 => Some(9),
+        }
+    }
+
+    /// The chip's memory map.
+    pub fn regions(self) -> &'static [Region] {
+        match self {
+            Chip::Esp8266 => image::ESP8266_REGIONS,
+            Chip::Esp32 => image::ESP32_REGIONS,
+            Chip::Esp32S2 => image::ESP32S2_REGIONS,
+            Chip::Esp32S3 => image::ESP32S3_REGIONS,
+        }
+    }
+
+    /// The mask ROM's symbols: those of every revision of the chip, and
+    /// those only in the ROM of a minimum chip revision (major * 100 +
+    /// minor) and later.
+    pub fn rom_symbols(self) -> (Symbols, &'static [(u16, Symbols)]) {
+        use rom_symbols as r;
+        match self {
+            Chip::Esp8266 => (r::ESP8266, r::ESP8266_REVISIONS),
+            Chip::Esp32 => (r::ESP32, r::ESP32_REVISIONS),
+            Chip::Esp32S2 => (r::ESP32S2, r::ESP32S2_REVISIONS),
+            Chip::Esp32S3 => (r::ESP32S3, r::ESP32S3_REVISIONS),
+        }
+    }
+
+    /// The gzip-compressed Espressif SVD file for the chip; the ESP8266 has
+    /// none.
+    pub fn bundled_svd(self) -> Option<&'static [u8]> {
+        match self {
+            Chip::Esp8266 => None,
+            Chip::Esp32 => Some(svd::ESP32),
+            Chip::Esp32S2 => Some(svd::ESP32S2),
+            Chip::Esp32S3 => Some(svd::ESP32S3),
+        }
+    }
+
+    /// The name of the entry point of the chip's firmware images.
+    pub fn entry_symbol_name(self) -> &'static str {
+        match self {
+            Chip::Esp8266 => "call_user_start",
+            _ => "call_start_cpu0",
         }
     }
 }

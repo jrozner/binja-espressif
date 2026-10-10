@@ -20,7 +20,6 @@ use binaryninjacore_sys::{
 
 use crate::espressif::Chip;
 use crate::espressif::image::{self, Firmware, RegionKind, Segment};
-use crate::espressif::rom_symbols;
 use crate::xtensa;
 
 /// The load setting that selects the image of a flash dump to load: an app
@@ -257,7 +256,7 @@ impl EspView {
     /// not initialize (`.bss`, heap, memory mapped registers) so that
     /// references to them resolve.
     fn add_uninitialized(&self, view: &BinaryView, mapped: &[(u64, u64)]) {
-        for region in image::regions(self.chip()) {
+        for region in self.chip().regions() {
             if !matches!(
                 region.kind,
                 RegionKind::Dram | RegionKind::RtcData | RegionKind::Peripheral
@@ -336,12 +335,7 @@ impl EspView {
     /// addresses hold other code or nothing.
     fn define_rom_symbols(&self, view: &BinaryView) {
         let chip = self.chip();
-        let (base, revisions) = match chip {
-            Chip::Esp8266 => (rom_symbols::ESP8266, rom_symbols::ESP8266_REVISIONS),
-            Chip::Esp32 => (rom_symbols::ESP32, rom_symbols::ESP32_REVISIONS),
-            Chip::Esp32S2 => (rom_symbols::ESP32S2, rom_symbols::ESP32S2_REVISIONS),
-            Chip::Esp32S3 => (rom_symbols::ESP32S3, rom_symbols::ESP32S3_REVISIONS),
-        };
+        let (base, revisions) = chip.rom_symbols();
         let min_rev = self.firmware.image.min_chip_rev;
         let tables = std::iter::once(base).chain(
             revisions
@@ -431,16 +425,11 @@ impl CustomBinaryView for EspView {
         self.add_uninitialized(view, &mapped);
 
         let entry = image.entry as u64;
-        let entry_name = if chip == Chip::Esp8266 {
-            "call_user_start"
-        } else {
-            "call_start_cpu0"
-        };
         view.define_auto_symbol(
-            &SymbolBuilder::new(SymbolType::Function, entry_name, entry).create(),
+            &SymbolBuilder::new(SymbolType::Function, chip.entry_symbol_name(), entry).create(),
         );
         view.add_entry_point(entry);
-        if chip.core().windowed() {
+        if chip.cpu().windowed() {
             self.add_windowed_functions(view, &platform);
         }
         self.define_app_desc(view, &platform);

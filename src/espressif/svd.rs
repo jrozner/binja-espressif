@@ -32,19 +32,9 @@ const SVD_FILE: &str = "analysis.svd.autoLoadFile";
 pub const AUTO_LOAD: &str = "espressif.svd.autoLoad";
 
 // Compressed from the `svd` submodule by build.rs.
-static ESP32: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32.svd.gz"));
-static ESP32S2: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32s2.svd.gz"));
-static ESP32S3: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32s3.svd.gz"));
-
-/// The compressed SVD file for a chip; the ESP8266 has none.
-fn bundled(chip: Chip) -> Option<&'static [u8]> {
-    match chip {
-        Chip::Esp8266 => None,
-        Chip::Esp32 => Some(ESP32),
-        Chip::Esp32S2 => Some(ESP32S2),
-        Chip::Esp32S3 => Some(ESP32S3),
-    }
-}
+pub(super) static ESP32: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32.svd.gz"));
+pub(super) static ESP32S2: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32s2.svd.gz"));
+pub(super) static ESP32S3: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32s3.svd.gz"));
 
 pub fn register_settings() {
     let settings = Settings::global();
@@ -74,7 +64,7 @@ fn fnv1a(data: &[u8]) -> u64 {
 
 /// Writes the chip's SVD file to the cache (once) and returns its path.
 fn extract(chip: Chip) -> Option<PathBuf> {
-    let compressed = bundled(chip)?;
+    let compressed = chip.bundled_svd()?;
     let dir = cache_dir();
     let path = dir.join(format!(
         "{}-{:016x}.svd",
@@ -146,7 +136,7 @@ pub fn register_activity() {
 /// disabled, unavailable or the user chose a file.
 fn configure(view: &BinaryView, chip: Chip) {
     let settings = Settings::global();
-    if bundled(chip).is_none() || !settings.contains(SVD_FILE) {
+    if chip.bundled_svd().is_none() || !settings.contains(SVD_FILE) {
         return;
     }
     let mut query = QueryOptions::new_with_view(view);

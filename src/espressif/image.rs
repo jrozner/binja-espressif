@@ -80,7 +80,7 @@ use RegionKind as K;
 
 // From ESP-IDF components/soc/<chip>/include/soc/soc.h and the ESP8266 RTOS
 // SDK's ld scripts.
-static ESP8266_REGIONS: &[Region] = &[
+pub static ESP8266_REGIONS: &[Region] = &[
     r("dport", 0x3FF0_0000, 0x3FF0_1000, K::Peripheral),
     r("dram", 0x3FFE_8000, 0x4000_0000, K::Dram),
     r("rom", 0x4000_0000, 0x4001_0000, K::Rom),
@@ -90,7 +90,7 @@ static ESP8266_REGIONS: &[Region] = &[
     r("rtc_data", 0x6000_1000, 0x6000_2000, K::RtcData),
 ];
 
-static ESP32_REGIONS: &[Region] = &[
+pub static ESP32_REGIONS: &[Region] = &[
     r("drom", 0x3F40_0000, 0x3F80_0000, K::Drom),
     r("extram", 0x3F80_0000, 0x3FC0_0000, K::ExtRam),
     r("peripherals", 0x3FF0_0000, 0x3FF8_0000, K::Peripheral),
@@ -103,7 +103,7 @@ static ESP32_REGIONS: &[Region] = &[
     r("rtc_slow", 0x5000_0000, 0x5000_2000, K::RtcData),
 ];
 
-static ESP32S2_REGIONS: &[Region] = &[
+pub static ESP32S2_REGIONS: &[Region] = &[
     r("drom", 0x3F00_0000, 0x3F40_0000, K::Drom),
     r("peripherals", 0x3F40_0000, 0x3F50_0000, K::Peripheral),
     r("extram", 0x3F50_0000, 0x3FF8_0000, K::ExtRam),
@@ -116,7 +116,7 @@ static ESP32S2_REGIONS: &[Region] = &[
     r("rtc_slow", 0x5000_0000, 0x5000_2000, K::RtcData),
 ];
 
-static ESP32S3_REGIONS: &[Region] = &[
+pub static ESP32S3_REGIONS: &[Region] = &[
     r("drom", 0x3C00_0000, 0x3E00_0000, K::Drom),
     r("dram", 0x3FC8_0000, 0x3FD0_0000, K::Dram),
     r("rom", 0x4000_0000, 0x4006_0000, K::Rom),
@@ -127,28 +127,16 @@ static ESP32S3_REGIONS: &[Region] = &[
     r("rtc_fast", 0x600F_E000, 0x6010_0000, K::RtcCode),
 ];
 
-pub fn regions(chip: Chip) -> &'static [Region] {
-    match chip {
-        Chip::Esp8266 => ESP8266_REGIONS,
-        Chip::Esp32 => ESP32_REGIONS,
-        Chip::Esp32S2 => ESP32S2_REGIONS,
-        Chip::Esp32S3 => ESP32S3_REGIONS,
-    }
-}
-
 pub fn region_of(chip: Chip, addr: u32) -> Option<&'static Region> {
-    regions(chip).iter().find(|r| r.contains(addr))
+    chip.regions().iter().find(|r| r.contains(addr))
 }
 
 /// The chip of an ESP-IDF image `chip_id`. Other ids belong to the RISC-V
 /// chips (ESP32-C3, ...).
 pub fn chip_from_id(id: u16) -> Option<Chip> {
-    match id {
-        0 => Some(Chip::Esp32),
-        2 => Some(Chip::Esp32S2),
-        9 => Some(Chip::Esp32S3),
-        _ => None,
-    }
+    Chip::ALL
+        .into_iter()
+        .find(|c| c.image_chip_id() == Some(id))
 }
 
 /// Guesses the chip from the load addresses of a program, for formats that
