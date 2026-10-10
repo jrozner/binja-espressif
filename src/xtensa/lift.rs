@@ -7,12 +7,12 @@ use binaryninja::low_level_il::lifting::LowLevelILLabel;
 use binaryninja::low_level_il::{
     LowLevelILMutableExpression, LowLevelILMutableFunction, LowLevelILTempRegister,
 };
-use xtensa::{Instruction, Isa, Opcode as O, Operand};
+use xtensa_isa::{Instruction, Isa, Opcode as O, Operand};
 
-use crate::flags::Flag;
-use crate::intrinsics::{self, Input, Intrinsic, SysAccess, operand_reg};
-use crate::loops::Loops;
-use crate::registers::{Reg, special_register, special_register_by_name, sr};
+use crate::xtensa::flags::Flag;
+use crate::xtensa::intrinsics::{self, Input, Intrinsic, SysAccess, operand_reg};
+use crate::xtensa::loops::Loops;
+use crate::xtensa::registers::{Reg, special_register, special_register_by_name, sr};
 
 type Il = LowLevelILMutableFunction;
 
@@ -1148,10 +1148,10 @@ impl<'a> Lifter<'a> {
             }
         }
 
-        if insn.control_flow() == xtensa::ControlFlow::Sequential
+        if insn.control_flow() == xtensa_isa::ControlFlow::Sequential
             || matches!(
                 insn.control_flow(),
-                xtensa::ControlFlow::Loop {
+                xtensa_isa::ControlFlow::Loop {
                     conditional: false,
                     ..
                 }

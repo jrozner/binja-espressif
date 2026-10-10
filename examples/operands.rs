@@ -1,6 +1,6 @@
 //! Prints the decoded operands of every exemplar, for checking lifter assumptions.
-use binja_xtensa::exemplars::EXEMPLARS;
-use xtensa::Isa;
+use binja_xtensa::xtensa::exemplars::EXEMPLARS;
+use xtensa_isa::Isa;
 
 fn main() {
     let mut seen = std::collections::BTreeMap::new();

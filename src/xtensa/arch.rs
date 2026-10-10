@@ -10,64 +10,19 @@ use binaryninja::architecture::{
 use binaryninja::disassembly::InstructionTextToken;
 use binaryninja::low_level_il::LowLevelILMutableFunction;
 use binaryninjacore_sys::BNLinearSweepAnalysisCapability as LinearSweepAnalysisCapability;
-use xtensa::{ControlFlow, Features, Instruction, Isa};
+use xtensa_isa::{ControlFlow, Features, Instruction, Isa};
 
-use crate::flags::{Flag, FlagClass, FlagGroup, FlagWrite};
-use crate::intrinsics::{self, Intrinsic};
-use crate::lift::Lifter;
-use crate::loops::Loops;
-use crate::registers::Reg;
-use crate::tokens;
-
-/// A supported core.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Chip {
-    Esp8266,
-    Esp32,
-    Esp32S2,
-    Esp32S3,
-}
-
-impl Chip {
-    pub const ALL: [Chip; 4] = [Chip::Esp8266, Chip::Esp32, Chip::Esp32S2, Chip::Esp32S3];
-
-    pub fn isa(self) -> Isa {
-        match self {
-            Chip::Esp8266 => Isa::ESP8266,
-            Chip::Esp32 => Isa::ESP32,
-            Chip::Esp32S2 => Isa::ESP32S2,
-            Chip::Esp32S3 => Isa::ESP32S3,
-        }
-    }
-
-    /// The architecture (and standalone platform) name.
-    pub fn arch_name(self) -> &'static str {
-        match self {
-            Chip::Esp8266 => "xtensa-esp8266",
-            Chip::Esp32 => "xtensa-esp32",
-            Chip::Esp32S2 => "xtensa-esp32s2",
-            Chip::Esp32S3 => "xtensa-esp32s3",
-        }
-    }
-
-    pub fn display_name(self) -> &'static str {
-        match self {
-            Chip::Esp8266 => "ESP8266",
-            Chip::Esp32 => "ESP32",
-            Chip::Esp32S2 => "ESP32-S2",
-            Chip::Esp32S3 => "ESP32-S3",
-        }
-    }
-
-    pub fn windowed(self) -> bool {
-        self.isa().has(Features::WINDOWED)
-    }
-}
+use crate::xtensa::flags::{Flag, FlagClass, FlagGroup, FlagWrite};
+use crate::xtensa::intrinsics::{self, Intrinsic};
+use crate::xtensa::lift::Lifter;
+use crate::xtensa::loops::Loops;
+use crate::xtensa::registers::Reg;
+use crate::xtensa::{Core, tokens};
 
 pub struct Xtensa {
     handle: CoreArchitecture,
     custom_handle: CustomArchitectureHandle<Xtensa>,
-    pub chip: Chip,
+    pub core: Core,
     isa: Isa,
     intrinsics: HashMap<u32, Intrinsic>,
     registers: Vec<Reg>,
@@ -77,15 +32,15 @@ pub struct Xtensa {
 
 impl Xtensa {
     pub fn new(
-        chip: Chip,
+        core: Core,
         handle: CoreArchitecture,
         custom_handle: CustomArchitectureHandle<Xtensa>,
     ) -> Self {
-        let isa = chip.isa();
+        let isa = core.isa();
         Xtensa {
             handle,
             custom_handle,
-            chip,
+            core,
             isa,
             intrinsics: intrinsics::build(&isa),
             registers: Reg::all(&isa),
@@ -148,7 +103,7 @@ impl Architecture for Xtensa {
     /// ESP32-S3 that padding decodes as vector instructions.
     fn linear_sweep_analysis_capabilities(&self) -> u32 {
         let call_targets = LinearSweepAnalysisCapability::BNLinearSweepCallTargetAnalysis as u32;
-        if self.chip.windowed() {
+        if self.core.windowed() {
             call_targets
         } else {
             call_targets
@@ -213,8 +168,8 @@ impl Architecture for Xtensa {
                 }
             }
             ControlFlow::Trap => match insn.opcode() {
-                xtensa::Opcode::Syscall => info.add_branch(BranchKind::SystemCall),
-                xtensa::Opcode::Ill | xtensa::Opcode::IllN => {
+                xtensa_isa::Opcode::Syscall => info.add_branch(BranchKind::SystemCall),
+                xtensa_isa::Opcode::Ill | xtensa_isa::Opcode::IllN => {
                     info.add_branch(BranchKind::Exception)
                 }
                 _ => {}
@@ -249,7 +204,7 @@ impl Architecture for Xtensa {
         // A lifter bug must not take the whole process down.
         if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lifter.lift())).is_err() {
             tracing::error!("failed to lift {insn} at {addr:#x}");
-            crate::lift::unimplemented(il);
+            crate::xtensa::lift::unimplemented(il);
         }
         Some((insn.len(), true))
     }

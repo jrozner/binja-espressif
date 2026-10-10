@@ -35,8 +35,8 @@ use binaryninja::function_recognizer::FunctionRecognizer;
 use binaryninja::low_level_il::LowLevelILRegularFunction;
 use binaryninja::rc::Ref;
 
-use crate::arch::Xtensa;
-use crate::registers::Reg;
+use crate::xtensa::arch::Xtensa;
+use crate::xtensa::registers::Reg;
 
 fn a(n: u8) -> RegisterId {
     Reg::A(n).id()
@@ -131,7 +131,7 @@ pub fn register(arch: &'static Xtensa) -> Conventions {
     // the heuristics would prefer call0 for every windowed function, since
     // those read their arguments from a2..a7 as well.
     let call0 = ConventionBuilder::new(arch)
-        .is_eligible_for_heuristics(!arch.chip.windowed())
+        .is_eligible_for_heuristics(!arch.core.windowed())
         .int_arg_registers(&strs(&names(2, 7)))
         .return_int_reg("a2")
         .return_hi_int_reg("a3")
@@ -141,7 +141,7 @@ pub fn register(arch: &'static Xtensa) -> Conventions {
         .register("call0");
 
     let windowed = arch
-        .chip
+        .core
         .windowed()
         .then(|| register_calling_convention(arch, "windowed", |core| WindowedCC { core }));
 
@@ -188,7 +188,7 @@ impl FunctionRecognizer for WindowRecognizer {
         if len == 0 {
             return false;
         }
-        if crate::esp::is_entry_insn(&code[..len]) {
+        if crate::xtensa::is_entry_insn(&code[..len]) {
             let arch = func.arch();
             let clobbered: Vec<CoreRegister> = (8..=15)
                 .filter_map(|n| arch.register_from_id(RegisterId(n)))

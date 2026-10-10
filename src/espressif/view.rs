@@ -18,9 +18,10 @@ use binaryninjacore_sys::{
     BNFreeSettings, BNGetBinaryViewDefaultLoadSettingsForData, BNSettingsSerializeSchema,
 };
 
-use crate::arch::Chip;
-use crate::esp::{self, Firmware, RegionKind, Segment};
-use crate::rom_symbols;
+use crate::espressif::Chip;
+use crate::espressif::image::{self, Firmware, RegionKind, Segment};
+use crate::espressif::rom_symbols;
+use crate::xtensa;
 
 /// The load setting that selects the image of a flash dump to load: an app
 /// partition's label, [`BOOTLOADER`], or empty for the default.
@@ -44,12 +45,12 @@ impl CustomBinaryViewType for EspViewType {
             })
             .unwrap_or_default();
         let selection = match choice.as_str() {
-            "" => esp::Selection::Default,
-            BOOTLOADER => esp::Selection::Bootloader,
-            label => esp::Selection::Partition(label),
+            "" => image::Selection::Default,
+            BOOTLOADER => image::Selection::Bootloader,
+            label => image::Selection::Partition(label),
         };
-        let Some(firmware) = esp::find_firmware(&bytes, selection) else {
-            if selection != esp::Selection::Default {
+        let Some(firmware) = image::find_firmware(&bytes, selection) else {
+            if selection != image::Selection::Default {
                 tracing::error!("no loadable image in the selected partition '{choice}'");
             }
             return Err(());
@@ -61,8 +62,8 @@ impl CustomBinaryViewType for EspViewType {
     /// load: an app partition or the bootloader.
     fn load_settings_for_data(&self, data: &BinaryView) -> Option<Ref<Settings>> {
         let bytes = data.read_vec(0, data.len() as usize);
-        let (_, parts) = esp::partition_table(&bytes)?;
-        let apps = esp::app_partitions(&parts);
+        let (_, parts) = image::partition_table(&bytes)?;
+        let apps = image::app_partitions(&parts);
         let mut values = vec![String::new()];
         let mut descriptions = vec!["The factory app, or the first OTA app".to_string()];
         for p in apps {
@@ -113,19 +114,19 @@ impl CustomBinaryViewType for EspViewType {
     fn is_valid_for(&self, data: &BinaryView) -> bool {
         let mut probe = [0u8; 2];
         let header = data.read(&mut probe[..1], 0) == 1
-            && matches!(probe[0], esp::IMAGE_MAGIC | esp::IMAGE_V2_MAGIC);
-        let table = esp::DUMP_BASES.iter().any(|&base| {
-            data.read(&mut probe, (esp::PARTITION_TABLE_OFFSET - base) as u64) == 2
+            && matches!(probe[0], image::IMAGE_MAGIC | image::IMAGE_V2_MAGIC);
+        let table = image::DUMP_BASES.iter().any(|&base| {
+            data.read(&mut probe, (image::PARTITION_TABLE_OFFSET - base) as u64) == 2
                 && probe == [0xAA, 0x50]
         });
         let at_1000 = data.read(&mut probe[..1], 0x1000) == 1
-            && matches!(probe[0], esp::IMAGE_MAGIC | esp::IMAGE_V2_MAGIC);
+            && matches!(probe[0], image::IMAGE_MAGIC | image::IMAGE_V2_MAGIC);
         if !(header || table || at_1000) || data.len() > 0x0400_0000 {
             return false;
         }
-        esp::find_firmware(
+        image::find_firmware(
             &data.read_vec(0, data.len() as usize),
-            esp::Selection::Default,
+            image::Selection::Default,
         )
         .is_some()
     }
@@ -190,7 +191,7 @@ impl EspView {
             if addr == 0 || size == 0 {
                 continue; // esptool padding
             }
-            let Some(region) = esp::region_of(chip, addr) else {
+            let Some(region) = image::region_of(chip, addr) else {
                 tracing::warn!(
                     "segment at {addr:#x} is outside the {} memory map",
                     chip.display_name()
@@ -233,7 +234,7 @@ impl EspView {
         if !self.firmware.map_flash_window {
             return;
         }
-        let start = esp::ESP8266_FLASH_MAP as u64;
+        let start = image::ESP8266_FLASH_MAP as u64;
         let len = (self.bytes.len() as u64).min(0x10_0000);
         if mapped.iter().any(|&(s, e)| s < start + len && start < e) {
             return;
@@ -256,7 +257,7 @@ impl EspView {
     /// not initialize (`.bss`, heap, memory mapped registers) so that
     /// references to them resolve.
     fn add_uninitialized(&self, view: &BinaryView, mapped: &[(u64, u64)]) {
-        for region in esp::regions(self.chip()) {
+        for region in image::regions(self.chip()) {
             if !matches!(
                 region.kind,
                 RegionKind::Dram | RegionKind::RtcData | RegionKind::Peripheral
@@ -308,14 +309,14 @@ impl EspView {
     fn add_windowed_functions(&self, view: &BinaryView, platform: &Platform) {
         let mut found = 0;
         for seg in &self.firmware.image.segments {
-            let Some(region) = esp::region_of(self.chip(), seg.addr) else {
+            let Some(region) = image::region_of(self.chip(), seg.addr) else {
                 continue;
             };
             if !region.is_code() || seg.addr == 0 {
                 continue;
             }
             let data = &self.bytes[seg.offset..seg.offset + seg.size as usize];
-            for off in esp::entry_offsets(seg.addr, data) {
+            for off in xtensa::entry_offsets(seg.addr, data) {
                 view.add_auto_function_with_platform(seg.addr as u64 + off as u64, platform);
                 found += 1;
             }
@@ -349,7 +350,7 @@ impl EspView {
                 .map(|&(_, table)| table),
         );
         for &(name, addr) in tables.flatten() {
-            let kind = match esp::region_of(chip, addr) {
+            let kind = match image::region_of(chip, addr) {
                 Some(r) if r.kind == RegionKind::Rom => SymbolType::ImportedFunction,
                 _ => SymbolType::Data,
             };
@@ -439,7 +440,7 @@ impl CustomBinaryView for EspView {
             &SymbolBuilder::new(SymbolType::Function, entry_name, entry).create(),
         );
         view.add_entry_point(entry);
-        if chip.windowed() {
+        if chip.core().windowed() {
             self.add_windowed_functions(view, &platform);
         }
         self.define_app_desc(view, &platform);

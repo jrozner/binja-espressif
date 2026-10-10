@@ -18,10 +18,10 @@ use binaryninja::architecture::{self, IntrinsicId};
 use binaryninja::confidence::{Conf, MAX_CONFIDENCE};
 use binaryninja::rc::Ref;
 use binaryninja::types::{NameAndType, Type};
-use xtensa::{Instruction, Isa, Opcode, Operand};
+use xtensa_isa::{Instruction, Isa, Opcode, Operand};
 
-use crate::exemplars::EXEMPLARS;
-use crate::registers::{Reg, special_register, sr};
+use crate::xtensa::exemplars::EXEMPLARS;
+use crate::xtensa::registers::{Reg, special_register, sr};
 
 /// A value an intrinsic consumes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,7 +113,7 @@ pub fn build(isa: &Isa) -> HashMap<u32, Intrinsic> {
             continue;
         };
         let id = id_of(insn.opcode()).0;
-        if map.contains_key(&id) || !crate::lift::uses_intrinsic(insn.opcode()) {
+        if map.contains_key(&id) || !crate::xtensa::lift::uses_intrinsic(insn.opcode()) {
             continue;
         }
         let io = classify(&insn, isa);
@@ -389,7 +389,7 @@ mod tests {
         }
         let missing: Vec<_> = Opcode::ALL
             .iter()
-            .filter(|&&o| crate::lift::uses_intrinsic(o) && !found.contains(&o))
+            .filter(|&&o| crate::xtensa::lift::uses_intrinsic(o) && !found.contains(&o))
             .collect();
         assert!(missing.is_empty(), "missing exemplars: {missing:?}");
     }

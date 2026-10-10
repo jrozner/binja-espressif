@@ -1,7 +1,7 @@
 //! Instruction text, in GNU objdump syntax.
 
 use binaryninja::disassembly::{InstructionTextToken, InstructionTextTokenKind as K};
-use xtensa::{Instruction, Operand};
+use xtensa_isa::{Instruction, Operand};
 
 /// Mnemonics are padded to this width so operands line up.
 const MNEMONIC_WIDTH: usize = 12;
