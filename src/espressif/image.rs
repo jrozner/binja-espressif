@@ -426,12 +426,7 @@ fn parse_esp32(data: &[u8], start: usize, count: usize, entry: u32) -> Option<Im
         return None;
     }
     let mut chip = chip_from_id(chip_id)?;
-    // ESP-IDF 5.0 added min_chip_rev_full (major * 100 + minor); before
-    // that, byte 6 held the major revision and the rest was reserved (zero).
-    let min_chip_rev = match read_u16(ext, 7)? {
-        0 => ext[6] as u16 * 100,
-        full => full,
-    };
+    let min_chip_rev_full = read_u16(ext, 7)?;
     let (segments, _) = read_segments(data, start + 24, count)?;
     if chip_id == 0 {
         // Either an ESP32 image or an ESP8266 RTOS SDK v3 image.
@@ -444,6 +439,13 @@ fn parse_esp32(data: &[u8], start: usize, count: usize, entry: u32) -> Option<Im
         let hint = code_at(data, &segments, entry).and_then(|code| family.entry_hint(code));
         chip = guess_chip(family, &addrs, hint);
     }
+    // ESP-IDF 5.0 added min_chip_rev_full (major * 100 + minor); before
+    // that, byte 6 held the revision (see Chip::legacy_chip_rev) and the
+    // rest was reserved (zero).
+    let min_chip_rev = match min_chip_rev_full {
+        0 => chip.legacy_chip_rev(ext[6]),
+        full => full,
+    };
     plausible(chip, entry, &segments).then_some(Image {
         chip,
         format: Format::Esp32,
@@ -775,6 +777,23 @@ mod tests {
         // ESP-IDF 5.x: min_chip_rev_full (v3.1) takes precedence.
         e[7..9].copy_from_slice(&301u16.to_le_bytes());
         assert_eq!(rev(e), 301);
+
+        // On the ESP32-C3 the legacy byte is the minor revision: 3 is v0.3,
+        // not v3.0.
+        let c3_seg: &[(u32, &[u8])] = &[(0x4038_0000, &[0x13, 0, 0, 0])];
+        let c3_rev = |e: [u8; 16]| {
+            parse_image(&image(0xE9, Some(e), 0x4038_0000, c3_seg), 0)
+                .unwrap()
+                .min_chip_rev
+        };
+        let mut e = ext(5);
+        e[6] = 3;
+        assert_eq!(c3_rev(e), 3);
+        e[7..9].copy_from_slice(&101u16.to_le_bytes());
+        assert_eq!(c3_rev(e), 101);
+        // The S3 (chip_id 9): a major revision, like the ESP32.
+        assert_eq!(Chip::Esp32S3.legacy_chip_rev(1), 100);
+        assert_eq!(Chip::Esp32C3.legacy_chip_rev(4), 4);
     }
 
     #[test]

@@ -268,6 +268,18 @@ impl Chip {
         }
     }
 
+    /// The minimum chip revision (major * 100 + minor) in the legacy
+    /// `min_chip_rev` byte of an ESP-IDF image header, for images without
+    /// `min_chip_rev_full`. ESP-IDF's `esp_app_format.h`: the byte is "a
+    /// Major version for most of the chips and [...] a Minor version for the
+    /// ESP32-C3".
+    pub fn legacy_chip_rev(self, byte: u8) -> u16 {
+        match self {
+            Chip::Esp32C3 => byte as u16,
+            _ => byte as u16 * 100,
+        }
+    }
+
     /// The chip's memory map.
     pub fn regions(self) -> &'static [Region] {
         match self {

@@ -399,6 +399,15 @@ for chip, kinds in rom_kinds.items():
         expected = bn.SymbolType.ImportedFunctionSymbol if kind == "Function" else bn.SymbolType.DataSymbol
         check(sym is not None and sym.type == expected,
               f"{chip}: ROM {name} is {kind.lower()} ({sym.type.name if sym else 'missing'})")
+# A pre-ESP-IDF 5.0 C3 image (no min_chip_rev_full) requiring v0.3: the
+# legacy byte is the C3's minor revision. The v0.3 (ECO3) ROM symbols apply;
+# the v1.1 (ECO7) ones do not.
+legacy_c3 = bytearray(riscv_image(5, [(0x40380000, rv_code)], 0x40380000))
+legacy_c3[8 + 6] = 3
+bv = load_bytes(bytes(legacy_c3), ".bin")
+sym = bv.get_symbol_by_raw_name("wDevCheckBlockError")
+check(sym is not None and sym.address == 0x400017B4, "legacy C3 v0.3 image: ECO3 ROM symbols")
+check(bv.get_symbol_by_raw_name("r_bt_bb_isr_hack") is None, "legacy C3 v0.3 image: no ECO7 ROM symbols")
 
 print("RISC-V images built by GCC:")
 # tests/data/esp32c{3,6}.elf: ESP-IDF-style startup (`la gp,
