@@ -318,8 +318,9 @@ impl EspView {
         }
     }
 
-    /// Seeds functions from the prologues the chip's CPU core finds in the
-    /// image's code segments (see [`crate::espressif::Cpu::function_starts`]).
+    /// Seeds functions, and names them where possible, from what the chip's
+    /// CPU core finds in the image's code segments (see
+    /// [`crate::espressif::Cpu::scan_code`]).
     fn add_scanned_functions(&self, view: &BinaryView, platform: &Platform) {
         let cpu = self.chip().cpu();
         let mut found = 0;
@@ -331,14 +332,54 @@ impl EspView {
                 continue;
             }
             let data = &self.bytes[seg.offset..seg.offset + seg.size as usize];
-            for addr in cpu.function_starts(seg.addr, data) {
+            let scan = cpu.scan_code(seg.addr, data);
+            for (addr, name) in scan.functions {
                 view.add_auto_function_with_platform(addr as u64, platform);
+                if let Some(name) = name {
+                    let sym = SymbolBuilder::new(SymbolType::Function, name, addr as u64).create();
+                    view.define_auto_symbol(&sym);
+                }
                 found += 1;
+            }
+            for (addr, name, len) in scan.pointer_tables {
+                let code_ptr = Type::pointer(&platform.arch(), &Type::void());
+                let sym = SymbolBuilder::new(SymbolType::Data, name, addr as u64).create();
+                view.define_auto_symbol_with_type(
+                    &sym,
+                    platform,
+                    &*Type::array(&code_ptr, len as u64),
+                );
             }
         }
         if found > 0 {
-            tracing::info!("found {found} functions from their prologues");
+            tracing::info!("found {found} functions by scanning the code");
         }
+    }
+
+    /// Names the global pointer the startup code at the entry point sets,
+    /// and gives it to the analysis, so that `gp`-relative accesses to
+    /// small data resolve (see [`crate::riscv::set_global_pointer`]).
+    fn define_global_pointer(&self, view: &BinaryView) {
+        let entry = self.firmware.image.entry;
+        let Some(seg) = self
+            .firmware
+            .image
+            .segments
+            .iter()
+            .find(|s| s.addr <= entry && entry - s.addr < s.size)
+        else {
+            return;
+        };
+        let code =
+            &self.bytes[seg.offset + (entry - seg.addr) as usize..seg.offset + seg.size as usize];
+        let Some(gp) = self.chip().cpu().global_pointer(entry, code) else {
+            return;
+        };
+        tracing::info!("the startup code sets gp to {gp:#x}");
+        view.define_auto_symbol(
+            &SymbolBuilder::new(SymbolType::Data, "__global_pointer$", gp as u64).create(),
+        );
+        crate::riscv::set_global_pointer(view, gp);
     }
 
     /// Names the mask ROM's functions and data (and, on the ESP8266, the
@@ -449,6 +490,7 @@ impl CustomBinaryView for EspView {
             &SymbolBuilder::new(SymbolType::Function, chip.entry_symbol_name(), entry).create(),
         );
         view.add_entry_point(entry);
+        self.define_global_pointer(view);
         self.add_scanned_functions(view, &platform);
         self.define_app_desc(view, &platform);
         self.define_rom_symbols(view);

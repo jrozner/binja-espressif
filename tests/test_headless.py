@@ -139,6 +139,9 @@ for chip, chip_id in CHIPS.items():
     check(bv.view_type == "ESP", f"image: view type {bv.view_type}")
     check_program(bv, chip, "image")
     check(bv.entry_point == struct.unpack_from("<I", open(elf, "rb").read(), 0x18)[0], "image: entry point")
+    check(not bv.user_global_pointer_values and bv.get_symbol_by_raw_name("__global_pointer$") is None
+          and bv.get_symbol_by_raw_name("_vector_table") is None,
+          "image: no RISC-V global pointer or vector table")
 
     if chip_id is not None:
         for base in (0, 0x1000):
@@ -319,6 +322,7 @@ for chip, (code_addr, rodata_addr, bss_addr, rom_data_addr) in layouts.items():
     check(bss is not None and bss.writable and not bss.executable, f"{chip}: .bss gap mapped as data")
     check(bv.get_segment_at(rom_data_addr) is not None, f"{chip}: the ROM's data in SRAM is mapped")
     check({s.name for s in bv.get_symbols(0x60000000, 1)} == {"UART0"}, f"{chip}: bundled SVD loaded automatically")
+    check(not bv.user_global_pointer_values, f"{chip}: no gp without ESP-IDF's startup code")
     if chip == "esp32c6":
         check(code_seg.writable, "esp32c6: unified SRAM is writable (code and data share it)")
         sec = section_at(bv, rodata_addr)
@@ -350,6 +354,32 @@ for chip, kinds in rom_kinds.items():
         expected = bn.SymbolType.ImportedFunctionSymbol if kind == "Function" else bn.SymbolType.DataSymbol
         check(sym is not None and sym.type == expected,
               f"{chip}: ROM {name} is {kind.lower()} ({sym.type.name if sym else 'missing'})")
+
+print("RISC-V images built by GCC:")
+# tests/data/esp32c{3,6}.elf: ESP-IDF-style startup (`la gp,
+# __global_pointer$`, mtvec at a 32-entry `_vector_table`) and the corpus.
+for chip in ("esp32c3", "esp32c6"):
+    elf = os.path.join(DATA, f"{chip}.elf")
+    syms = elf_symbols(elf)
+    bv = load_bytes(elf_to_image(elf, RISCV_CHIPS[chip]), ".bin")
+    gp = syms["__global_pointer$"]
+    values = bv.user_global_pointer_values
+    check(len(values) == 1 and values[0][0] == "gp" and values[0][1].value == gp,
+          f"{chip}: gp {gp:#x} recovered from call_start_cpu0 ({values})")
+    sym = bv.get_symbol_by_raw_name("__global_pointer$")
+    check(sym is not None and sym.address == gp, f"{chip}: __global_pointer$ defined")
+    start = bv.get_function_at(syms["start"])
+    text = hlil_text(start) if start else ""
+    check(f"&data_{syms['sink']:x}, 1, 2)" in text and f"data_{syms['fp']:x}(4, 5, 6)" in text,
+          f"{chip}: gp-relative accesses in start resolve to sink and fp")
+    check("gp" not in text, f"{chip}: start does not take gp as an input")
+    for name in ("_vector_table", "_panic_handler", "_interrupt_handler"):
+        f = bv.get_function_at(syms[name])
+        check(f is not None and f.name == name, f"{chip}: {name} found and named")
+    entry = bv.get_function_at(bv.entry_point)
+    text = hlil_text(entry) if entry else ""
+    check(f"_csrwr(0x305, {syms['_vector_table'] | 1:#x})" in text and f"sub_{syms['start']:x}()" in text,
+          f"{chip}: call_start_cpu0 sets mtvec and calls start")
 
 print("Malformed and unusual images:")
 

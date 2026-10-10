@@ -68,14 +68,46 @@ impl Cpu {
         }
     }
 
-    /// The addresses of the functions found by scanning `code`, loaded at
-    /// `addr`, for function prologues. These find code that is only reached
-    /// through function pointers (callbacks, tasks, interrupt handlers),
-    /// which call-target analysis cannot see.
-    pub fn function_starts(self, addr: u32, code: &[u8]) -> Vec<u32> {
+    /// What scanning `code`, loaded at `addr`, finds: functions that are
+    /// only reached through function pointers (callbacks, tasks, interrupt
+    /// handlers), which call-target analysis cannot see. On the Xtensa
+    /// cores, the windowed functions' `entry` instructions; on the RISC-V
+    /// cores, the interrupt vector tables and their handlers.
+    pub fn scan_code(self, addr: u32, code: &[u8]) -> CodeScan {
+        let mut scan = CodeScan::default();
         match self {
-            Cpu::Xtensa(core) => core.function_starts(addr, code),
-            Cpu::RiscV(core) => core.function_starts(addr, code),
+            Cpu::Xtensa(core) => {
+                scan.functions = core
+                    .function_starts(addr, code)
+                    .into_iter()
+                    .map(|a| (a, None))
+                    .collect();
+            }
+            Cpu::RiscV(_) => {
+                for table in riscv::vector_tables(addr, code) {
+                    match table.kind {
+                        // The table is code: entry n is a jump taken for cause n.
+                        riscv::VectorTableKind::Jumps => {
+                            scan.functions.push((table.addr, Some(table.name())));
+                        }
+                        riscv::VectorTableKind::Pointers => {
+                            scan.pointer_tables
+                                .push((table.addr, table.name(), table.entries()));
+                        }
+                    }
+                    scan.functions.extend(table.handlers);
+                }
+            }
+        }
+        scan
+    }
+
+    /// The value of the global pointer register set by the code at the
+    /// entry point, `code`, loaded at `addr`.
+    pub fn global_pointer(self, addr: u32, code: &[u8]) -> Option<u32> {
+        match self {
+            Cpu::Xtensa(_) => None,
+            Cpu::RiscV(_) => riscv::global_pointer(addr, code),
         }
     }
 
@@ -86,6 +118,15 @@ impl Cpu {
             Cpu::RiscV(core) => core.is_prologue(code),
         }
     }
+}
+
+/// What [`Cpu::scan_code`] found in a code segment.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct CodeScan {
+    /// Function starts, with their names where they are known.
+    pub functions: Vec<(u32, Option<&'static str>)>,
+    /// Tables of code addresses: address, name and number of entries.
+    pub pointer_tables: Vec<(u32, &'static str, usize)>,
 }
 
 /// An instruction set family. Chips are told apart within a family by

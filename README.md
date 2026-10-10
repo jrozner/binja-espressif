@@ -68,10 +68,17 @@ It provides:
   the ESP8266's peripheral blocks, types the ESP-IDF `esp_app_desc_t`, and,
   on the Xtensa chips, seeds functions from every aligned `entry`
   instruction so that callbacks and tasks reached only through pointers are
-  found. On the ESP32-C6, H2 and C5, where SRAM is one region seen by both
-  buses and flash is mapped through one window shared by code and read-only
-  data, the SRAM segments are mapped writable and executable and the flash
-  window read-only, as code.
+  found. On the RISC-V chips it finds ESP-IDF's interrupt vector table
+  (`_vector_table`, or the CLIC's `_mtvt_table` on the ESP32-C5) and names
+  and seeds its handlers, and reads the value `call_start_cpu0` loads into
+  `gp` (`la gp, __global_pointer$`) so that `gp`-relative accesses to small
+  data resolve from the start. The value is set as the view's global
+  pointer value (*user* value, since Binary Ninja only allows setting those);
+  one you set yourself, or saved in a database, is left alone. Bootloader
+  images do not use `gp`. On the ESP32-C6, H2 and C5, where SRAM is one
+  region seen by both buses and flash is mapped through one window shared
+  by code and read-only data, the SRAM segments are mapped writable and
+  executable and the flash window read-only, as code.
 - **Peripheral registers from SVD**: Espressif's SVD files for the ESP32,
   ESP32-S2, ESP32-S3, ESP32-C2, ESP32-C3, ESP32-C6 and ESP32-H2
   (https://github.com/espressif/svd, Apache-2.0) are
