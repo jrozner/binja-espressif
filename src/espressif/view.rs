@@ -162,7 +162,7 @@ fn flags_for(kind: RegionKind) -> SegmentFlags {
         RegionKind::Flash => f.executable(true).contains_code(true).contains_data(true),
         // A segment here may be code or initialized data; it has to stay
         // writable for the data's sake.
-        RegionKind::Sram => f
+        RegionKind::Sram | RegionKind::RtcRam => f
             .writable(true)
             .executable(true)
             .contains_code(true)
@@ -182,7 +182,7 @@ fn semantics_for(kind: RegionKind) -> Semantics {
         | RegionKind::Rom
         | RegionKind::Flash => Semantics::ReadOnlyCode,
         RegionKind::Drom | RegionKind::RomData => Semantics::ReadOnlyData,
-        RegionKind::Sram => Semantics::DefaultSection,
+        RegionKind::Sram | RegionKind::RtcRam => Semantics::DefaultSection,
         _ => Semantics::ReadWriteData,
     }
 }
@@ -271,13 +271,19 @@ impl EspView {
         for region in self.chip().regions() {
             if !matches!(
                 region.kind,
-                RegionKind::Dram | RegionKind::Sram | RegionKind::RtcData | RegionKind::Peripheral
+                RegionKind::Dram
+                    | RegionKind::Sram
+                    | RegionKind::RtcData
+                    | RegionKind::RtcRam
+                    | RegionKind::Peripheral
             ) {
                 continue;
             }
-            // What is left of unified SRAM is `.bss`, heap and stack.
+            // What is left of unified SRAM is `.bss`, heap and stack; of RTC
+            // memory, the retained `.rtc.bss` and `.rtc_noinit`.
             let kind = match region.kind {
                 RegionKind::Sram => RegionKind::Dram,
+                RegionKind::RtcRam => RegionKind::RtcData,
                 kind => kind,
             };
             let mut cursor = region.start as u64;

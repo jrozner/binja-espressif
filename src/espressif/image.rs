@@ -50,6 +50,11 @@ pub enum RegionKind {
     Flash,
     RtcCode,
     RtcData,
+    /// RTC (or LP) memory at the same address for code and data, holding
+    /// `.rtc.text` and the retained `.rtc.data`, `.rtc.bss` and
+    /// `.rtc_noinit` (ESP-IDF aliases `rtc_data_seg` to `rtc_iram_seg`, or
+    /// both to `lp_ram_seg`).
+    RtcRam,
     ExtRam,
     Peripheral,
 }
@@ -73,6 +78,7 @@ impl Region {
             RegionKind::Iram
                 | RegionKind::Irom
                 | RegionKind::RtcCode
+                | RegionKind::RtcRam
                 | RegionKind::Rom
                 | RegionKind::Sram
                 | RegionKind::Flash
@@ -171,7 +177,7 @@ pub static ESP32C3_REGIONS: &[Region] = &[
     r("rom", 0x4000_0000, 0x4006_0000, K::Rom),
     r("iram", 0x4037_C000, 0x403E_0000, K::Iram),
     r("irom", 0x4200_0000, 0x4280_0000, K::Irom),
-    r("rtc_slow", 0x5000_0000, 0x5000_2000, K::RtcCode),
+    r("rtc_fast", 0x5000_0000, 0x5000_2000, K::RtcRam),
     r("peripherals", 0x6000_0000, 0x6010_0000, K::Peripheral),
 ];
 
@@ -179,7 +185,7 @@ pub static ESP32C6_REGIONS: &[Region] = &[
     r("rom", 0x4000_0000, 0x4005_0000, K::Rom),
     r("sram", 0x4080_0000, 0x4088_0000, K::Sram),
     r("flash", 0x4200_0000, 0x4300_0000, K::Flash),
-    r("lp_ram", 0x5000_0000, 0x5000_4000, K::RtcCode),
+    r("lp_ram", 0x5000_0000, 0x5000_4000, K::RtcRam),
     r("peripherals", 0x6000_0000, 0x6010_0000, K::Peripheral),
 ];
 
@@ -187,7 +193,7 @@ pub static ESP32H2_REGIONS: &[Region] = &[
     r("rom", 0x4000_0000, 0x4002_0000, K::Rom),
     r("sram", 0x4080_0000, 0x4085_0000, K::Sram),
     r("flash", 0x4200_0000, 0x4300_0000, K::Flash),
-    r("lp_ram", 0x5000_0000, 0x5000_1000, K::RtcCode),
+    r("lp_ram", 0x5000_0000, 0x5000_1000, K::RtcRam),
     r("peripherals", 0x6000_0000, 0x6010_0000, K::Peripheral),
 ];
 
@@ -196,7 +202,7 @@ pub static ESP32C5_REGIONS: &[Region] = &[
     r("rom", 0x4000_0000, 0x4005_0000, K::Rom),
     r("sram", 0x4080_0000, 0x4086_0000, K::Sram),
     r("flash", 0x4200_0000, 0x4400_0000, K::Flash),
-    r("lp_ram", 0x5000_0000, 0x5000_4000, K::RtcCode),
+    r("lp_ram", 0x5000_0000, 0x5000_4000, K::RtcRam),
     r("peripherals", 0x6000_0000, 0x6010_0000, K::Peripheral),
 ];
 

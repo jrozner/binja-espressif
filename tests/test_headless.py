@@ -399,6 +399,16 @@ for chip, kinds in rom_kinds.items():
         expected = bn.SymbolType.ImportedFunctionSymbol if kind == "Function" else bn.SymbolType.DataSymbol
         check(sym is not None and sym.type == expected,
               f"{chip}: ROM {name} is {kind.lower()} ({sym.type.name if sym else 'missing'})")
+# RTC (C3) and LP (C6) memory holds code and retained data at one address:
+# initialized data there stays writable, and the rest (`.rtc.bss`,
+# `.rtc_noinit`) is mapped.
+for chip, code_addr in (("esp32c3", 0x40380000), ("esp32c6", 0x40800000)):
+    bv = load_bytes(riscv_image(RISCV_CHIPS[chip], [(code_addr, rv_code), (0x50000000, b"\x01\x00\x00\x00")],
+                                code_addr), ".bin")
+    data, gap = bv.get_segment_at(0x50000000), bv.get_segment_at(0x50000010)
+    check(data is not None and data.writable, f"{chip}: initialized RTC data at 0x50000000 is writable")
+    check(gap is not None and gap.writable and not gap.executable,
+          f"{chip}: uninitialized RTC memory at 0x50000010 is mapped as data")
 # A pre-ESP-IDF 5.0 C3 image (no min_chip_rev_full) requiring v0.3: the
 # legacy byte is the C3's minor revision. The v0.3 (ECO3) ROM symbols apply;
 # the v1.1 (ECO7) ones do not.
