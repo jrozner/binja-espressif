@@ -35,6 +35,10 @@ pub const AUTO_LOAD: &str = "espressif.svd.autoLoad";
 pub(super) static ESP32: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32.svd.gz"));
 pub(super) static ESP32S2: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32s2.svd.gz"));
 pub(super) static ESP32S3: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32s3.svd.gz"));
+pub(super) static ESP32C2: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32c2.svd.gz"));
+pub(super) static ESP32C3: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32c3.svd.gz"));
+pub(super) static ESP32C6: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32c6.svd.gz"));
+pub(super) static ESP32H2: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32h2.svd.gz"));
 
 pub fn register_settings() {
     let settings = Settings::global();

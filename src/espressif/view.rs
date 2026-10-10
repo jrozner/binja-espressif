@@ -157,7 +157,17 @@ fn flags_for(kind: RegionKind) -> SegmentFlags {
         RegionKind::Iram | RegionKind::Irom | RegionKind::RtcCode | RegionKind::Rom => {
             f.executable(true).contains_code(true)
         }
-        RegionKind::Drom => f.contains_data(true),
+        // Read-only, so that the jump tables and constants among the code
+        // are read as constants.
+        RegionKind::Flash => f.executable(true).contains_code(true).contains_data(true),
+        // A segment here may be code or initialized data; it has to stay
+        // writable for the data's sake.
+        RegionKind::Sram => f
+            .writable(true)
+            .executable(true)
+            .contains_code(true)
+            .contains_data(true),
+        RegionKind::Drom | RegionKind::RomData => f.contains_data(true),
         RegionKind::Dram | RegionKind::RtcData | RegionKind::ExtRam | RegionKind::Peripheral => {
             f.writable(true).contains_data(true)
         }
@@ -166,10 +176,13 @@ fn flags_for(kind: RegionKind) -> SegmentFlags {
 
 fn semantics_for(kind: RegionKind) -> Semantics {
     match kind {
-        RegionKind::Iram | RegionKind::Irom | RegionKind::RtcCode | RegionKind::Rom => {
-            Semantics::ReadOnlyCode
-        }
-        RegionKind::Drom => Semantics::ReadOnlyData,
+        RegionKind::Iram
+        | RegionKind::Irom
+        | RegionKind::RtcCode
+        | RegionKind::Rom
+        | RegionKind::Flash => Semantics::ReadOnlyCode,
+        RegionKind::Drom | RegionKind::RomData => Semantics::ReadOnlyData,
+        RegionKind::Sram => Semantics::DefaultSection,
         _ => Semantics::ReadWriteData,
     }
 }
@@ -258,10 +271,15 @@ impl EspView {
         for region in self.chip().regions() {
             if !matches!(
                 region.kind,
-                RegionKind::Dram | RegionKind::RtcData | RegionKind::Peripheral
+                RegionKind::Dram | RegionKind::Sram | RegionKind::RtcData | RegionKind::Peripheral
             ) {
                 continue;
             }
+            // What is left of unified SRAM is `.bss`, heap and stack.
+            let kind = match region.kind {
+                RegionKind::Sram => RegionKind::Dram,
+                kind => kind,
+            };
             let mut cursor = region.start as u64;
             let end = region.end as u64;
             let mut inside: Vec<(u64, u64)> = mapped
@@ -283,7 +301,7 @@ impl EspView {
             for (s, e) in gaps {
                 view.add_segment(
                     SegmentBuilder::new(s..e)
-                        .flags(flags_for(region.kind))
+                        .flags(flags_for(kind))
                         .is_auto(true),
                 );
                 let name = if region.kind == RegionKind::Peripheral {
@@ -293,7 +311,7 @@ impl EspView {
                 };
                 view.add_section(
                     SectionBuilder::new(name, s..e)
-                        .semantics(semantics_for(region.kind))
+                        .semantics(semantics_for(kind))
                         .is_auto(true),
                 );
             }

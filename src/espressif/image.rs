@@ -2,8 +2,9 @@
 //!
 //! Supported layouts:
 //!
-//! * **ESP32 / ESP32-S2 / ESP32-S3 images** (all ESP-IDF versions, apps and
-//!   second stage bootloaders): an 8-byte header with magic `0xE9`, a 16-byte
+//! * **ESP32-family images** (ESP32, ESP32-S2, ESP32-S3 and the RISC-V
+//!   ESP32-C2, C3, C6, H2 and C5; all ESP-IDF versions, apps and second
+//!   stage bootloaders): an 8-byte header with magic `0xE9`, a 16-byte
 //!   extended header whose `chip_id` selects the chip (`0` for the ESP32,
 //!   which is also what images written before the field existed contain),
 //!   then `count` segments of `(load address, length, data)`. esptool pads
@@ -33,12 +34,20 @@ pub const ESP8266_FLASH_MAP: u32 = 0x4020_0000;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegionKind {
     Rom,
+    /// The mask ROM seen from the data bus (ESP32-C2/C3): its constants.
+    RomData,
     Iram,
     Dram,
+    /// Internal SRAM at the same address on the instruction and data buses
+    /// (ESP32-C6, H2, C5), holding both code and data.
+    Sram,
     /// Flash mapped, executable.
     Irom,
     /// Flash mapped, read-only data.
     Drom,
+    /// Flash mapped through a cache window shared by code and read-only
+    /// data (ESP32-C6, H2, C5).
+    Flash,
     RtcCode,
     RtcData,
     ExtRam,
@@ -61,8 +70,19 @@ impl Region {
     pub fn is_code(&self) -> bool {
         matches!(
             self.kind,
-            RegionKind::Iram | RegionKind::Irom | RegionKind::RtcCode | RegionKind::Rom
+            RegionKind::Iram
+                | RegionKind::Irom
+                | RegionKind::RtcCode
+                | RegionKind::Rom
+                | RegionKind::Sram
+                | RegionKind::Flash
         )
+    }
+
+    /// Does the region hold the read-only data of an image (where its
+    /// `esp_app_desc_t` is)?
+    pub fn is_rodata(&self) -> bool {
+        matches!(self.kind, RegionKind::Drom | RegionKind::Flash)
     }
 }
 
@@ -126,12 +146,66 @@ pub static ESP32S3_REGIONS: &[Region] = &[
     r("rtc_fast", 0x600F_E000, 0x6010_0000, K::RtcCode),
 ];
 
+// The RISC-V chips. The ESP32-C2 and C3 have separate instruction and data
+// buses like the ESP32-S3: IRAM and DRAM are the same SRAM at two addresses
+// (`SOC_I_D_OFFSET` apart), and flash is mapped through separate code and
+// data windows. The C6, H2 and C5 see SRAM at one address from both buses
+// and map flash through one window shared by code and read-only data. The
+// end of each flash window is the largest the MMU can map; the SRAM regions
+// include the top of SRAM that the ROM keeps for its own data.
+
+pub static ESP32C2_REGIONS: &[Region] = &[
+    r("drom", 0x3C00_0000, 0x3C40_0000, K::Drom),
+    r("dram", 0x3FCA_0000, 0x3FCE_0000, K::Dram),
+    r("rom_data", 0x3FF0_0000, 0x3FF5_0000, K::RomData),
+    r("rom", 0x4000_0000, 0x4009_0000, K::Rom),
+    r("iram", 0x4037_C000, 0x403C_0000, K::Iram),
+    r("irom", 0x4200_0000, 0x4240_0000, K::Irom),
+    r("peripherals", 0x6000_0000, 0x6010_0000, K::Peripheral),
+];
+
+pub static ESP32C3_REGIONS: &[Region] = &[
+    r("drom", 0x3C00_0000, 0x3C80_0000, K::Drom),
+    r("dram", 0x3FC8_0000, 0x3FCE_0000, K::Dram),
+    r("rom_data", 0x3FF0_0000, 0x3FF2_0000, K::RomData),
+    r("rom", 0x4000_0000, 0x4006_0000, K::Rom),
+    r("iram", 0x4037_C000, 0x403E_0000, K::Iram),
+    r("irom", 0x4200_0000, 0x4280_0000, K::Irom),
+    r("rtc_slow", 0x5000_0000, 0x5000_2000, K::RtcCode),
+    r("peripherals", 0x6000_0000, 0x6010_0000, K::Peripheral),
+];
+
+pub static ESP32C6_REGIONS: &[Region] = &[
+    r("rom", 0x4000_0000, 0x4005_0000, K::Rom),
+    r("sram", 0x4080_0000, 0x4088_0000, K::Sram),
+    r("flash", 0x4200_0000, 0x4300_0000, K::Flash),
+    r("lp_ram", 0x5000_0000, 0x5000_4000, K::RtcCode),
+    r("peripherals", 0x6000_0000, 0x6010_0000, K::Peripheral),
+];
+
+pub static ESP32H2_REGIONS: &[Region] = &[
+    r("rom", 0x4000_0000, 0x4002_0000, K::Rom),
+    r("sram", 0x4080_0000, 0x4085_0000, K::Sram),
+    r("flash", 0x4200_0000, 0x4300_0000, K::Flash),
+    r("lp_ram", 0x5000_0000, 0x5000_1000, K::RtcCode),
+    r("peripherals", 0x6000_0000, 0x6010_0000, K::Peripheral),
+];
+
+// The C5's flash window also maps PSRAM.
+pub static ESP32C5_REGIONS: &[Region] = &[
+    r("rom", 0x4000_0000, 0x4005_0000, K::Rom),
+    r("sram", 0x4080_0000, 0x4086_0000, K::Sram),
+    r("flash", 0x4200_0000, 0x4400_0000, K::Flash),
+    r("lp_ram", 0x5000_0000, 0x5000_4000, K::RtcCode),
+    r("peripherals", 0x6000_0000, 0x6010_0000, K::Peripheral),
+];
+
 pub fn region_of(chip: Chip, addr: u32) -> Option<&'static Region> {
     chip.regions().iter().find(|r| r.contains(addr))
 }
 
-/// The chip of an ESP-IDF image `chip_id`. Other ids belong to the RISC-V
-/// chips (ESP32-C3, ...).
+/// The chip of an ESP-IDF image `chip_id`. Other ids belong to chips that
+/// are not supported (the ESP32-P4, ...).
 pub fn chip_from_id(id: u16) -> Option<Chip> {
     Chip::ALL
         .into_iter()
@@ -146,7 +220,42 @@ pub fn chip_from_id(id: u16) -> Option<Chip> {
 pub fn guess_chip(family: Family, addrs: &[u32], hint: Option<EntryHint>) -> Chip {
     match family {
         Family::Xtensa => guess_xtensa_chip(addrs, hint),
+        Family::RiscV => guess_riscv_chip(addrs),
     }
+}
+
+/// The RISC-V chips' memory maps mostly overlap, so this is a best guess:
+/// the C2's map is contained in the C3's, and the H2's and the C5's SRAM in
+/// the C6's. Ambiguous programs are taken for the more common C3 or C6.
+fn guess_riscv_chip(addrs: &[u32]) -> Chip {
+    let any_in = |ranges: &[(u32, u32)]| {
+        addrs
+            .iter()
+            .any(|&a| ranges.iter().any(|&(lo, hi)| lo <= a && a < hi))
+    };
+    // Only the C5's flash window extends past 16 MB.
+    if any_in(&[(0x4300_0000, 0x4400_0000)]) {
+        return Chip::Esp32C5;
+    }
+    // Unified SRAM: the C6, H2 or C5. Only the C6 has SRAM above 0x40860000,
+    // but programs below that are not told apart.
+    if any_in(&[(0x4080_0000, 0x4090_0000)]) {
+        return Chip::Esp32C6;
+    }
+    // Separate instruction and data buses: the C3 or the C2, whose memory
+    // is a subset of the C3's.
+    let c3_only = [
+        (0x3C40_0000, 0x3C80_0000),
+        (0x3FC8_0000, 0x3FCA_0000),
+        (0x403C_0000, 0x403E_0000),
+        (0x4240_0000, 0x4280_0000),
+        (0x5000_0000, 0x5000_2000),
+    ];
+    let c2_only = [(0x3FF2_0000, 0x3FF5_0000), (0x4006_0000, 0x4009_0000)];
+    if !any_in(&c3_only) && any_in(&c2_only) {
+        return Chip::Esp32C2;
+    }
+    Chip::Esp32C3
 }
 
 fn guess_xtensa_chip(addrs: &[u32], hint: Option<EntryHint>) -> Chip {
@@ -235,7 +344,7 @@ impl Image {
     pub fn app_desc<'a>(&self, data: &'a [u8]) -> Option<(u32, &'a [u8])> {
         self.segments
             .iter()
-            .filter(|s| region_of(self.chip, s.addr).is_some_and(|r| r.kind == K::Drom))
+            .filter(|s| region_of(self.chip, s.addr).is_some_and(|r| r.is_rodata()))
             .find(|s| read_u32(data, s.offset) == Some(APP_DESC_MAGIC))
             .filter(|s| s.size as usize >= APP_DESC_SIZE)
             .and_then(|s| Some((s.addr, data.get(s.offset..s.offset + APP_DESC_SIZE)?)))
@@ -679,9 +788,85 @@ mod tests {
             &[(0x4037_5000, &[0; 4]), (0x3C00_0020, &[0; 4])],
         );
         assert_eq!(parse_image(&d, 0).unwrap().chip, Chip::Esp32S3);
-        // RISC-V chips are not ours.
-        let d = image(0xE9, Some(ext(5)), 0x4038_0000, &[(0x4038_0000, &[0; 4])]);
+        // The ESP32-P4 is not supported.
+        let d = image(0xE9, Some(ext(18)), 0x4FF0_0000, &[(0x4FF0_0000, &[0; 4])]);
         assert!(parse_image(&d, 0).is_none());
+    }
+
+    #[test]
+    fn riscv_chips() {
+        // addi sp, sp, -16; ret
+        let code: &[u8] = &[0x13, 0x01, 0x01, 0xff, 0x82, 0x80];
+        let d = image(
+            0xE9,
+            Some(ext(5)),
+            0x4038_0000,
+            &[(0x3C00_0020, &[0; 32]), (0x4038_0000, code)],
+        );
+        assert_eq!(parse_image(&d, 0).unwrap().chip, Chip::Esp32C3);
+        for (id, chip) in [
+            (13, Chip::Esp32C6),
+            (16, Chip::Esp32H2),
+            (23, Chip::Esp32C5),
+        ] {
+            let d = image(
+                0xE9,
+                Some(ext(id)),
+                0x4080_0000,
+                &[(0x4200_0020, &[0; 32]), (0x4080_0000, code)],
+            );
+            assert_eq!(parse_image(&d, 0).unwrap().chip, chip);
+        }
+        let d = image(0xE9, Some(ext(12)), 0x4038_0000, &[(0x4038_0000, code)]);
+        assert_eq!(parse_image(&d, 0).unwrap().chip, Chip::Esp32C2);
+        // An entry point outside the chip's code regions.
+        let d = image(0xE9, Some(ext(13)), 0x4038_0000, &[(0x4038_0000, code)]);
+        assert!(parse_image(&d, 0).is_none());
+    }
+
+    #[test]
+    fn chip_ids_and_regions() {
+        for chip in Chip::ALL {
+            if let Some(id) = chip.image_chip_id() {
+                assert_eq!(chip_from_id(id), Some(chip), "{chip:?}");
+            }
+            // Sorted, non-empty and disjoint.
+            let regions = chip.regions();
+            for r in regions {
+                assert!(r.start < r.end, "{chip:?} {}", r.name);
+            }
+            for w in regions.windows(2) {
+                assert!(w[0].end <= w[1].start, "{chip:?} {}", w[1].name);
+            }
+        }
+        // The ROM's data in the top of SRAM is mapped.
+        assert_eq!(region_of(Chip::Esp32C3, 0x3FCD_F800).unwrap().kind, K::Dram);
+        assert_eq!(region_of(Chip::Esp32C6, 0x4087_FF00).unwrap().kind, K::Sram);
+        assert_eq!(
+            region_of(Chip::Esp32C3, 0x3FF0_0100).unwrap().kind,
+            K::RomData
+        );
+    }
+
+    #[test]
+    fn guess_riscv_chip_from_addresses() {
+        let guess = |addrs: &[u32]| guess_chip(Family::RiscV, addrs, None);
+        // An ESP-IDF app: DROM, DRAM, IRAM and IROM.
+        let c3 = [0x3C00_0020, 0x3FC8_8000, 0x4038_0000, 0x4200_0020];
+        assert_eq!(guess(&c3), Chip::Esp32C3);
+        // The C2's memory map is inside the C3's; only its ROM addresses
+        // differ, and anything the C3 alone has wins.
+        assert_eq!(guess(&[0x4038_0000, 0x4007_0000]), Chip::Esp32C2);
+        assert_eq!(guess(&[0x403C_8000, 0x4007_0000]), Chip::Esp32C3);
+        // Bootloaders: the C3's is above the C2's IRAM; the C2's is ambiguous.
+        assert_eq!(guess(&[0x403C_E710, 0x3FCD_5710]), Chip::Esp32C3);
+        assert_eq!(guess(&[0x403A_EB70, 0x3FCD_5B70]), Chip::Esp32C3);
+        // Unified SRAM chips.
+        assert_eq!(guess(&[0x4200_0020, 0x4080_0000]), Chip::Esp32C6);
+        assert_eq!(guess(&[0x4086_E610]), Chip::Esp32C6);
+        assert_eq!(guess(&[0x4083_EFD0]), Chip::Esp32C6); // an H2 bootloader
+        assert_eq!(guess(&[0x4300_0020, 0x4080_0000]), Chip::Esp32C5);
+        assert_eq!(guess(&[0x4200_0020]), Chip::Esp32C3);
     }
 
     #[test]

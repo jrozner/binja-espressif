@@ -233,7 +233,19 @@ for chip in CHIPS:
     check(platform.arch == arch and names >= expected, f"{chip}: on {arch.name}, conventions {sorted(names)}")
     check(platform.default_calling_convention == arch.standalone_platform.default_calling_convention,
           f"{chip}: default convention {platform.default_calling_convention}")
-check({p.name for p in bn.Platform.get_list(os="espressif")} == set(CHIPS), "registered under the espressif OS")
+RISCV_CHIPS = {"esp32c2": 12, "esp32c3": 5, "esp32c6": 13, "esp32h2": 16, "esp32c5": 23}
+for chip in RISCV_CHIPS:
+    platform = bn.Platform[chip]
+    names = {cc.name for cc in platform.calling_conventions}
+    check(platform.arch.name == "rv32gc" and names >= {"ilp32", "default"},
+          f"{chip}: on {platform.arch.name}, conventions {sorted(names)}")
+    check(platform.default_calling_convention.name == "ilp32", f"{chip}: default convention {platform.default_calling_convention}")
+ilp32 = bn.Architecture["rv32gc"].calling_conventions["ilp32"]
+check(ilp32.float_arg_regs == [] and ilp32.int_arg_regs == [f"a{n}" for n in range(8)]
+      and ilp32.float_return_reg is None and ilp32.global_pointer_reg == "gp",
+      "ilp32 passes everything in a0..a7")
+check({p.name for p in bn.Platform.get_list(os="espressif")} == set(CHIPS) | set(RISCV_CHIPS),
+      "registered under the espressif OS")
 for name in ("esp32s3", "xtensa-esp32s3"):
     bv = bn.load(os.path.join(DATA, "esp32s2.elf"), options={"loader.platform": name})
     check(bv.platform.name == name, f"loader.platform = {name} overrides the ELF's chip")
@@ -262,6 +274,65 @@ nop = bytes.fromhex("f02000")
 check(len(esp32.get_instruction_info(nop, 0x40080021).branches) == 2, "ESP32: loop end branches back")
 check(not bn.Architecture["xtensa-esp8266"].get_instruction_info(nop, 0x40080021).branches,
       "ESP8266: no loop edge from an ESP32 loop at the same address")
+
+print("RISC-V images:")
+
+
+def riscv_image(chip_id, segments, entry):
+    out = struct.pack("<BBBBI", 0xE9, len(segments), 2, 0, entry)
+    out += bytes([0xEE, 0, 0, 0]) + struct.pack("<H", chip_id) + bytes(10)
+    for addr, body in segments:
+        out += struct.pack("<II", addr, len(body)) + body
+    return out
+
+
+def section_at(bv, addr):
+    sections = bv.get_sections_at(addr)
+    return sections[0] if sections else None
+
+
+# addi sp, sp, -16; sw ra, 12(sp); li a0, 1; lw ra, 12(sp); addi sp, sp, 16; ret
+rv_code = bytes.fromhex("130101ff" "06c6" "0545" "b240" "4101" "8280")
+app_desc = struct.pack("<I", 0xABCD5432) + bytes(252)
+layouts = {
+    # chip: (code address, rodata address, a .bss address, ROM data in SRAM)
+    "esp32c3": (0x40380000, 0x3C000020, 0x3FC90000, 0x3FCDF800),
+    "esp32c6": (0x40800000, 0x42000020, 0x40810000, 0x4087FF00),
+}
+for chip, (code_addr, rodata_addr, bss_addr, rom_data_addr) in layouts.items():
+    blob = riscv_image(RISCV_CHIPS[chip], [(rodata_addr, app_desc), (code_addr, rv_code)], code_addr)
+    bv = load_bytes(blob, ".bin")
+    bv.update_analysis_and_wait()
+    check(bv.view_type == "ESP" and bv.platform.name == chip and bv.arch.name == "rv32gc",
+          f"{chip}: ESP view on {bv.platform.name if bv.platform else None}")
+    sym = bv.get_symbol_at(code_addr)
+    check(sym is not None and sym.name == "call_start_cpu0", f"{chip}: entry symbol")
+    f = bv.get_function_at(code_addr)
+    check(f is not None and f.calling_convention.name == "ilp32", f"{chip}: entry function uses ilp32")
+    check(f is not None and "return 1" in hlil_text(f), f"{chip}: entry function decompiles")
+    check(bv.get_symbol_by_raw_name("esp_app_desc") is not None and bv.get_symbol_by_raw_name("esp_app_desc").address == rodata_addr,
+          f"{chip}: esp_app_desc in the rodata segment")
+    code_seg, rodata_seg = bv.get_segment_at(code_addr), bv.get_segment_at(rodata_addr)
+    check(code_seg is not None and code_seg.executable, f"{chip}: code segment is executable")
+    check(rodata_seg is not None and not rodata_seg.writable, f"{chip}: rodata segment is read-only")
+    bss = bv.get_segment_at(bss_addr)
+    check(bss is not None and bss.writable and not bss.executable, f"{chip}: .bss gap mapped as data")
+    check(bv.get_segment_at(rom_data_addr) is not None, f"{chip}: the ROM's data in SRAM is mapped")
+    check({s.name for s in bv.get_symbols(0x60000000, 1)} == {"UART0"}, f"{chip}: bundled SVD loaded automatically")
+    if chip == "esp32c6":
+        check(code_seg.writable, "esp32c6: unified SRAM is writable (code and data share it)")
+        sec = section_at(bv, rodata_addr)
+        check(sec is not None and sec.semantics == bn.SectionSemantics.ReadOnlyCodeSectionSemantics,
+              "esp32c6: the shared flash window is read-only code")
+    else:
+        check(not code_seg.writable, "esp32c3: IRAM is mapped read-only")
+        sec = section_at(bv, rodata_addr)
+        check(sec is not None and sec.semantics == bn.SectionSemantics.ReadOnlyDataSectionSemantics,
+              "esp32c3: DROM is read-only data")
+bv = load_bytes(riscv_image(23, [(0x40800000, rv_code)], 0x40800000), ".bin")
+check(bv.view_type == "ESP" and bv.platform.name == "esp32c5", "esp32c5: ESP view (no SVD)")
+bv = load_bytes(riscv_image(18, [(0x4FF00000, rv_code)], 0x4FF00000), ".bin")
+check(bv.view_type != "ESP", "ESP32-P4 images are not loaded")
 
 print("Malformed and unusual images:")
 

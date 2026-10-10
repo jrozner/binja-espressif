@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 
 /// The chips whose Espressif SVD file (from the `svd` submodule) is embedded,
 /// gzip-compressed, in the plugin; see src/svd.rs.
-const SVD_CHIPS: [&str; 3] = ["esp32", "esp32s2", "esp32s3"];
+const SVD_CHIPS: [&str; 7] = [
+    "esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3", "esp32c6", "esp32h2",
+];
 
 fn compress_svd_files() {
     let manifest = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
