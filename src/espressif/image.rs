@@ -21,8 +21,7 @@
 //!   dumps without a partition table (NONOS SDK) are additionally mapped as
 //!   a whole at the flash cache window `0x40200000`, where `irom0` lives.
 
-use crate::espressif::Chip;
-use crate::xtensa;
+use crate::espressif::{Chip, EntryHint, Family};
 
 pub const IMAGE_MAGIC: u8 = 0xE9;
 pub const IMAGE_V2_MAGIC: u8 = 0xEA;
@@ -141,11 +140,16 @@ pub fn chip_from_id(id: u16) -> Option<Chip> {
 
 /// Guesses the chip from the load addresses of a program, for formats that
 /// do not say (ELF files, and images with a `chip_id` of 0, which is the
-/// ESP32 or an ESP8266 RTOS SDK v3 image). `windowed_entry` says, if known,
-/// whether the entry point starts with `entry`: ESP32-family code uses the
-/// windowed ABI, whose functions start with `entry`, while the ESP8266 uses
-/// `call0`.
-pub fn guess_chip(addrs: &[u32], windowed_entry: Option<bool>) -> Chip {
+/// ESP32 or an ESP8266 RTOS SDK v3 image). `hint` is what the code at the
+/// entry point says, if known: ESP32-family code uses the windowed ABI,
+/// whose functions start with `entry`, while the ESP8266 uses `call0`.
+pub fn guess_chip(family: Family, addrs: &[u32], hint: Option<EntryHint>) -> Chip {
+    match family {
+        Family::Xtensa => guess_xtensa_chip(addrs, hint),
+    }
+}
+
+fn guess_xtensa_chip(addrs: &[u32], hint: Option<EntryHint>) -> Chip {
     let any_in = |ranges: &[(u32, u32)]| {
         addrs
             .iter()
@@ -174,10 +178,10 @@ pub fn guess_chip(addrs: &[u32], windowed_entry: Option<bool>) -> Chip {
     // code: ESP8266 code, unless it is loaded where the ESP8266 has no memory
     // (an ESP32 call0 startup stub, for instance).
     let fits_esp8266 = addrs.iter().all(|&a| region_of(Chip::Esp8266, a).is_some());
-    match windowed_entry {
-        Some(true) => Chip::Esp32,
-        Some(false) if fits_esp8266 => Chip::Esp8266,
-        Some(false) => Chip::Esp32,
+    match hint {
+        Some(EntryHint::Windowed) => Chip::Esp32,
+        Some(EntryHint::Call0) if fits_esp8266 => Chip::Esp8266,
+        Some(EntryHint::Call0) => Chip::Esp32,
         None if any_in(&[
             (0x4010_0000, 0x4011_0000),
             (0x3FFE_8000, 0x4000_0000),
@@ -327,8 +331,9 @@ fn parse_esp32(data: &[u8], start: usize, count: usize, entry: u32) -> Option<Im
             .filter(|s| s.addr != 0)
             .map(|s| s.addr)
             .collect();
-        let windowed_entry = code_at(data, &segments, entry).map(xtensa::is_entry_insn);
-        chip = guess_chip(&addrs, windowed_entry);
+        let family = Family::Xtensa;
+        let hint = code_at(data, &segments, entry).and_then(|code| family.entry_hint(code));
+        chip = guess_chip(family, &addrs, hint);
     }
     plausible(chip, entry, &segments).then_some(Image {
         chip,
@@ -412,7 +417,8 @@ fn esp8266_v2_flash_offset(data: &[u8], start: usize, irom_offset: usize, irom_s
             .filter(|&p| p >= base && p < base + irom_size && p % 4 == 0)
             .filter(|&p| {
                 let o = (p - base) as usize;
-                irom.get(o..o + 2) == Some(&[0x12, 0xc1])
+                irom.get(o..)
+                    .is_some_and(|code| Chip::Esp8266.cpu().is_prologue(code))
             })
             .count()
     };
@@ -770,6 +776,20 @@ mod tests {
                 size: 8
             }
         );
+    }
+
+    #[test]
+    fn guess_xtensa_chip_from_entry_hint() {
+        let guess = |addrs: &[u32], hint| guess_chip(Family::Xtensa, addrs, hint);
+        let esp8266 = [0x4010_0000, 0x3FFE_8000];
+        assert_eq!(guess(&esp8266, Some(EntryHint::Call0)), Chip::Esp8266);
+        assert_eq!(guess(&esp8266, Some(EntryHint::Windowed)), Chip::Esp32);
+        assert_eq!(guess(&esp8266, None), Chip::Esp8266);
+        // call0 code outside the ESP8266's memory map: an ESP32 startup stub.
+        assert_eq!(guess(&[0x4008_0000], Some(EntryHint::Call0)), Chip::Esp32);
+        // Addresses only one chip has win over the hint.
+        assert_eq!(guess(&[0x4200_0000], Some(EntryHint::Call0)), Chip::Esp32S3);
+        assert_eq!(guess(&[0x3F00_0000], None), Chip::Esp32S2);
     }
 
     #[test]

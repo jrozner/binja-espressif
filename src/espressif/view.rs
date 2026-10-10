@@ -20,7 +20,6 @@ use binaryninjacore_sys::{
 
 use crate::espressif::Chip;
 use crate::espressif::image::{self, Firmware, RegionKind, Segment};
-use crate::xtensa;
 
 /// The load setting that selects the image of a flash dump to load: an app
 /// partition's label, [`BOOTLOADER`], or empty for the default.
@@ -301,11 +300,10 @@ impl EspView {
         }
     }
 
-    /// Every windowed-ABI function starts with a 4-byte aligned `entry`
-    /// instruction. Seeding functions from them finds code that is only
-    /// reached through function pointers (callbacks, tasks, interrupt
-    /// handlers), which call-target analysis cannot see.
-    fn add_windowed_functions(&self, view: &BinaryView, platform: &Platform) {
+    /// Seeds functions from the prologues the chip's CPU core finds in the
+    /// image's code segments (see [`crate::espressif::Cpu::function_starts`]).
+    fn add_scanned_functions(&self, view: &BinaryView, platform: &Platform) {
+        let cpu = self.chip().cpu();
         let mut found = 0;
         for seg in &self.firmware.image.segments {
             let Some(region) = image::region_of(self.chip(), seg.addr) else {
@@ -315,12 +313,14 @@ impl EspView {
                 continue;
             }
             let data = &self.bytes[seg.offset..seg.offset + seg.size as usize];
-            for off in xtensa::entry_offsets(seg.addr, data) {
-                view.add_auto_function_with_platform(seg.addr as u64 + off as u64, platform);
+            for addr in cpu.function_starts(seg.addr, data) {
+                view.add_auto_function_with_platform(addr as u64, platform);
                 found += 1;
             }
         }
-        tracing::info!("found {found} functions from `entry` instructions");
+        if found > 0 {
+            tracing::info!("found {found} functions from their prologues");
+        }
     }
 
     /// Names the mask ROM's functions and data (and, on the ESP8266, the
@@ -429,9 +429,7 @@ impl CustomBinaryView for EspView {
             &SymbolBuilder::new(SymbolType::Function, chip.entry_symbol_name(), entry).create(),
         );
         view.add_entry_point(entry);
-        if chip.cpu().windowed() {
-            self.add_windowed_functions(view, &platform);
-        }
+        self.add_scanned_functions(view, &platform);
         self.define_app_desc(view, &platform);
         self.define_rom_symbols(view);
         true

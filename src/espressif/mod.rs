@@ -46,6 +46,72 @@ impl Cpu {
             Cpu::RiscV(core) => match core {},
         }
     }
+
+    pub fn family(self) -> Family {
+        match self {
+            Cpu::Xtensa(_) => Family::Xtensa,
+            Cpu::RiscV(core) => match core {},
+        }
+    }
+
+    /// The addresses of the functions found by scanning `code`, loaded at
+    /// `addr`, for function prologues. These find code that is only reached
+    /// through function pointers (callbacks, tasks, interrupt handlers),
+    /// which call-target analysis cannot see.
+    pub fn function_starts(self, addr: u32, code: &[u8]) -> Vec<u32> {
+        match self {
+            Cpu::Xtensa(core) => core.function_starts(addr, code),
+            Cpu::RiscV(core) => match core {},
+        }
+    }
+
+    /// Does `code` start with the usual prologue of the core's functions?
+    pub fn is_prologue(self, code: &[u8]) -> bool {
+        match self {
+            Cpu::Xtensa(core) => core.is_prologue(code),
+            Cpu::RiscV(core) => match core {},
+        }
+    }
+}
+
+/// An instruction set family. Chips are told apart within a family by
+/// their memory maps (see [`image::guess_chip`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Family {
+    Xtensa,
+}
+
+impl Family {
+    pub fn name(self) -> &'static str {
+        match self {
+            Family::Xtensa => "Xtensa",
+        }
+    }
+
+    /// The family's ELF `e_machine`.
+    pub fn elf_machine(self) -> u32 {
+        match self {
+            Family::Xtensa => 94, // EM_XTENSA
+        }
+    }
+
+    /// What the instruction at a program's entry point, `code`, says about
+    /// the chip it is for.
+    pub fn entry_hint(self, code: &[u8]) -> Option<EntryHint> {
+        match self {
+            Family::Xtensa if xtensa::is_entry_insn(code) => Some(EntryHint::Windowed),
+            Family::Xtensa => Some(EntryHint::Call0),
+        }
+    }
+}
+
+/// The ABI of the code at a program's entry point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EntryHint {
+    /// The Xtensa windowed ABI: the entry point starts with `entry`.
+    Windowed,
+    /// The Xtensa call0 ABI.
+    Call0,
 }
 
 /// A symbol table: names and addresses.
@@ -142,11 +208,15 @@ impl Chip {
     }
 }
 
-/// `EM_XTENSA`
-const ELF_MACHINE_XTENSA: u32 = 94;
+/// The parts of an ELF32 file that tell the chip apart.
+struct ElfProgram {
+    /// The load addresses of the `PT_LOAD` segments.
+    addrs: Vec<u32>,
+    /// The first bytes at the entry point, if it is in a segment.
+    entry_code: Option<Vec<u8>>,
+}
 
-/// Picks the chip of an Xtensa ELF file from its program headers.
-fn recognize_elf(view: &BinaryView) -> Option<Ref<Platform>> {
+fn read_elf_program(view: &BinaryView) -> Option<ElfProgram> {
     let header = view.read_vec(0, 0x34);
     if header.len() < 0x34 || header[4] != 1 {
         return None; // not ELF32
@@ -159,22 +229,34 @@ fn recognize_elf(view: &BinaryView) -> Option<Ref<Platform>> {
         u16_at(&header, 0x2a),
         u16_at(&header, 0x2c),
     );
-    let mut addrs = Vec::new();
-    let mut entry_code = None;
+    let mut program = ElfProgram {
+        addrs: Vec::new(),
+        entry_code: None,
+    };
     for i in 0..phnum.min(64) {
         let ph = view.read_vec(phoff + (i * phentsize) as u64, 32);
         if ph.len() < 32 || u32_at(&ph, 0) != 1 {
             continue; // PT_LOAD only
         }
         let (offset, vaddr, filesz) = (u32_at(&ph, 4), u32_at(&ph, 8), u32_at(&ph, 16));
-        addrs.push(vaddr);
+        program.addrs.push(vaddr);
         if vaddr <= entry && entry < vaddr.wrapping_add(filesz) {
-            entry_code = Some(view.read_vec((offset + entry - vaddr) as u64, 3));
+            program.entry_code = Some(view.read_vec((offset + entry - vaddr) as u64, 4));
         }
     }
-    let windowed_entry = entry_code.map(|code| xtensa::is_entry_insn(&code));
-    let chip = image::guess_chip(&addrs, windowed_entry);
-    tracing::info!("Xtensa ELF looks like {} code", chip.display_name());
+    Some(program)
+}
+
+/// Picks the chip of an ELF file of `family` from its program headers.
+fn recognize_elf(view: &BinaryView, family: Family) -> Option<Ref<Platform>> {
+    let program = read_elf_program(view)?;
+    let hint = program.entry_code.and_then(|code| family.entry_hint(&code));
+    let chip = image::guess_chip(family, &program.addrs, hint);
+    tracing::info!(
+        "{} ELF looks like {} code",
+        family.name(),
+        chip.display_name()
+    );
     Platform::by_name(chip.arch_name())
 }
 
@@ -187,13 +269,14 @@ pub fn register() {
     register_binary_view_type(view::EspViewType);
 
     if let Some(elf) = BinaryViewType::by_name("ELF") {
+        let family = Family::Xtensa;
         if let Some(esp32) = CoreArchitecture::by_name(Chip::Esp32.arch_name()) {
-            elf.register_arch(ELF_MACHINE_XTENSA, Endianness::LittleEndian, &esp32);
+            elf.register_arch(family.elf_machine(), Endianness::LittleEndian, &esp32);
         }
         elf.register_platform_recognizer(
-            ELF_MACHINE_XTENSA,
+            family.elf_machine(),
             Endianness::LittleEndian,
-            |view, _| recognize_elf(view),
+            move |view, _| recognize_elf(view, family),
         );
     }
 }

@@ -52,6 +52,29 @@ impl Core {
     pub fn windowed(self) -> bool {
         self.isa().has(Features::WINDOWED)
     }
+
+    /// The addresses of the functions found by scanning `code`, loaded at
+    /// `addr`, for prologues. Every windowed-ABI function starts with a
+    /// 4-byte aligned `entry`; call0 code has no prologue reliable enough to
+    /// scan for, so nothing is found on the call0-only cores.
+    pub fn function_starts(self, addr: u32, code: &[u8]) -> Vec<u32> {
+        if !self.windowed() {
+            return Vec::new();
+        }
+        entry_offsets(addr, code)
+            .map(|off| addr + off as u32)
+            .collect()
+    }
+
+    /// Does `code` start with the usual prologue of the core's functions:
+    /// `entry` on the windowed cores, `addi a1, a1, -n` on the others?
+    pub fn is_prologue(self, code: &[u8]) -> bool {
+        if self.windowed() {
+            is_entry_insn(code)
+        } else {
+            is_call0_prologue(code)
+        }
+    }
 }
 
 /// Registers an architecture, its calling conventions and (on the windowed
@@ -73,6 +96,13 @@ pub fn register() {
 /// Is `code` the start of a windowed-ABI function (`entry a1, n`)?
 pub fn is_entry_insn(code: &[u8]) -> bool {
     code.len() >= 3 && code[0] == 0x36 && code[1] & 0x0f == 0x01
+}
+
+/// Does `code` start with `addi a1, a1, n`, the stack adjustment that
+/// begins a call0-ABI function with a frame?
+pub fn is_call0_prologue(code: &[u8]) -> bool {
+    // addi at, as, imm8: byte0 = t << 4 | 2, byte1 = 0xc << 4 | s.
+    code.starts_with(&[0x12, 0xc1])
 }
 
 /// Is `code` an `entry a1, n` with a plausible frame size (at most 4 KiB)?
@@ -109,5 +139,22 @@ mod tests {
         code.extend(entry);
         assert_eq!(entry_offsets(0x4008_0001, &code).collect::<Vec<_>>(), [3]);
         assert_eq!(entry_offsets(0x4008_0000, &code).count(), 0);
+    }
+
+    #[test]
+    fn function_starts_and_prologues() {
+        let code = [0, 0, 0, 0, 0x36, 0x41, 0x00, 0x1d, 0xf0];
+        assert_eq!(
+            Core::Esp32.function_starts(0x4008_0000, &code),
+            [0x4008_0004]
+        );
+        // call0 code is not scanned.
+        assert!(Core::Esp8266.function_starts(0x4010_0000, &code).is_empty());
+
+        let call0 = [0x12, 0xc1, 0xf0];
+        assert!(Core::Esp8266.is_prologue(&call0));
+        assert!(!Core::Esp8266.is_prologue(&code[4..]));
+        assert!(Core::Esp32S3.is_prologue(&code[4..]));
+        assert!(!Core::Esp32S3.is_prologue(&call0));
     }
 }
