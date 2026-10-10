@@ -83,7 +83,7 @@ It provides:
   ESP32-S2, ESP32-S3, ESP32-C2, ESP32-C3, ESP32-C6 and ESP32-H2
   (https://github.com/espressif/svd, Apache-2.0) are
   bundled (the `svd` git submodule) and applied automatically to ESP
-  firmware images by Binary Ninja's SVD loader, naming and typing every
+  firmware images and ELF files by Binary Ninja's SVD loader, naming and typing every
   peripheral register (`UART0.INT_CLR.RXFIFO_FULL_INT_CLR = 9`). An SVD file chosen in *Open with
   Options* (*SVD File*, `analysis.svd.autoLoadFile`) takes precedence, and
   `espressif.svd.autoLoad` turns this off. The files are unpacked once to
@@ -106,6 +106,13 @@ It provides:
   *Open with Options* → *Platform*, or
   `bn.load(path, options={"loader.platform": "esp32s3"})`. It takes
   precedence over the recognised chip.
+- **ESP-IDF ELF files** analyze like firmware images: sections in the
+  chip's flash data (`.flash.rodata`, which ESP-IDF marks writable) are made
+  read-only data, so jump tables and constants in them resolve; the mask
+  ROM's functions and data are named from the ELF's `ABS` symbols, and from
+  the bundled ROM table for names it lacks (the symbols of every chip
+  revision only, as an ELF does not say which revision it needs); and the
+  RISC-V global pointer is taken from `__global_pointer$`.
 
 Patching and assembling are not supported.
 

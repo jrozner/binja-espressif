@@ -566,6 +566,62 @@ with open(path, "wb") as f:
 bv = bn.load(path, options={"loader.platform": "esp32c5"})
 check(bv.platform.name == "esp32c5", "loader.platform overrides ROM symbols")
 
+print("ESP-IDF ELF fix-ups:")
+# tests/data/idf_*.elf: laid out like ESP-IDF apps, with a writable
+# `.flash.rodata` (WA, in an RW segment) holding a 12-entry jump table, and
+# the mask ROM's symbols as `ABS` symbols.
+IDF_ELFS = {
+    "esp32": dict(jump=0x400d0066, peripheral=(0x3FF48000, "RTC_CNTL"),
+                  functions=["ets_printf", "memcpy", "memset"], data=["_global_impure_ptr", "_ctype_"]),
+    "esp32c3": dict(jump=0x42000058, peripheral=(0x60000000, "UART0"),
+                    functions=["ets_printf", "memset", "memcpy"], data=["g_coex_param_ptr"]),
+    "esp32c6": dict(jump=0x42000058, peripheral=(0x60000000, "UART0"),
+                    functions=["memcpy"], data=["crc8_be_table_ptr"]),
+}
+
+
+def check_idf_elf(bv, chip, case, syms, label):
+    rodata = bv.get_section_by_name(".flash.rodata")
+    check(rodata is not None and rodata.semantics == bn.SectionSemantics.ReadOnlyDataSectionSemantics,
+          f"{label}: .flash.rodata is read-only data")
+    targets = {b.dest_addr for f in bv.get_functions_containing(case["jump"])
+               for b in f.indirect_branches if b.source_addr == case["jump"]}
+    check(len(targets) == 12, f"{label}: the jump table at {case['jump']:#x} resolves ({len(targets)} targets)")
+    for kinds, expected in ((case["functions"], bn.SymbolType.ImportedFunctionSymbol),
+                            (case["data"], bn.SymbolType.DataSymbol)):
+        for name in kinds:
+            sym = bv.get_symbol_by_raw_name(name)
+            check(sym is not None and sym.address == syms[name] and sym.type == expected,
+                  f"{label}: ROM {name} is a {expected.name} at {syms[name]:#x}")
+    if chip != "esp32":
+        gp = syms["__global_pointer$"]
+        values = bv.user_global_pointer_values
+        check(len(values) == 1 and values[0][1].value == gp, f"{label}: gp {gp:#x} from __global_pointer$")
+    addr, name = case["peripheral"]
+    check(name in {s.name for s in bv.get_symbols(addr, 1)}, f"{label}: bundled SVD names {name}")
+
+
+for chip, case in IDF_ELFS.items():
+    elf = os.path.join(DATA, f"idf_{chip}.elf")
+    syms = elf_symbols(elf)
+    bv = bn.load(elf)
+    check(bv.view_type == "ELF" and bv.platform.name == chip, f"idf_{chip}.elf: ELF on {chip}")
+    check_idf_elf(bv, chip, case, syms, f"idf_{chip}.elf")
+    if chip == "esp32":
+        # Not in the ELF: from the bundled table, every revision's only.
+        sym = bv.get_symbol_by_raw_name("ets_delay_us")
+        check(sym is not None and sym.address == 0x40008534, "idf_esp32.elf: bundled ROM table fills in ets_delay_us")
+        check(bv.get_symbol_by_raw_name("ets_use_secure_boot_v2") is None,
+              "idf_esp32.elf: revision-specific ROM symbols are not guessed")
+    sections = len(bv.sections)
+    db = os.path.join(user_dir, f"idf_{chip}.bndb")
+    check(bv.create_database(db), f"idf_{chip}.elf: saved")
+    bv.file.close()
+    bv = bn.load(db)
+    check_idf_elf(bv, chip, case, syms, f"idf_{chip}.bndb")
+    check(len(bv.sections) == sections, f"idf_{chip}.bndb: no duplicate sections")
+    bv.file.close()
+
 print("Malformed and unusual images:")
 
 

@@ -3,6 +3,7 @@
 //! firmware. Each chip's code is analyzed with the architecture of its CPU
 //! core, looked up by name.
 
+pub mod elf;
 pub mod image;
 pub mod rom_symbols;
 pub mod svd;
@@ -578,12 +579,13 @@ fn add_calling_convention(platform: &str, arch: &str, cc: &str) {
 }
 
 /// Registers the chip platforms, the ESP firmware view, the SVD settings
-/// and activity, and the recognizers for Xtensa and RISC-V ELF files. The
-/// architectures must already be registered.
+/// and activity, the ELF fix-ups, and the recognizers for Xtensa and RISC-V
+/// ELF files. The architectures must already be registered.
 pub fn register() {
     register_platforms();
     svd::register_settings();
     svd::register_activity();
+    elf::register_activity();
     register_binary_view_type(view::EspViewType);
 
     if let Some(elf) = BinaryViewType::by_name("ELF") {
