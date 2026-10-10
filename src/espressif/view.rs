@@ -345,7 +345,8 @@ impl EspView {
     /// peripheral register blocks; the other chips' peripherals come from
     /// Espressif's SVD files through Binary Ninja's SVD loader). The ROM is
     /// not part of the image, so its functions are defined
-    /// as imported functions at their (unmapped) addresses.
+    /// as imported functions at their (unmapped) addresses
+    /// (see [`Chip::is_rom_function`]).
     ///
     /// Some functions only exist in the ROM of later chip revisions (the
     /// ESP32 v3.0 ROM's Secure Boot v2 API); those are named only when the
@@ -362,9 +363,10 @@ impl EspView {
                 .map(|&(_, table)| table),
         );
         for &(name, addr) in tables.flatten() {
-            let kind = match image::region_of(chip, addr) {
-                Some(r) if r.kind == RegionKind::Rom => SymbolType::ImportedFunction,
-                _ => SymbolType::Data,
+            let kind = if chip.is_rom_function(addr) {
+                SymbolType::ImportedFunction
+            } else {
+                SymbolType::Data
             };
             view.define_auto_symbol(&SymbolBuilder::new(kind, name, addr as u64).create());
         }

@@ -21,7 +21,7 @@ use binaryninjacore_sys::{
     BNRegisterPlatformCallingConvention,
 };
 
-use crate::espressif::image::Region;
+use crate::espressif::image::{Region, RegionKind};
 use crate::riscv;
 use crate::xtensa::{self, Core};
 
@@ -260,6 +260,29 @@ impl Chip {
         }
     }
 
+    /// The address ranges of the mask ROM's code, on the chips whose ROM
+    /// code and data share an address range (from Espressif's ROM ELF
+    /// files). On the others the memory map tells them apart.
+    pub fn rom_code(self) -> Option<&'static [(u32, u32)]> {
+        use rom_symbols as r;
+        match self {
+            Chip::Esp8266 | Chip::Esp32 | Chip::Esp32S2 | Chip::Esp32S3 => None,
+            Chip::Esp32C2 => Some(r::ESP32C2_ROM_CODE),
+            Chip::Esp32C3 => Some(r::ESP32C3_ROM_CODE),
+            Chip::Esp32C6 => Some(r::ESP32C6_ROM_CODE),
+            Chip::Esp32H2 => Some(r::ESP32H2_ROM_CODE),
+            Chip::Esp32C5 => Some(r::ESP32C5_ROM_CODE),
+        }
+    }
+
+    /// Is the ROM symbol at `addr` a function (rather than data)?
+    pub fn is_rom_function(self, addr: u32) -> bool {
+        match self.rom_code() {
+            Some(code) => code.iter().any(|&(start, end)| start <= addr && addr < end),
+            None => image::region_of(self, addr).is_some_and(|r| r.kind == RegionKind::Rom),
+        }
+    }
+
     /// The gzip-compressed Espressif SVD file for the chip; the ESP8266 and
     /// the ESP32-C5 have none.
     pub fn bundled_svd(self) -> Option<&'static [u8]> {
@@ -415,5 +438,65 @@ pub fn register() {
             Endianness::LittleEndian,
             move |view, _| recognize_elf(view, family),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rom_symbol(chip: Chip, name: &str) -> u32 {
+        let (base, revisions) = chip.rom_symbols();
+        let tables = std::iter::once(base).chain(revisions.iter().map(|&(_, t)| t));
+        tables
+            .flatten()
+            .find(|&&(n, _)| n == name)
+            .unwrap_or_else(|| panic!("{name} is not a {} ROM symbol", chip.display_name()))
+            .1
+    }
+
+    #[test]
+    fn rom_symbol_kinds() {
+        for chip in Chip::ALL {
+            let f = |name| chip.is_rom_function(rom_symbol(chip, name));
+            assert!(f("memcpy"), "{chip:?} memcpy");
+            assert!(f("ets_printf"), "{chip:?} ets_printf");
+        }
+        // Data next to the code in the RISC-V ROMs' address range, and in
+        // the ROM's RAM.
+        for chip in [Chip::Esp32C6, Chip::Esp32C5] {
+            assert!(!chip.is_rom_function(rom_symbol(chip, "he_max_apep_length")));
+            assert!(!chip.is_rom_function(rom_symbol(chip, "g_coex_param_ptr")));
+        }
+        assert!(!Chip::Esp32H2.is_rom_function(rom_symbol(Chip::Esp32H2, "crc8_be_table_ptr")));
+        assert!(!Chip::Esp32C2.is_rom_function(rom_symbol(Chip::Esp32C2, "crc8_be_table_ptr")));
+        assert!(!Chip::Esp32C3.is_rom_function(rom_symbol(Chip::Esp32C3, "g_coex_param_ptr")));
+        // The Xtensa chips go by region.
+        assert!(!Chip::Esp32.is_rom_function(rom_symbol(Chip::Esp32, "_ctype_")));
+        assert!(!Chip::Esp32S2.is_rom_function(rom_symbol(Chip::Esp32S2, "_ctype_")));
+    }
+
+    #[test]
+    fn rom_code_is_in_the_rom() {
+        for chip in Chip::ALL {
+            let Some(code) = chip.rom_code() else {
+                continue;
+            };
+            assert!(!code.is_empty());
+            for &(start, end) in code {
+                let region = image::region_of(chip, start).unwrap();
+                assert_eq!(region.kind, RegionKind::Rom, "{chip:?} {start:#x}");
+                assert!(region.contains(end - 1), "{chip:?} {end:#x}");
+            }
+            // ROM functions are only ever in the ROM.
+            let (base, revisions) = chip.rom_symbols();
+            let tables = std::iter::once(base).chain(revisions.iter().map(|&(_, t)| t));
+            for &(name, addr) in tables.flatten() {
+                if chip.is_rom_function(addr) {
+                    let region = image::region_of(chip, addr).map(|r| r.kind);
+                    assert_eq!(region, Some(RegionKind::Rom), "{chip:?} {name}");
+                }
+            }
+        }
     }
 }

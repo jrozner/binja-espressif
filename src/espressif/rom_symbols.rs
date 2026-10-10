@@ -5530,7 +5530,7 @@ pub static ESP32S3: &[(&str, u32)] = &[
 /// Symbols that only exist in the ROM of a chip revision, by minimum
 /// revision (major * 100 + minor, as in the image header).
 pub static ESP32S3_REVISIONS: &[(u16, &[(&str, u32)])] = &[];
-// esp32c2: ESP-IDF v6.2.0-dev (ddb3852ab5)
+// esp32c2: ESP-IDF v6.2.0-dev (ddb3852ab5), esp-rom-elfs 20260528
 pub static ESP32C2: &[(&str, u32)] = &[
     ("phy_param_rom", 0x3fcdfaa4),
     ("g_coex_param_ptr", 0x3fcdfaa8),
@@ -8295,7 +8295,11 @@ pub static ESP32C2_ECO4: &[(&str, u32)] = &[
 /// Symbols that only exist in the ROM of a chip revision, by minimum
 /// revision (major * 100 + minor, as in the image header).
 pub static ESP32C2_REVISIONS: &[(u16, &[(&str, u32)])] = &[(200, ESP32C2_ECO4)];
-// esp32c3: ESP-IDF v6.2.0-dev (ddb3852ab5)
+/// The address ranges of the mask ROM's code (the executable sections of
+/// esp32c2_rev100_rom.elf, esp32c2_rev200_rom.elf).
+/// The ROM symbols in them are functions, the others data.
+pub static ESP32C2_ROM_CODE: &[(u32, u32)] = &[(0x40000000, 0x400825e4)];
+// esp32c3: ESP-IDF v6.2.0-dev (ddb3852ab5), esp-rom-elfs 20260528
 pub static ESP32C3: &[(&str, u32)] = &[
     ("g_coex_param_ptr", 0x3fcdf834),
     ("g_coa_funcs_p", 0x3fcdf838),
@@ -10450,7 +10454,11 @@ pub static ESP32C3_ECO7: &[(&str, u32)] = &[
 /// Symbols that only exist in the ROM of a chip revision, by minimum
 /// revision (major * 100 + minor, as in the image header).
 pub static ESP32C3_REVISIONS: &[(u16, &[(&str, u32)])] = &[(3, ESP32C3_ECO3), (101, ESP32C3_ECO7)];
-// esp32c6: ESP-IDF v6.2.0-dev (ddb3852ab5)
+/// The address ranges of the mask ROM's code (the executable sections of
+/// esp32c3_rev0_rom.elf, esp32c3_rev101_rom.elf, esp32c3_rev3_rom.elf).
+/// The ROM symbols in them are functions, the others data.
+pub static ESP32C3_ROM_CODE: &[(u32, u32)] = &[(0x40000000, 0x400599cc)];
+// esp32c6: ESP-IDF v6.2.0-dev (ddb3852ab5), esp-rom-elfs 20260528
 pub static ESP32C6: &[(&str, u32)] = &[
     ("_rom_chip_id", 0x40000010),
     ("_rom_eco_version", 0x40000014),
@@ -11739,7 +11747,11 @@ pub static ESP32C6: &[(&str, u32)] = &[
 /// Symbols that only exist in the ROM of a chip revision, by minimum
 /// revision (major * 100 + minor, as in the image header).
 pub static ESP32C6_REVISIONS: &[(u16, &[(&str, u32)])] = &[];
-// esp32h2: ESP-IDF v6.2.0-dev (ddb3852ab5)
+/// The address ranges of the mask ROM's code (the executable sections of
+/// esp32c6_rev0_rom.elf).
+/// The ROM symbols in them are functions, the others data.
+pub static ESP32C6_ROM_CODE: &[(u32, u32)] = &[(0x40000000, 0x40042196)];
+// esp32h2: ESP-IDF v6.2.0-dev (ddb3852ab5), esp-rom-elfs 20260528
 pub static ESP32H2: &[(&str, u32)] = &[
     ("_rom_chip_id", 0x40000010),
     ("_rom_eco_version", 0x40000014),
@@ -12319,7 +12331,11 @@ pub static ESP32H2: &[(&str, u32)] = &[
 /// Symbols that only exist in the ROM of a chip revision, by minimum
 /// revision (major * 100 + minor, as in the image header).
 pub static ESP32H2_REVISIONS: &[(u16, &[(&str, u32)])] = &[];
-// esp32c5: ESP-IDF v6.2.0-dev (ddb3852ab5)
+/// The address ranges of the mask ROM's code (the executable sections of
+/// esp32h2_rev0_rom.elf).
+/// The ROM symbols in them are functions, the others data.
+pub static ESP32H2_ROM_CODE: &[(u32, u32)] = &[(0x40000000, 0x4001a418)];
+// esp32c5: ESP-IDF v6.2.0-dev (ddb3852ab5), esp-rom-elfs 20260528
 pub static ESP32C5: &[(&str, u32)] = &[
     ("_rom_chip_id", 0x40000010),
     ("_rom_eco_version", 0x40000014),
@@ -13828,3 +13844,7 @@ pub static ESP32C5_ECO3: &[(&str, u32)] = &[
 /// Symbols that only exist in the ROM of a chip revision, by minimum
 /// revision (major * 100 + minor, as in the image header).
 pub static ESP32C5_REVISIONS: &[(u16, &[(&str, u32)])] = &[(102, ESP32C5_ECO3)];
+/// The address ranges of the mask ROM's code (the executable sections of
+/// esp32c5_rev0_rom.elf, esp32c5_rev100_rom.elf).
+/// The ROM symbols in them are functions, the others data.
+pub static ESP32C5_ROM_CODE: &[(u32, u32)] = &[(0x40000000, 0x40047bac)];

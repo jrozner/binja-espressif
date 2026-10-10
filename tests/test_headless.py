@@ -334,6 +334,23 @@ check(bv.view_type == "ESP" and bv.platform.name == "esp32c5", "esp32c5: ESP vie
 bv = load_bytes(riscv_image(18, [(0x4FF00000, rv_code)], 0x4FF00000), ".bin")
 check(bv.view_type != "ESP", "ESP32-P4 images are not loaded")
 
+print("RISC-V ROM symbols:")
+# On the C6, H2 and C5 the ROM's data shares its address range with its code.
+rom_kinds = {
+    "esp32c6": {"memcpy": "Function", "he_max_apep_length": "Data", "crc8_be_table_ptr": "Data",
+                "g_coex_param_ptr": "Data"},
+    "esp32h2": {"memcpy": "Function", "ets_printf": "Function", "crc8_be_table_ptr": "Data"},
+    "esp32c3": {"memcpy": "Function", "g_coex_param_ptr": "Data"},
+}
+code_addrs = {"esp32c6": 0x40800000, "esp32h2": 0x40800000, "esp32c3": 0x40380000}
+for chip, kinds in rom_kinds.items():
+    bv = load_bytes(riscv_image(RISCV_CHIPS[chip], [(code_addrs[chip], rv_code)], code_addrs[chip]), ".bin")
+    for name, kind in kinds.items():
+        sym = bv.get_symbol_by_raw_name(name)
+        expected = bn.SymbolType.ImportedFunctionSymbol if kind == "Function" else bn.SymbolType.DataSymbol
+        check(sym is not None and sym.type == expected,
+              f"{chip}: ROM {name} is {kind.lower()} ({sym.type.name if sym else 'missing'})")
+
 print("Malformed and unusual images:")
 
 
