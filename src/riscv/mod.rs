@@ -7,9 +7,15 @@
 
 use std::collections::HashMap;
 
-use binaryninja::architecture::{ArchitectureExt, CoreArchitecture, Register};
+use binaryninja::architecture::{ArchitectureExt, CoreArchitecture, Register, RegisterId};
 use binaryninja::binary_view::BinaryView;
-use binaryninja::calling_convention::ConventionBuilder;
+use binaryninja::calling_convention::{
+    CallingConvention, CoreCallingConvention, register_calling_convention,
+};
+use binaryninja::types::{
+    FunctionParameter, Type, ValueLocation, ValueLocationComponent, ValueLocationSource,
+};
+use binaryninja::variable::Variable;
 use binaryninjacore_sys::{
     BNRegisterValue, BNRegisterValueType, BNRegisterValueWithConfidence,
     BNRegisterValueWithConfidenceAndRegister, BNSetUserGlobalPointerValues,
@@ -310,16 +316,252 @@ pub fn is_frame_alloc(code: &[u8]) -> bool {
     }
 }
 
-/// Registers the `ilp32` calling convention on Binary Ninja's `rv32gc`
-/// architecture, if it is loaded.
+/// The `ilp32` calling convention: the RISC-V integer ABI, which ESP-IDF
+/// uses for the RV32IMC/RV32IMAC chips (they have no FPU).
 ///
-/// The architecture's own `default` convention is the hard-float one
-/// (`ilp32f`/`ilp32d`): it passes floating point arguments and results in
-/// `fa0..fa7`. Espressif's RV32IMC/RV32IMAC chips have no FPU, and ESP-IDF
-/// builds them for `ilp32`, where they go in the integer registers like
-/// everything else. Otherwise the convention matches `default`: arguments
-/// in `a0..a7`, result in `a0`/`a1`, `s0..s11` callee-saved, `gp` the global
-/// pointer.
+/// Binary Ninja's `rv32gc` `default` convention is the hard-float one: it
+/// passes floating point arguments and results in `fa0..fa7`. Under `ilp32`
+/// every argument goes in the integer registers `a0..a7`, one register per
+/// 4 bytes (see [`ilp32_locations`]); results are in `a0`/`a1`. `s0..s11`
+/// are callee-saved and `gp` is the global pointer, as in `default`.
+pub struct Ilp32 {
+    core: CoreCallingConvention,
+    regs: Ilp32Regs,
+}
+
+#[derive(Clone)]
+struct Ilp32Regs {
+    args: Vec<RegisterId>,
+    caller_saved: Vec<RegisterId>,
+    callee_saved: Vec<RegisterId>,
+    gp: RegisterId,
+}
+
+impl AsRef<CoreCallingConvention> for Ilp32 {
+    fn as_ref(&self) -> &CoreCallingConvention {
+        &self.core
+    }
+}
+
+impl CallingConvention for Ilp32 {
+    fn caller_saved_registers(&self) -> Vec<RegisterId> {
+        self.regs.caller_saved.clone()
+    }
+
+    fn callee_saved_registers(&self) -> Vec<RegisterId> {
+        self.regs.callee_saved.clone()
+    }
+
+    fn int_arg_registers(&self) -> Vec<RegisterId> {
+        self.regs.args.clone()
+    }
+
+    fn float_arg_registers(&self) -> Vec<RegisterId> {
+        Vec::new()
+    }
+
+    fn arg_registers_shared_index(&self) -> bool {
+        false
+    }
+
+    fn reserved_stack_space_for_arg_registers(&self) -> bool {
+        false
+    }
+
+    fn stack_adjusted_on_return(&self) -> bool {
+        false
+    }
+
+    fn is_eligible_for_heuristics(&self) -> bool {
+        true
+    }
+
+    fn return_int_reg(&self) -> Option<RegisterId> {
+        self.regs.args.first().copied()
+    }
+
+    fn return_hi_int_reg(&self) -> Option<RegisterId> {
+        self.regs.args.get(1).copied()
+    }
+
+    fn return_float_reg(&self) -> Option<RegisterId> {
+        None
+    }
+
+    fn global_pointer_reg(&self) -> Option<RegisterId> {
+        Some(self.regs.gp)
+    }
+
+    fn implicitly_defined_registers(&self) -> Vec<RegisterId> {
+        Vec::new()
+    }
+
+    fn are_argument_registers_used_for_var_args(&self) -> bool {
+        true
+    }
+
+    /// Anything up to two registers wide (floats, doubles, 64-bit integers,
+    /// small structures) is passed in registers.
+    fn is_argument_type_register_compatible(&self, _view: Option<&BinaryView>, ty: &Type) -> bool {
+        ty.width() <= 2 * WORD as u64
+    }
+
+    fn parameter_locations(
+        &self,
+        _view: Option<&BinaryView>,
+        _return_value: Option<&ValueLocation>,
+        params: &[FunctionParameter],
+        permitted_registers: Option<&[RegisterId]>,
+    ) -> Vec<ValueLocation> {
+        // Registers the caller does not set (when the core asks for the
+        // registers a call site actually uses) end the register arguments.
+        let regs: Vec<RegisterId> = self
+            .regs
+            .args
+            .iter()
+            .copied()
+            .take_while(|r| permitted_registers.is_none_or(|p| p.contains(r)))
+            .collect();
+        let args: Vec<Ilp32Arg> = params
+            .iter()
+            .map(|p| match &p.location {
+                ValueLocationSource::Custom(loc) => Ilp32Arg::Fixed(loc.clone()),
+                source => Ilp32Arg::Value {
+                    size: p.ty.contents.width(),
+                    align: p.ty.contents.alignment() as u64,
+                    by_reference: *source == ValueLocationSource::PassByReference,
+                    by_value: *source == ValueLocationSource::PassByValue,
+                },
+            })
+            .collect();
+        ilp32_locations(&args, regs.len())
+            .into_iter()
+            .map(|loc| match loc {
+                Ilp32Loc::Fixed(loc) => loc,
+                Ilp32Loc::Parts {
+                    parts,
+                    indirect,
+                } => {
+                    let whole = parts.len() == 1;
+                    let components = parts
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, part)| ValueLocationComponent {
+                            variable: match part {
+                                Ilp32Part::Reg(n) => Variable::from_register_id(regs[n]),
+                                Ilp32Part::Stack(off) => Variable::from_stack_offset(off as i64),
+                            },
+                            offset: (i as u64 * WORD as u64) as i64,
+                            size: (!whole).then_some(WORD as u64),
+                        })
+                        .collect();
+                    ValueLocation {
+                        components,
+                        indirect,
+                        returned_pointer: None,
+                    }
+                }
+            })
+            .collect()
+    }
+}
+
+/// The register width.
+const WORD: u32 = 4;
+
+/// An argument, for [`ilp32_locations`].
+#[derive(Debug, Clone, PartialEq)]
+enum Ilp32Arg {
+    /// A location the user gave the parameter; it is kept, and uses no
+    /// argument register.
+    Fixed(ValueLocation),
+    Value {
+        size: u64,
+        align: u64,
+        /// Passed by reference whatever its size.
+        by_reference: bool,
+        /// Passed by value whatever its size.
+        by_value: bool,
+    },
+}
+
+/// Where an argument goes.
+#[derive(Debug, Clone, PartialEq)]
+enum Ilp32Loc {
+    Fixed(ValueLocation),
+    /// A word per part, from the low address up; one part for a value in a
+    /// single register or (whole) on the stack.
+    Parts { parts: Vec<Ilp32Part>, indirect: bool },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ilp32Part {
+    /// The `n`th argument register.
+    Reg(usize),
+    /// The stack, at this offset from the stack pointer at the call.
+    Stack(u64),
+}
+
+/// The ilp32 argument rules of the RISC-V psABI (as Espressif's GCC
+/// implements them), with `nregs` argument registers available:
+/// - values of up to 4 bytes, `float` included, take the next register;
+/// - values of 5 to 8 bytes (`double`, 64-bit integers, small structures)
+///   take the next two registers, with no even-register alignment; if only
+///   one is left, the low word goes in it and the high word on the stack;
+/// - larger values are passed by reference: a pointer, as above;
+/// - once the registers run out, arguments go on the stack in order, each
+///   aligned to the larger of 4 bytes and its own alignment (so a `double`
+///   is 8-aligned), whole.
+fn ilp32_locations(args: &[Ilp32Arg], nregs: usize) -> Vec<Ilp32Loc> {
+    let word = WORD as u64;
+    let mut next_reg = 0;
+    let mut stack = 0u64;
+    args.iter()
+        .map(|arg| {
+            let Ilp32Arg::Value {
+                size,
+                align,
+                by_reference,
+                by_value,
+            } = *arg
+            else {
+                let Ilp32Arg::Fixed(loc) = arg else { unreachable!() };
+                return Ilp32Loc::Fixed(loc.clone());
+            };
+            let indirect = by_reference || (!by_value && size > 2 * word);
+            let (size, align) = if indirect { (word, word) } else { (size.max(1), align) };
+            let words = size.div_ceil(word) as usize;
+            if words <= 2 && next_reg < nregs {
+                let mut parts = vec![Ilp32Part::Reg(next_reg)];
+                next_reg += 1;
+                if words == 2 {
+                    if next_reg < nregs {
+                        parts.push(Ilp32Part::Reg(next_reg));
+                        next_reg += 1;
+                    } else {
+                        parts.push(Ilp32Part::Stack(stack));
+                        stack += word;
+                    }
+                }
+                return Ilp32Loc::Parts { parts, indirect };
+            }
+            // On the stack from here on (an argument that did not fit is
+            // never followed by one in a register).
+            next_reg = nregs;
+            let align = align.clamp(word, 2 * word);
+            stack = stack.next_multiple_of(align);
+            let at = stack;
+            stack += (words as u64) * word;
+            Ilp32Loc::Parts {
+                parts: vec![Ilp32Part::Stack(at)],
+                indirect,
+            }
+        })
+        .collect()
+}
+
+/// Registers the [`Ilp32`] calling convention on Binary Ninja's `rv32gc`
+/// architecture, if it is loaded.
 pub fn register() {
     let Some(arch) = CoreArchitecture::by_name(ARCH_NAME) else {
         tracing::info!("architecture {ARCH_NAME} is not available; RISC-V chips are not supported");
@@ -328,39 +570,105 @@ pub fn register() {
     if arch.calling_convention_by_name(ILP32).is_some() {
         return;
     }
+    let reg = |name: String| arch.register_by_name(&name).map(|r| r.id());
     let names = |prefix: &str, lo: u8, hi: u8| {
         (lo..=hi)
-            .map(|n| format!("{prefix}{n}"))
-            .collect::<Vec<_>>()
+            .map(|n| reg(format!("{prefix}{n}")))
+            .collect::<Option<Vec<_>>>()
     };
-    let args = names("a", 0, 7);
-    let caller_saved = [
-        vec!["ra".to_string()],
+    let (Some(args), Some(t0), Some(t3), Some(callee_saved), Some(ra), Some(gp)) = (
+        names("a", 0, 7),
         names("t", 0, 2),
-        args.clone(),
         names("t", 3, 6),
-    ]
-    .concat();
-    let callee_saved = names("s", 0, 11);
-    ConventionBuilder::new(&arch)
-        .int_arg_registers(&strs(&args))
-        .return_int_reg("a0")
-        .return_hi_int_reg("a1")
-        .caller_saved_registers(&strs(&caller_saved))
-        .callee_saved_registers(&strs(&callee_saved))
-        .global_pointer_reg("gp")
-        .are_argument_registers_used_for_var_args(true)
-        .is_eligible_for_heuristics(true)
-        .register(ILP32);
-}
-
-fn strs(v: &[String]) -> Vec<&str> {
-    v.iter().map(String::as_str).collect()
+        names("s", 0, 11),
+        reg("ra".into()),
+        reg("gp".into()),
+    ) else {
+        tracing::error!("{ARCH_NAME} lacks the expected registers; {ILP32} is not registered");
+        return;
+    };
+    let caller_saved = [vec![ra], t0, args.clone(), t3].concat();
+    let regs = Ilp32Regs {
+        args,
+        caller_saved,
+        callee_saved,
+        gp,
+    };
+    register_calling_convention(&arch, ILP32, |core| Ilp32 { core, regs });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn value(size: u64, align: u64) -> Ilp32Arg {
+        Ilp32Arg::Value {
+            size,
+            align,
+            by_reference: false,
+            by_value: false,
+        }
+    }
+
+    fn parts(parts: &[Ilp32Part]) -> Ilp32Loc {
+        Ilp32Loc::Parts {
+            parts: parts.to_vec(),
+            indirect: false,
+        }
+    }
+
+    /// The cases checked against Espressif GCC 15.2 (`-march=rv32imc
+    /// -mabi=ilp32`).
+    #[test]
+    fn ilp32_argument_locations() {
+        use Ilp32Part::{Reg, Stack};
+        let int = value(4, 4);
+        let float = value(4, 4);
+        let double = value(8, 8);
+        // f(float), f(double), f(int, double), f(int, float, int)
+        assert_eq!(ilp32_locations(&[float.clone()], 8), [parts(&[Reg(0)])]);
+        assert_eq!(ilp32_locations(&[double.clone()], 8), [parts(&[Reg(0), Reg(1)])]);
+        assert_eq!(
+            ilp32_locations(&[int.clone(), double.clone()], 8),
+            [parts(&[Reg(0)]), parts(&[Reg(1), Reg(2)])]
+        );
+        assert_eq!(
+            ilp32_locations(&[int.clone(), float, int.clone()], 8),
+            [parts(&[Reg(0)]), parts(&[Reg(1)]), parts(&[Reg(2)])]
+        );
+        // Seven ints and a double: the double is split between a7 and the
+        // stack.
+        let mut args = vec![int.clone(); 7];
+        args.push(double.clone());
+        assert_eq!(ilp32_locations(&args, 8)[7], parts(&[Reg(7), Stack(0)]));
+        // Five doubles: the fifth on the stack, whole.
+        let locs = ilp32_locations(&vec![double.clone(); 5], 8);
+        assert_eq!(locs[3], parts(&[Reg(6), Reg(7)]));
+        assert_eq!(locs[4], parts(&[Stack(0)]));
+        // Nine ints and a double: the double is 8-aligned on the stack.
+        let mut args = vec![int.clone(); 9];
+        args.push(double);
+        let locs = ilp32_locations(&args, 8);
+        assert_eq!(locs[8], parts(&[Stack(0)]));
+        assert_eq!(locs[9], parts(&[Stack(8)]));
+        // An 8-byte structure in a pair; a 12-byte one by reference.
+        assert_eq!(ilp32_locations(&[value(8, 4)], 8), [parts(&[Reg(0), Reg(1)])]);
+        assert_eq!(
+            ilp32_locations(&[value(12, 4), int.clone()], 8),
+            [
+                Ilp32Loc::Parts {
+                    parts: vec![Reg(0)],
+                    indirect: true
+                },
+                parts(&[Reg(1)])
+            ]
+        );
+        // Fewer registers available (the call site only sets a0, a1).
+        assert_eq!(
+            ilp32_locations(&[int.clone(), int.clone(), int], 2),
+            [parts(&[Reg(0)]), parts(&[Reg(1)]), parts(&[Stack(0)])]
+        );
+    }
 
     #[test]
     fn frame_allocations() {

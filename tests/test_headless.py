@@ -247,6 +247,51 @@ ilp32 = bn.Architecture["rv32gc"].calling_conventions["ilp32"]
 check(ilp32.float_arg_regs == [] and ilp32.int_arg_regs == [f"a{n}" for n in range(8)]
       and ilp32.float_return_reg is None and ilp32.global_pointer_reg == "gp",
       "ilp32 passes everything in a0..a7")
+
+
+def layout(cc, params, ret=None):
+    """Each parameter's (or the return value's) location as a list of
+    'a0'-style register names and 'sp+N' stack offsets, with '*' for a
+    pointer to the value."""
+    def describe(loc):
+        out = []
+        for c in loc.components:
+            v = c.var
+            out.append(f"sp+{v.storage}" if v.source_type == bn.VariableSourceType.StackVariableSourceType
+                       else cc.arch.get_reg_name(v.storage))
+        return ("*" if getattr(loc, "indirect", False) else "") + ",".join(out)
+    result = cc.get_call_layout(None, ret or bn.Type.void(),
+                                [bn.FunctionParameter(t, f"p{i}") for i, t in enumerate(params)])
+    return describe(result.return_value) if ret else [describe(p) for p in result.parameters]
+
+
+# What Espressif GCC 15.2 does with -march=rv32imc -mabi=ilp32.
+I32, F32, F64, U64 = bn.Type.int(4), bn.Type.float(4), bn.Type.float(8), bn.Type.int(8, False)
+def struct_of(n):
+    s = bn.StructureBuilder.create()
+    for i in range(n):
+        s.append(I32, f"f{i}")
+    return bn.Type.structure_type(s)
+
+
+PAIR, TRIPLE = struct_of(2), struct_of(3)
+for label, params, expected in [
+    ("float", [F32], ["a0"]),
+    ("double", [F64], ["a0,a1"]),
+    ("uint64_t", [U64], ["a0,a1"]),
+    ("int, double", [I32, F64], ["a0", "a1,a2"]),
+    ("int, float, int", [I32, F32, I32], ["a0", "a1", "a2"]),
+    ("7 ints, double", [I32] * 7 + [F64], [f"a{n}" for n in range(7)] + ["a7,sp+0"]),
+    ("5 doubles", [F64] * 5, ["a0,a1", "a2,a3", "a4,a5", "a6,a7", "sp+0"]),
+    ("9 ints, double", [I32] * 9 + [F64], [f"a{n}" for n in range(8)] + ["sp+0", "sp+8"]),
+    ("8-byte struct", [PAIR], ["a0,a1"]),
+    ("12-byte struct", [TRIPLE], ["*a0"]),
+]:
+    got = layout(ilp32, params)
+    check(got == expected, f"ilp32 f({label}): {got}")
+for label, ret, expected in [("float", F32, "a0"), ("double", F64, "a0,a1"), ("uint64_t", U64, "a0,a1")]:
+    got = layout(ilp32, [], ret)
+    check(got == expected, f"ilp32 returns {label} in {got}")
 check({p.name for p in bn.Platform.get_list(os="espressif")} == set(CHIPS) | set(RISCV_CHIPS),
       "registered under the espressif OS")
 for name in ("esp32s3", "xtensa-esp32s3"):
