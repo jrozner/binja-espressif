@@ -287,8 +287,12 @@ pub fn guess_elf_chip(
         .filter(|&&(_, n)| n == best)
         .map(|&(c, _)| c)
         .collect();
+    // With no ROM symbols matching, every candidate leads. The address
+    // heuristic only breaks ties among chips whose memory map holds the
+    // program: it guesses from where segments start, and may name a chip
+    // the segments run off the end of. Otherwise the first in `Chip::ALL`
+    // order, the older and more common chip, is taken.
     match leaders.as_slice() {
-        _ if best == 0 => (fallback, 0),
         [chip] => (*chip, best),
         tied if tied.contains(&fallback) => (fallback, best),
         tied => (tied[0], best),
@@ -1011,6 +1015,23 @@ mod tests {
         let symbols = rom_fingerprint(Chip::Esp32, &[], 2);
         assert_eq!(guess(Family::Xtensa, &esp32, &symbols), (Chip::Esp32, 2));
         assert_eq!(guess(Family::Xtensa, &esp32, &[]), (Chip::Esp32, 0));
+    }
+
+    #[test]
+    fn fallback_is_a_chip_that_fits() {
+        let guess = |segments: &[(u32, u32)]| guess_elf_chip(Family::RiscV, segments, None, &[]);
+        // The flash segment starts in every unified-SRAM chip's window but
+        // only the C5's (32 MB) holds its end; the address heuristic, which
+        // looks at where segments start, says C6.
+        let segments = [(0x4080_0000, 0x100), (0x42FF_FF00, 0x200)];
+        assert_eq!(guess_riscv_chip(&[0x4080_0000, 0x42FF_FF00]), Chip::Esp32C6);
+        assert_eq!(guess(&segments), (Chip::Esp32C5, 0));
+        // The same start with an end inside every window keeps the heuristic.
+        assert_eq!(guess(&[(0x4080_0000, 0x100), (0x42FF_FF00, 0x80)]), (Chip::Esp32C6, 0));
+        // SRAM running past the H2's end: the heuristic's C6 still fits.
+        assert_eq!(guess(&[(0x4084_FF00, 0x200)]), (Chip::Esp32C6, 0));
+        // Fitting no chip, every chip is a candidate and the heuristic decides.
+        assert_eq!(guess(&[(0x4087_FF00, 0x200)]), (Chip::Esp32C6, 0));
     }
 
     #[test]
