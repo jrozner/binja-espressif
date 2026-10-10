@@ -625,6 +625,49 @@ for chip, case in IDF_ELFS.items():
     check(len(bv.sections) == sections, f"idf_{chip}.bndb: no duplicate sections")
     bv.file.close()
 
+
+def c5_psram_elf():
+    """A C5 ELF with `.flash.rodata` (WA, with contents) and a NOLOAD
+    `.ext_ram.bss` in the flash window, which the C5 shares with PSRAM."""
+    code = struct.pack("<II", 0x00100513, 0x00008067)  # li a0, 1; ret
+    rodata = bytes(range(16))
+    shstrtab = b"\0.text\0.flash.rodata\0.ext_ram.bss\0.shstrtab\0"
+    text_off, rodata_off = 0x100, 0x108
+    shstrtab_off = rodata_off + len(rodata)
+    shoff = (shstrtab_off + len(shstrtab) + 3) & ~3
+    header = b"\x7fELF\x01\x01\x01" + bytes(9) + struct.pack(
+        "<HHIIIIIHHHHHH", 2, 243, 1, 0x42000020, 52, shoff, 0x1, 52, 32, 3, 40, 5, 4)
+    phdrs = b"".join(struct.pack("<IIIIIIII", *p) for p in [
+        (1, text_off, 0x42000020, 0x42000020, len(code), len(code), 5, 4),
+        (1, rodata_off, 0x42000040, 0x42000040, len(rodata), len(rodata), 6, 4),
+        (1, shstrtab_off, 0x42800000, 0x42800000, 0, 0x100, 6, 4),
+    ])
+    sections = bytes(40) + b"".join(struct.pack("<IIIIIIIIII", *s) for s in [
+        (1, 1, 6, 0x42000020, text_off, len(code), 0, 0, 4, 0),      # PROGBITS, AX
+        (7, 1, 3, 0x42000040, rodata_off, len(rodata), 0, 0, 4, 0),  # PROGBITS, WA
+        (21, 8, 3, 0x42800000, shstrtab_off, 0x100, 0, 0, 4, 0),     # NOBITS, WA
+        (34, 3, 0, 0, shstrtab_off, len(shstrtab), 0, 0, 1, 0),
+    ])
+    out = header + phdrs
+    out += bytes(text_off - len(out)) + code + rodata + shstrtab
+    return out + bytes(shoff - len(out)) + sections
+
+
+path = os.path.join(user_dir, "c5_psram.elf")
+with open(path, "wb") as f:
+    f.write(c5_psram_elf())
+bv = bn.load(path, options={"loader.platform": "esp32c5"})
+rodata = bv.get_section_by_name(".flash.rodata")
+ext_ram = bv.get_section_by_name(".ext_ram.bss")
+check(bv.platform.name == "esp32c5" and rodata is not None
+      and rodata.semantics == bn.SectionSemantics.ReadOnlyDataSectionSemantics,
+      "C5 ELF: .flash.rodata in the shared window is read-only data")
+check(ext_ram is not None and ext_ram.semantics != bn.SectionSemantics.ReadOnlyDataSectionSemantics,
+      f"C5 ELF: PSRAM .ext_ram.bss in the shared window stays writable ({ext_ram and ext_ram.semantics})")
+seg = bv.get_segment_at(0x42800000)
+check(seg is not None and seg.writable, "C5 ELF: the PSRAM segment stays writable")
+bv.file.close()
+
 print("Malformed and unusual images:")
 
 

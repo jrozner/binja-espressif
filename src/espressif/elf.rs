@@ -94,7 +94,8 @@ fn apply(view: &BinaryView, chip: Chip) {
 
 /// Redefines the writable sections that lie in the chip's read-only flash
 /// data (DROM, or the flash window shared with code) as read-only data.
-/// Code sections in a shared window are left alone.
+/// Code sections in a shared window are left alone, and so is anything that
+/// is not flash contents (see [`is_flash_contents`]).
 fn make_flash_data_read_only(view: &BinaryView, chip: Chip) {
     let writable: Vec<_> = view
         .sections()
@@ -104,6 +105,7 @@ fn make_flash_data_read_only(view: &BinaryView, chip: Chip) {
                 s.semantics(),
                 Semantics::ReadWriteData | Semantics::DefaultSection
             ) && !s.is_empty()
+                && is_flash_contents(&s.name().to_string_lossy(), &s.section_type())
                 && in_rodata_region(chip, s.start(), s.end())
         })
         .map(|s| s.to_owned())
@@ -114,6 +116,19 @@ fn make_flash_data_read_only(view: &BinaryView, chip: Chip) {
         view.remove_auto_section(name.as_str());
         view.add_section(read_only_copy(&section, name));
     }
+}
+
+/// Is an ELF section (by name and type) data the image puts in flash?
+///
+/// The C5 maps PSRAM in the same window as flash, and ESP-IDF places
+/// `.ext_ram.bss` and `.ext_ram_noinit` there: mutable memory that must
+/// stay writable. Everything ESP-IDF puts in external RAM is `NOLOAD`
+/// (`SHT_NOBITS`), as are the flash window's placeholders
+/// (`.flash_rodata_dummy`, `.flash.tbss`, `.flash.rodata_noload`), while
+/// flash data always has contents in the file. External-RAM sections are
+/// also excluded by name, in case one ever does have contents.
+fn is_flash_contents(name: &str, section_type: &str) -> bool {
+    section_type != "NOBITS" && !name.starts_with(".ext_ram")
 }
 
 fn in_rodata_region(chip: Chip, start: u64, end: u64) -> bool {
@@ -323,5 +338,16 @@ mod tests {
         assert!(in_rodata_region(Chip::Esp32C6, 0x4200_0150, 0x4200_0200));
         assert!(in_rodata_region(Chip::Esp32C3, 0x3C00_0020, 0x3C00_0100));
         assert!(!in_rodata_region(Chip::Esp32C3, 0x3FC8_8000, 0x3FC8_8008));
+    }
+
+    #[test]
+    fn only_flash_contents_become_read_only() {
+        assert!(is_flash_contents(".flash.rodata", "PROGBITS"));
+        assert!(is_flash_contents(".flash.appdesc", "PROGBITS"));
+        // PSRAM in the C5's flash window, and NOLOAD placeholders.
+        assert!(!is_flash_contents(".ext_ram.bss", "NOBITS"));
+        assert!(!is_flash_contents(".ext_ram_noinit", "NOBITS"));
+        assert!(!is_flash_contents(".ext_ram.data", "PROGBITS"));
+        assert!(!is_flash_contents(".flash.rodata_noload", "NOBITS"));
     }
 }
