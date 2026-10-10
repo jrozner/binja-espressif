@@ -21,7 +21,8 @@
 //!   dumps without a partition table (NONOS SDK) are additionally mapped as
 //!   a whole at the flash cache window `0x40200000`, where `irom0` lives.
 
-use crate::arch::Chip;
+use crate::espressif::Chip;
+use crate::xtensa;
 
 pub const IMAGE_MAGIC: u8 = 0xE9;
 pub const IMAGE_V2_MAGIC: u8 = 0xEA;
@@ -150,34 +151,13 @@ pub fn chip_from_id(id: u16) -> Option<Chip> {
     }
 }
 
-/// Is `code` the start of a windowed-ABI function (`entry a1, n`)?
-pub fn is_entry_insn(code: &[u8]) -> bool {
-    code.len() >= 3 && code[0] == 0x36 && code[1] & 0x0f == 0x01
-}
-
-/// Is `code` an `entry a1, n` with a plausible frame size (at most 4 KiB)?
-/// Stricter than [`is_entry_insn`], for scanning code for function starts.
-pub fn is_plausible_entry(code: &[u8]) -> bool {
-    // entry as, imm12*8: byte0 = 0x36, byte1 = imm[3:0] << 4 | as,
-    // byte2 = imm[11:4].
-    is_entry_insn(code) && code[2] < 0x20
-}
-
-/// The offsets in `code`, loaded at `addr`, of the 4-byte aligned
-/// plausible `entry` instructions.
-pub fn entry_offsets(addr: u32, code: &[u8]) -> impl Iterator<Item = usize> {
-    let skip = (4 - (addr % 4) as usize) % 4;
-    (skip..(code.len() + 1).saturating_sub(3))
-        .step_by(4)
-        .filter(|&off| is_plausible_entry(&code[off..off + 3]))
-}
-
 /// Guesses the chip from the load addresses of a program, for formats that
 /// do not say (ELF files, and images with a `chip_id` of 0, which is the
-/// ESP32 or an ESP8266 RTOS SDK v3 image). `entry_code` is the code at the
-/// entry point, if known: ESP32-family code uses the windowed ABI, whose
-/// functions start with `entry`, while the ESP8266 uses `call0`.
-pub fn guess_chip(addrs: &[u32], entry_code: Option<&[u8]>) -> Chip {
+/// ESP32 or an ESP8266 RTOS SDK v3 image). `windowed_entry` says, if known,
+/// whether the entry point starts with `entry`: ESP32-family code uses the
+/// windowed ABI, whose functions start with `entry`, while the ESP8266 uses
+/// `call0`.
+pub fn guess_chip(addrs: &[u32], windowed_entry: Option<bool>) -> Chip {
     let any_in = |ranges: &[(u32, u32)]| {
         addrs
             .iter()
@@ -206,10 +186,10 @@ pub fn guess_chip(addrs: &[u32], entry_code: Option<&[u8]>) -> Chip {
     // code: ESP8266 code, unless it is loaded where the ESP8266 has no memory
     // (an ESP32 call0 startup stub, for instance).
     let fits_esp8266 = addrs.iter().all(|&a| region_of(Chip::Esp8266, a).is_some());
-    match entry_code {
-        Some(code) if is_entry_insn(code) => Chip::Esp32,
-        Some(_) if fits_esp8266 => Chip::Esp8266,
-        Some(_) => Chip::Esp32,
+    match windowed_entry {
+        Some(true) => Chip::Esp32,
+        Some(false) if fits_esp8266 => Chip::Esp8266,
+        Some(false) => Chip::Esp32,
         None if any_in(&[
             (0x4010_0000, 0x4011_0000),
             (0x3FFE_8000, 0x4000_0000),
@@ -359,7 +339,8 @@ fn parse_esp32(data: &[u8], start: usize, count: usize, entry: u32) -> Option<Im
             .filter(|s| s.addr != 0)
             .map(|s| s.addr)
             .collect();
-        chip = guess_chip(&addrs, code_at(data, &segments, entry));
+        let windowed_entry = code_at(data, &segments, entry).map(xtensa::is_entry_insn);
+        chip = guess_chip(&addrs, windowed_entry);
     }
     plausible(chip, entry, &segments).then_some(Image {
         chip,
@@ -766,21 +747,6 @@ mod tests {
         assert_eq!(parse_image(&d, 0).unwrap().app_desc(&d), None);
         let d = app_image(&magic, &[0x41; 512]);
         assert_eq!(parse_image(&d, 0).unwrap().app_desc(&d), None);
-    }
-
-    #[test]
-    fn entry_scan_bounds() {
-        let entry = [0x36, 0x41, 0x00];
-        assert_eq!(entry_offsets(0x4008_0000, &[0x36, 0x41]).count(), 0);
-        assert_eq!(entry_offsets(0x4008_0000, &entry).collect::<Vec<_>>(), [0]);
-        let mut code = vec![0u8; 8];
-        code.extend(entry);
-        assert_eq!(entry_offsets(0x4008_0000, &code).collect::<Vec<_>>(), [8]);
-        // An unaligned segment start: only absolute 4-byte alignment counts.
-        let mut code = vec![0u8; 3];
-        code.extend(entry);
-        assert_eq!(entry_offsets(0x4008_0001, &code).collect::<Vec<_>>(), [3]);
-        assert_eq!(entry_offsets(0x4008_0000, &code).count(), 0);
     }
 
     #[test]

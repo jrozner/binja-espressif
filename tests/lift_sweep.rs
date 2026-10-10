@@ -8,15 +8,15 @@
 use binaryninja::architecture::{Architecture, CoreArchitecture};
 use binaryninja::headless::Session;
 use binaryninja::low_level_il::LowLevelILMutableFunction;
-use binja_xtensa::arch::Chip;
-use binja_xtensa::exemplars::EXEMPLARS;
+use binja_xtensa::xtensa::Core;
+use binja_xtensa::xtensa::exemplars::EXEMPLARS;
 use std::sync::atomic::Ordering;
 
-fn encodings(chip: Chip) -> Vec<(u32, usize)> {
+fn encodings(core: Core) -> Vec<(u32, usize)> {
     let mut words: Vec<(u32, usize)> = EXEMPLARS.iter().map(|&(w, l)| (w, l as usize)).collect();
     words.extend((0..0x1_0000u32).map(|w| (w, 2)));
     words.extend((0..0x100_0000u32).step_by(17).map(|w| (w, 3)));
-    if chip == Chip::Esp32S3 {
+    if core == Core::Esp32S3 {
         words.extend((0..u32::MAX).step_by(4099).map(|w| (w, 4)));
     }
     words
@@ -30,12 +30,12 @@ fn lift_sweep() {
     };
     assert!(binja_xtensa::CorePluginInit());
 
-    for chip in Chip::ALL {
-        let arch = CoreArchitecture::by_name(chip.arch_name()).expect("architecture registered");
-        let isa = chip.isa();
+    for core in Core::ALL {
+        let arch = CoreArchitecture::by_name(core.arch_name()).expect("architecture registered");
+        let isa = core.isa();
         let mut il: Option<binaryninja::rc::Ref<LowLevelILMutableFunction>> = None;
         let (mut lifted, mut seen) = (0usize, std::collections::HashSet::new());
-        for (i, (word, len)) in encodings(chip).into_iter().enumerate() {
+        for (i, (word, len)) in encodings(core).into_iter().enumerate() {
             let bytes = word.to_le_bytes();
             let Ok(insn) = isa.decode(&bytes[..len], 0x4008_0000) else {
                 continue;
@@ -47,26 +47,26 @@ fn lift_sweep() {
                 il = Some(LowLevelILMutableFunction::new(arch, None));
             }
             let il = il.as_ref().unwrap();
-            let before = binja_xtensa::lift::UNIMPLEMENTED.load(Ordering::Relaxed);
+            let before = binja_xtensa::xtensa::lift::UNIMPLEMENTED.load(Ordering::Relaxed);
             let result = arch.instruction_llil(&bytes[..len], 0x4008_0000, il);
             assert_eq!(
                 result.map(|r| r.0),
                 Some(len),
                 "{} {insn}",
-                chip.arch_name()
+                core.arch_name()
             );
             assert_eq!(
-                binja_xtensa::lift::UNIMPLEMENTED.load(Ordering::Relaxed),
+                binja_xtensa::xtensa::lift::UNIMPLEMENTED.load(Ordering::Relaxed),
                 before,
                 "{}: `{insn}` ({word:#x}) lifted as unimplemented",
-                chip.arch_name()
+                core.arch_name()
             );
             lifted += 1;
             seen.insert(insn.opcode());
         }
         eprintln!(
             "{}: lifted {lifted} instructions, {} opcodes",
-            chip.arch_name(),
+            core.arch_name(),
             seen.len()
         );
     }

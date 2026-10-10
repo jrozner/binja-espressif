@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates src/rom_symbols.rs from the ROM (and ESP8266 peripheral) linker
+"""Generates src/espressif/rom_symbols.rs from the ROM (and ESP8266 peripheral) linker
 scripts.
 
 The mask ROM of each chip is not part of a firmware image, but firmware calls
@@ -12,7 +12,7 @@ Peripheral register blocks are left to Espressif's SVD files
 Ninja's SVD loader applies with types and register fields. The ESP8266 has
 no official SVD, so its peripheral blocks are named from its linker script.
 
-Usage: scripts/gen_rom_symbols.py DIR > src/rom_symbols.rs
+Usage: scripts/gen_rom_symbols.py DIR > src/espressif/rom_symbols.rs
   where DIR/<chip>/*.ld are the files from
   esp-idf components/esp_rom/<chip>/ld/ (except *.api.ld, which are aliases),
   ESP8266_RTOS_SDK components/esp8266/ld/esp8266.{rom,peripherals}.ld and

@@ -18,7 +18,7 @@ use std::borrow::Cow;
 
 use binaryninja::architecture::{self, ImplicitRegisterExtend, RegisterId};
 use binaryninja::low_level_il::LowLevelILRegisterKind;
-use xtensa::{Isa, SpecialRegister, UserRegister};
+use xtensa_isa::{Isa, SpecialRegister, UserRegister};
 
 const F_BASE: u32 = 16;
 const Q_BASE: u32 = 32;
@@ -67,10 +67,10 @@ impl Reg {
     /// Every register implemented by a core.
     pub fn all(isa: &Isa) -> Vec<Reg> {
         let mut regs: Vec<Reg> = (0..16).map(Reg::A).collect();
-        if isa.has(xtensa::Features::FP) {
+        if isa.has(xtensa_isa::Features::FP) {
             regs.extend((0..16).map(Reg::F));
         }
-        if isa.has(xtensa::Features::ESP32S3_PIE) {
+        if isa.has(xtensa_isa::Features::ESP32S3_PIE) {
             regs.extend((0..8).map(Reg::Q));
         }
         regs.extend(isa.special_registers.iter().map(Reg::Sr));
