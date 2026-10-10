@@ -15,7 +15,7 @@ use binaryninja::calling_convention::{
 use binaryninja::types::{
     FunctionParameter, Type, ValueLocation, ValueLocationComponent, ValueLocationSource,
 };
-use binaryninja::variable::Variable;
+use binaryninja::variable::{Variable, VariableSourceType};
 use binaryninjacore_sys::{
     BNFreeRegisterValueWithConfidenceAndRegisterList, BNGetUserGlobalPointerValues,
     BNRegisterValue, BNRegisterValueType, BNRegisterValueWithConfidence,
@@ -453,7 +453,29 @@ impl CallingConvention for Ilp32 {
         let args: Vec<Ilp32Arg> = params
             .iter()
             .map(|p| match &p.location {
-                ValueLocationSource::Custom(loc) => Ilp32Arg::Fixed(loc.clone()),
+                ValueLocationSource::Custom(loc) => {
+                    let mut regs_used = Vec::new();
+                    let mut stack_end = 0;
+                    for c in &loc.components {
+                        match c.variable.ty {
+                            VariableSourceType::RegisterVariableSourceType => regs_used.extend(
+                                regs.iter().position(|r| r.0 as i64 == c.variable.storage),
+                            ),
+                            VariableSourceType::StackVariableSourceType => {
+                                let size = c.size.unwrap_or_else(|| p.ty.contents.width());
+                                let end = (c.variable.storage.max(0) as u64)
+                                    + size.max(1).next_multiple_of(WORD as u64);
+                                stack_end = stack_end.max(end);
+                            }
+                            _ => {}
+                        }
+                    }
+                    Ilp32Arg::Fixed {
+                        loc: loc.clone(),
+                        regs_used,
+                        stack_end,
+                    }
+                }
                 source => Ilp32Arg::Value {
                     size: p.ty.contents.width(),
                     align: p.ty.contents.alignment() as u64,
@@ -500,9 +522,16 @@ const WORD: u32 = 4;
 /// An argument, for [`ilp32_locations`].
 #[derive(Debug, Clone, PartialEq)]
 enum Ilp32Arg {
-    /// A location the user gave the parameter; it is kept, and uses no
-    /// argument register.
-    Fixed(ValueLocation),
+    /// A location the user gave the parameter. It is kept, and the
+    /// arguments after it skip the argument registers it uses (by index)
+    /// and are placed on the stack after its end. Binary Ninja's own
+    /// conventions do this too, except that they reuse a fixed register
+    /// that is not the next one.
+    Fixed {
+        loc: ValueLocation,
+        regs_used: Vec<usize>,
+        stack_end: u64,
+    },
     Value {
         size: u64,
         align: u64,
@@ -540,10 +569,25 @@ enum Ilp32Part {
 /// - once the registers run out, arguments go on the stack in order, each
 ///   aligned to the larger of 4 bytes and its own alignment (so a `double`
 ///   is 8-aligned), whole.
+///
+/// Arguments with a fixed location take theirs; the registers it uses are
+/// skipped by the arguments after it, which go on the stack after its end.
 fn ilp32_locations(args: &[Ilp32Arg], nregs: usize) -> Vec<Ilp32Loc> {
     let word = WORD as u64;
+    let mut used = vec![false; nregs];
     let mut next_reg = 0;
     let mut stack = 0u64;
+    // The next argument register no fixed location uses, from `next_reg`.
+    let take = |used: &mut [bool], next_reg: &mut usize| {
+        while *next_reg < nregs && used[*next_reg] {
+            *next_reg += 1;
+        }
+        (*next_reg < nregs).then(|| {
+            used[*next_reg] = true;
+            *next_reg += 1;
+            *next_reg - 1
+        })
+    };
     args.iter()
         .map(|arg| {
             let Ilp32Arg::Value {
@@ -553,19 +597,30 @@ fn ilp32_locations(args: &[Ilp32Arg], nregs: usize) -> Vec<Ilp32Loc> {
                 by_value,
             } = *arg
             else {
-                let Ilp32Arg::Fixed(loc) = arg else { unreachable!() };
+                let Ilp32Arg::Fixed {
+                    loc,
+                    regs_used,
+                    stack_end,
+                } = arg
+                else {
+                    unreachable!()
+                };
+                for &r in regs_used {
+                    used[r] = true;
+                }
+                stack = stack.max(*stack_end);
                 return Ilp32Loc::Fixed(loc.clone());
             };
             let indirect = by_reference || (!by_value && size > 2 * word);
             let (size, align) = if indirect { (word, word) } else { (size.max(1), align) };
             let words = size.div_ceil(word) as usize;
-            if words <= 2 && next_reg < nregs {
-                let mut parts = vec![Ilp32Part::Reg(next_reg)];
-                next_reg += 1;
+            if words <= 2
+                && let Some(first) = take(&mut used, &mut next_reg)
+            {
+                let mut parts = vec![Ilp32Part::Reg(first)];
                 if words == 2 {
-                    if next_reg < nregs {
-                        parts.push(Ilp32Part::Reg(next_reg));
-                        next_reg += 1;
+                    if let Some(second) = take(&mut used, &mut next_reg) {
+                        parts.push(Ilp32Part::Reg(second));
                     } else {
                         parts.push(Ilp32Part::Stack(stack));
                         stack += word;
@@ -696,6 +751,52 @@ mod tests {
             ilp32_locations(&[int.clone(), int.clone(), int], 2),
             [parts(&[Reg(0)]), parts(&[Reg(1)]), parts(&[Stack(0)])]
         );
+    }
+
+    fn fixed(regs_used: &[usize], stack_end: u64) -> Ilp32Arg {
+        Ilp32Arg::Fixed {
+            loc: ValueLocation {
+                components: vec![],
+                indirect: false,
+                returned_pointer: None,
+            },
+            regs_used: regs_used.to_vec(),
+            stack_end,
+        }
+    }
+
+    /// Fixed locations are skipped by the arguments after them. (Binary
+    /// Ninja's `default` convention on rv32gc does the same, except that it
+    /// reuses a fixed register that is not the next one, overlapping it.)
+    #[test]
+    fn ilp32_fixed_locations() {
+        use Ilp32Part::{Reg, Stack};
+        let int = value(4, 4);
+        let auto = |locs: Vec<Ilp32Loc>| locs.into_iter().filter(|l| !matches!(l, Ilp32Loc::Fixed(_))).collect::<Vec<_>>();
+        // f(a0 fixed, int): the int in a1.
+        assert_eq!(auto(ilp32_locations(&[fixed(&[0], 0), int.clone()], 8)), [parts(&[Reg(1)])]);
+        // f(a3 fixed, int x4): a0, a1, a2, then a4.
+        let mut args = vec![fixed(&[3], 0)];
+        args.extend(vec![int.clone(); 4]);
+        assert_eq!(
+            auto(ilp32_locations(&args, 8)),
+            [parts(&[Reg(0)]), parts(&[Reg(1)]), parts(&[Reg(2)]), parts(&[Reg(4)])]
+        );
+        // Only arguments after a fixed one avoid it: f(int, a0 fixed, int).
+        assert_eq!(
+            auto(ilp32_locations(&[int.clone(), fixed(&[0], 0), int.clone()], 8)),
+            [parts(&[Reg(0)]), parts(&[Reg(1)])]
+        );
+        // A double's pair skips a fixed register: f(a1 fixed, double) in a0, a2.
+        assert_eq!(auto(ilp32_locations(&[fixed(&[1], 0), value(8, 8)], 8)), [parts(&[Reg(0), Reg(2)])]);
+        // A fixed stack slot (or a register outside a0..a7, which is not
+        // counted) leaves the registers alone; stack arguments start after
+        // the slot's end: f(sp+4 fixed, int x9) has its ninth int at sp+8.
+        let mut args = vec![fixed(&[], 8)];
+        args.extend(vec![int.clone(); 9]);
+        let locs = auto(ilp32_locations(&args, 8));
+        assert_eq!(locs[0], parts(&[Reg(0)]));
+        assert_eq!(locs[8], parts(&[Stack(8)]));
     }
 
     fn pointer_value(reg: u32, value: i64) -> BNRegisterValueWithConfidenceAndRegister {

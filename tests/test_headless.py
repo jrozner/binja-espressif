@@ -275,7 +275,8 @@ def layout(cc, params, ret=None):
                        else cc.arch.get_reg_name(v.storage))
         return ("*" if getattr(loc, "indirect", False) else "") + ",".join(out)
     result = cc.get_call_layout(None, ret or bn.Type.void(),
-                                [bn.FunctionParameter(t, f"p{i}") for i, t in enumerate(params)])
+                                [t if isinstance(t, bn.FunctionParameter) else bn.FunctionParameter(t, f"p{i}")
+                                 for i, t in enumerate(params)])
     return describe(result.return_value) if ret else [describe(p) for p in result.parameters]
 
 
@@ -306,6 +307,30 @@ for label, params, expected in [
 for label, ret, expected in [("float", F32, "a0"), ("double", F64, "a0,a1"), ("uint64_t", U64, "a0,a1")]:
     got = layout(ilp32, [], ret)
     check(got == expected, f"ilp32 returns {label} in {got}")
+
+
+# Parameters with a location the user gave them: the ones after them skip
+# its registers and stack. Binary Ninja's own `default` convention does the
+# same where the fixed register is the next one, but otherwise reuses it
+# (a3 fixed, 4 ints: a0, a1, a2, a3), overlapping the fixed parameter.
+def fixed_at(loc):
+    var = (bn.variable.CoreVariable(bn.VariableSourceType.StackVariableSourceType, 0, loc) if isinstance(loc, int)
+           else bn.variable.CoreVariable(bn.VariableSourceType.RegisterVariableSourceType, 0,
+                                         ilp32.arch.get_reg_index(loc)))
+    return bn.FunctionParameter(I32, "fixed", var)
+
+
+default_cc = ilp32.arch.calling_conventions["default"]
+for label, params, expected, as_default in [
+    ("a0 fixed, int", [fixed_at("a0"), I32], ["a0", "a1"], True),
+    ("a3 fixed, 4 ints", [fixed_at("a3")] + [I32] * 4, ["a3", "a0", "a1", "a2", "a4"], False),
+    ("int, a0 fixed, int", [I32, fixed_at("a0"), I32], ["a0", "a0", "a1"], True),
+    ("sp+4 fixed, 9 ints", [fixed_at(4)] + [I32] * 9, ["sp+4"] + [f"a{n}" for n in range(8)] + ["sp+8"], True),
+]:
+    got = layout(ilp32, params)
+    check(got == expected and (got == layout(default_cc, params)) == as_default,
+          f"ilp32 f({label}): {got} (default: {layout(default_cc, params)})")
+check(layout(ilp32, [fixed_at("a1"), F64]) == ["a1", "a0,a2"], "ilp32: a double skips a fixed register")
 check({p.name for p in bn.Platform.get_list(os="espressif")} == set(CHIPS) | set(RISCV_CHIPS),
       "registered under the espressif OS")
 for name in ("esp32s3", "xtensa-esp32s3"):
