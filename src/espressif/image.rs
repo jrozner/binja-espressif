@@ -255,16 +255,24 @@ pub fn fits_memory_map(chip: Chip, segments: &[(u32, u32)]) -> bool {
     })
 }
 
-/// How many of a program's `ABS` symbols (name and address) are ROM
-/// symbols of `chip`, of any chip revision. ESP-IDF ELF files carry one for
-/// each ROM function or variable they use.
-pub fn rom_matches(chip: Chip, symbols: &HashSet<(&str, u32)>) -> usize {
+/// The ROM symbols (name and address) of `chip`, of every chip revision.
+/// A symbol listed by several revisions appears once.
+pub fn rom_symbol_set(chip: Chip) -> HashSet<(&'static str, u32)> {
     let (base, revisions) = chip.rom_symbols();
     std::iter::once(base)
         .chain(revisions.iter().map(|&(_, table)| table))
         .flatten()
-        .filter(|&&(name, addr)| symbols.contains(&(name, addr)))
-        .count()
+        .copied()
+        .collect()
+}
+
+/// How many of a program's `ABS` symbols (name and address) are ROM
+/// symbols of `chip`, of any chip revision. ESP-IDF ELF files carry one for
+/// each ROM function or variable they use. Each of the program's symbols
+/// counts once, however many of the chip's tables list it.
+pub fn rom_matches(chip: Chip, symbols: &HashSet<(&str, u32)>) -> usize {
+    let rom = rom_symbol_set(chip);
+    symbols.iter().filter(|s| rom.contains(*s)).count()
 }
 
 /// Guesses the chip of an ELF file of `family`: among the family's chips
@@ -1016,6 +1024,18 @@ mod tests {
         let c2 = rom_fingerprint(Chip::Esp32C2, &[Chip::Esp32C3], 4);
         assert_eq!(guess(Family::RiscV, &iram, &c2), (Chip::Esp32C2, 4));
         assert_eq!(guess(Family::RiscV, &iram, &[]), (Chip::Esp32C3, 0));
+        // A ROM symbol that several of a chip's tables list counts once:
+        // the C3's ECO3 and ECO7 tables both have wDevCheckBlockError, but
+        // that one C3 symbol does not tie two of the C2's.
+        let shared = ("wDevCheckBlockError", 0x4000_17B4);
+        let (_, c3_revisions) = Chip::Esp32C3.rom_symbols();
+        assert!(c3_revisions.iter().filter(|(_, t)| t.contains(&shared)).count() > 1);
+        let mixed = [
+            ("GetSecurityInfoProc".to_string(), 0x4000_00B0),
+            ("MMU_Get_Page_Mode".to_string(), 0x4000_0700),
+            (shared.0.to_string(), shared.1),
+        ];
+        assert_eq!(guess(Family::RiscV, &iram, &mixed), (Chip::Esp32C2, 2));
         // Symbols that are no chip's ROM symbols change nothing.
         let junk = [("memcpy".to_string(), 0x1234), ("x".to_string(), 0x4000_0000)];
         assert_eq!(guess(Family::RiscV, &sram, &junk), (Chip::Esp32C6, 0));
