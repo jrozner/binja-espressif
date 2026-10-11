@@ -360,6 +360,8 @@ def build_library(bn, chip, objects, types, used):
     platform = bn.Platform[chip]
     lib = bn.TypeLibrary.new(platform.arch, f"espressif-rom-{chip}")
     lib.guid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://github.com/jrozner/binja-xtensa/rom-types/{chip}"))
+    # The only place the platform is named: the plugin loads the finalized
+    # library and registers it as it is.
     lib.add_platform(platform)
     for name, t in sorted(referenced_types(bn, {n: o[1] for n, o in objects.items()}, types).items()):
         lib.add_named_type(name, t)
