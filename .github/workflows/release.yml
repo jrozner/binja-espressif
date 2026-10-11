@@ -86,7 +86,8 @@ jobs:
   build:
     if: inputs.mode == 'build'
     strategy:
-      fail-fast: true
+      # One platform failing must not hide whether the others build.
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -117,6 +118,24 @@ jobs:
           rustup update stable --no-self-update && rustup default stable
           for target in ${{ matrix.targets }}; do rustup target add "$target"; done
 
+      # binaryninja-api's vendor/bindiff submodule has paths longer than
+      # Windows' 260-character limit, which cargo's git (libgit2) refuses to
+      # check out unless core.longpaths is set. A short CARGO_HOME keeps the
+      # checkout's paths under the limit as well. It is set only after
+      # rustup has run, so rustup's proxies stay in ~/.cargo/bin, which is on
+      # PATH; it moves only cargo's registry and git caches.
+      - name: Configure Cargo
+        id: cargo
+        shell: bash
+        run: |
+          home=~/.cargo
+          if [ "$RUNNER_OS" = Windows ]; then
+            git config --global core.longpaths true
+            home=C:/c
+            echo "CARGO_HOME=$home" >> "$GITHUB_ENV"
+          fi
+          echo "home=$home" >> "$GITHUB_OUTPUT"
+
       # The stub core is built with CMake (on every runner image) and Ninja;
       # bindgen needs libclang (on every runner image).
       - name: Install Ninja
@@ -141,9 +160,9 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
+            ${{ steps.cargo.outputs.home }}/registry/index
+            ${{ steps.cargo.outputs.home }}/registry/cache
+            ${{ steps.cargo.outputs.home }}/git/db
             target
           key: ${{ runner.os }}-cargo-${{ github.job }}-${{ matrix.platform }}-${{ inputs.api }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-${{ github.job }}-${{ matrix.platform }}-${{ inputs.api }}-
