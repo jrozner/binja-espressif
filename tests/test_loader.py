@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Unit tests of the Python loader (binja_xtensa_loader/). Standard library
-only; no Binary Ninja needed.
+"""Unit tests of the Python loader's logic (binja_xtensa_loader/core.py) and
+the release manifest tooling. Standard library only; no Binary Ninja needed.
 
 Usage: tests/test_loader.py [-v]
 """
@@ -9,6 +9,7 @@ import http.server
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -663,6 +664,59 @@ class TestPluginGlue(TempDirTest):
         self.plugin.install_command()
         self.assertFalse(os.path.exists(self.installed))
         self.assertIn("twice", self.bn.messages[-1][0])
+
+
+class TestReleaseTooling(TempDirTest):
+    def test_generate(self):
+        dist = os.path.join(self.dir, "dist")
+        os.mkdir(dist)
+        for name, data in [("binja_xtensa-abi187-linux-x86_64.so", b"linux"),
+                           ("binja_xtensa-abi187-windows-x86_64.dll", b"windows")]:
+            with open(os.path.join(dist, name), "wb") as f:
+                f.write(data)
+        out = subprocess.run(
+            [sys.executable, os.path.join(ROOT, "scripts", "release_manifest.py"), "generate", dist,
+             "--version", "1.2.3", "--repository", "jrozner/binja-xtensa", "--commit", "b" * 40, "--run-id", "42"],
+            check=True, stdout=subprocess.PIPE).stdout
+        m = core.parse_manifest(out)
+        self.assertEqual(m.version, "1.2.3")
+        self.assertEqual(m.build, {"commit": "b" * 40, "run_id": 42})
+        self.assertEqual({a.name: a.sha256 for a in m.assets}, {
+            "binja_xtensa-abi187-linux-x86_64.so": sha(b"linux"),
+            "binja_xtensa-abi187-windows-x86_64.dll": sha(b"windows")})
+
+        # publish's check of the downloaded artifacts against the manifest.
+        manifest = os.path.join(self.dir, "manifest.json")
+        with open(manifest, "wb") as f:
+            f.write(out)
+
+        def verify():
+            return subprocess.run(
+                [sys.executable, os.path.join(ROOT, "scripts", "release_manifest.py"), "verify", dist,
+                 "--manifest", manifest], stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode
+
+        self.assertEqual(verify(), 0)
+        self.assertEqual(read(os.path.join(dist, "SHA256SUMS")).decode(), "{}  {}\n{}  {}\n".format(
+            sha(b"linux"), "binja_xtensa-abi187-linux-x86_64.so", sha(b"windows"), "binja_xtensa-abi187-windows-x86_64.dll"))
+        with open(os.path.join(dist, "binja_xtensa-abi187-linux-x86_64.so"), "wb") as f:
+            f.write(b"linuX")
+        self.assertNotEqual(verify(), 0)
+        with open(os.path.join(dist, "binja_xtensa-abi187-linux-x86_64.so"), "wb") as f:
+            f.write(b"linux")
+        self.assertEqual(verify(), 0)
+        with open(os.path.join(dist, "binja_xtensa-abi187-macos-universal.dylib"), "wb") as f:
+            f.write(b"extra")
+        self.assertNotEqual(verify(), 0)
+
+    def test_generate_rejects_unknown_files(self):
+        dist = os.path.join(self.dir, "dist")
+        os.mkdir(dist)
+        open(os.path.join(dist, "libbinja_xtensa.so"), "wb").close()
+        r = subprocess.run(
+            [sys.executable, os.path.join(ROOT, "scripts", "release_manifest.py"), "generate", dist,
+             "--version", "1.2.3", "--repository", "jrozner/binja-xtensa", "--commit", "b" * 40, "--run-id", "42"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertNotEqual(r.returncode, 0)
 
 
 if __name__ == "__main__":

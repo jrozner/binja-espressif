@@ -68,8 +68,8 @@ jobs:
       - name: Clippy
         run: cargo clippy --no-default-features --all-targets -- -D warnings
 
-  # The Python loader (binja_xtensa_loader/); standard library only, no
-  # Binary Ninja needed.
+  # The Python loader (binja_xtensa_loader/) and the release manifest
+  # tooling; standard library only, no Binary Ninja needed.
   loader:
     runs-on: ubuntu-latest
     steps:
