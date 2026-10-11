@@ -1646,6 +1646,63 @@ def rom_image_checks(tarball):
 
     ROM_ELF_DIRS.extend([elfs, os.path.join(user_dir, "espressif", "rom-elfs", release["tag"])])
 
+    # Espressif's ROM ELF files opened directly: each supported chip's (the
+    # lowest revision's) on its own platform, with no ROM region over its
+    # ROM; another chip's (the C61's passes the C5's checks, the P4's and
+    # S31's are hard-float) keeps Binary Ninja's platform.
+    supported = ("esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3", "esp32c6", "esp32h2", "esp32c5")
+    roms = {}
+    for name in os.listdir(elfs):
+        m = re.fullmatch(r"(\w+)_rev(\d+)_rom\.elf", name)
+        if m and (m.group(1) not in roms or int(m.group(2)) < roms[m.group(1)][0]):
+            roms[m.group(1)] = (int(m.group(2)), name)
+    check(set(supported) <= set(roms), f"the archive has every supported chip's ROM ELF file ({sorted(roms)})")
+    for chip, (_, name) in sorted(roms.items()):
+        bv = bn.load(os.path.join(elfs, name))
+        platform = bv.platform.name if bv.platform else None
+        if chip in supported:
+            arch = "rv32gc" if chip in RISCV_CHIPS else f"xtensa-{chip}"
+            # The file's own segments hold the ROM's code and data: no ROM
+            # code or data region over them.
+            own = [r.name for r in bv.memory_map.regions if r.name.startswith("espressif.rom")]
+            check(bv.view_type == "ELF" and platform == chip and bv.arch.name == arch and not own
+                  and len(bv.functions) > 500,
+                  f"{name} opens as {chip} ({platform}, {bv.arch.name}, {len(bv.functions)} functions, "
+                  f"ROM regions {own})")
+            # Its ROM functions have the ROM type library's prototypes, pinned
+            # (memset, and on the chips with a jump table, its entry too).
+            memsets = [(str(f.type), f.has_user_type) for f in bv.functions if f.name == "memset"]
+            check(memsets and all(t == "void*(void* arg1, int32_t arg2, uint32_t arg3)" and pinned
+                                  for t, pinned in memsets),
+                  f"{name}: memset has its prototype ({memsets})")
+            # They clobber their convention's caller-saved registers, as the
+            # typed ROM functions of a firmware view do, whatever analysis
+            # of a jump table entry finds, and so do the calls to them.
+            pinned = [f for f in bv.functions if f.has_user_type]
+            short = [f.name for f in pinned
+                     if set(f.clobbered_regs) != set(f.calling_convention.caller_saved_regs)]
+            check(len(pinned) > 200 and not short,
+                  f"{name}: {len(pinned)} typed ROM functions clobber the caller-saved registers ({short[:5]})")
+            kept = []
+            sites = 0
+            for f in pinned:
+                if sites >= 100:
+                    break
+                saved = set(f.calling_convention.caller_saved_regs) - {"zero"}
+                for ref in list(bv.get_code_refs(f.start))[:5]:
+                    call = ref.function.get_llil_at(ref.address)
+                    if call is None or call.operation != bn.LowLevelILOperation.LLIL_CALL:
+                        continue
+                    sites += 1
+                    out = {str(r.reg) for r in call.ssa_form.output}
+                    if not saved <= out:
+                        kept.append((hex(ref.address), f.name, sorted(saved - out)))
+            check(sites > 20 and not kept,
+                  f"{name}: {sites} calls to them clobber the caller-saved registers ({kept[:3]})")
+        else:
+            check(platform not in supported, f"{name}, another chip's ROM, keeps {platform}")
+        bv.file.close()
+
     # A directory of ROM ELF files: the ROM region holds the chip's ROM, and
     # the typed ROM functions, their calls and databases are as without.
     settings.set_string("espressif.rom.elfDirectory", elfs)
@@ -1839,7 +1896,6 @@ def rom_image_checks(tarball):
         check_rom_types(bv, "esp32c3", elf_symbols(c3), "idf_esp32c3.elf after the download command",
                         "esp32c3_rev0_rom.elf")
         unpacked = sorted(os.listdir(os.path.join(cache, release["tag"]))) if os.path.exists(cache) else []
-        supported = ("esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3", "esp32c6", "esp32h2", "esp32c5")
         check(len(requests) == 2 and unpacked and all(re.fullmatch(r"(\w+)_rev\d+_rom\.elf", n).group(1) in supported
                                                       for n in unpacked),
               f"the command downloads and unpacks the supported chips' ROM ELF files ({unpacked})")

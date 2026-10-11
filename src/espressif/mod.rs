@@ -18,7 +18,9 @@ use std::ffi::CString;
 
 use binaryninja::Endianness;
 use binaryninja::architecture::{ArchitectureExt, CoreArchitecture};
-use binaryninja::binary_view::{BinaryView, BinaryViewType, register_binary_view_type};
+use binaryninja::binary_view::{
+    BinaryView, BinaryViewBase, BinaryViewType, register_binary_view_type,
+};
 use binaryninja::platform::Platform;
 use binaryninja::rc::Ref;
 use binaryninjacore_sys::{
@@ -28,6 +30,7 @@ use binaryninjacore_sys::{
 };
 
 use crate::espressif::image::{Region, RegionKind};
+use crate::espressif::rom_images::RomOf;
 use crate::riscv;
 use crate::xtensa::{self, Core};
 
@@ -461,24 +464,52 @@ fn read_elf_program(view: &BinaryView) -> Option<ElfProgram> {
     };
     for i in 0..phnum.min(MAX_SEGMENTS) {
         let ph = view.read_vec(phoff + (i * phentsize) as u64, 32);
-        if ph.len() < 32 || u32_at(&ph, 0) != 1 {
-            continue; // PT_LOAD only
-        }
-        let (offset, vaddr, filesz, memsz) = (
-            u32_at(&ph, 4),
-            u32_at(&ph, 8),
-            u32_at(&ph, 16),
-            u32_at(&ph, 20),
-        );
-        program.segments.push((vaddr, memsz));
-        if vaddr <= entry
-            && entry < vaddr.wrapping_add(filesz)
-            && let Some(at) = offset.checked_add(entry - vaddr)
-        {
+        let Some(segment) = load_segment(&ph) else {
+            continue;
+        };
+        program.segments.push((segment.vaddr, segment.memsz));
+        if let Some(at) = segment.file_offset_of(entry) {
             program.entry_code = Some(view.read_vec(at as u64, 4));
         }
     }
     Some(program)
+}
+
+/// A `PT_LOAD` segment that occupies memory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LoadSegment {
+    offset: u32,
+    vaddr: u32,
+    filesz: u32,
+    memsz: u32,
+}
+
+impl LoadSegment {
+    /// The file offset of the contents at `addr`, if the segment has any.
+    fn file_offset_of(self, addr: u32) -> Option<u32> {
+        if self.vaddr <= addr && addr < self.vaddr.wrapping_add(self.filesz) {
+            self.offset.checked_add(addr - self.vaddr)
+        } else {
+            None
+        }
+    }
+}
+
+/// The segment a program header describes, if it is a `PT_LOAD` segment
+/// that occupies memory. An empty one says nothing about the chip:
+/// Espressif's ROM ELF files have many, at address 0.
+fn load_segment(ph: &[u8]) -> Option<LoadSegment> {
+    const PT_LOAD: u32 = 1;
+    if ph.len() < 32 || u32_at(ph, 0) != PT_LOAD {
+        return None;
+    }
+    let segment = LoadSegment {
+        offset: u32_at(ph, 4),
+        vaddr: u32_at(ph, 8),
+        filesz: u32_at(ph, 16),
+        memsz: u32_at(ph, 20),
+    };
+    (segment.memsz != 0).then_some(segment)
 }
 
 /// The `ABS` symbols of the ELF file's symbol table (`SHT_SYMTAB`), or none
@@ -594,11 +625,58 @@ fn is_espressif_elf(family: Family, program: &ElfProgram) -> bool {
     }
 }
 
+/// The largest ELF file read whole to tell whether it is a ROM ELF file.
+const MAX_ROM_ELF: u64 = 16 << 20;
+
+/// Whose ROM the ELF file is, if it is one of Espressif's ROM ELF files
+/// (see [`rom_images::recognize`]). Only a file that loads something into
+/// the ROM code of one of the family's chips, as firmware never does, is
+/// read whole to find out.
+fn recognize_rom_elf(view: &BinaryView, family: Family, program: &ElfProgram) -> Option<RomOf> {
+    let in_a_rom = program.segments.iter().any(|&(addr, _)| {
+        Chip::ALL
+            .into_iter()
+            .filter(|c| c.cpu().family() == family)
+            .any(|c| {
+                c.rom_code_ranges()
+                    .iter()
+                    .any(|&(s, e)| s <= addr && addr < e)
+            })
+    });
+    if !in_a_rom || view.len() > MAX_ROM_ELF {
+        return None;
+    }
+    rom_images::recognize(&view.read_vec(0, view.len() as usize), family)
+}
+
 /// Picks the chip of an ELF file of `family` from its program headers and
 /// its `ABS` (ROM) symbols, or returns `None` for a file that is not
-/// Espressif firmware, so that it keeps Binary Ninja's own platform.
+/// Espressif firmware, so that it keeps Binary Ninja's own platform. One of
+/// Espressif's ROM ELF files is its chip's, or keeps Binary Ninja's
+/// platform if the chip is not supported.
 fn recognize_elf(view: &BinaryView, family: Family) -> Option<Ref<Platform>> {
     let program = read_elf_program(view)?;
+    match recognize_rom_elf(view, family, &program) {
+        Some(RomOf::Chip(chip)) => {
+            let path = view.file().file_path();
+            let revision = path
+                .file_name()
+                .and_then(|n| rom_images::parse_member_name(&n.to_string_lossy()))
+                .filter(|&(named, _)| named == chip)
+                .map(|(_, rev)| format!(" (v{}.{})", rev / 100, rev % 100))
+                .unwrap_or_default();
+            tracing::info!("Espressif {} ROM ELF{revision}", chip.display_name());
+            return Platform::by_name(chip.platform_name());
+        }
+        Some(RomOf::Other) => {
+            tracing::info!(
+                "{} ELF is the ROM of an Espressif chip this plugin does not support",
+                family.name()
+            );
+            return None;
+        }
+        None => {}
+    }
     if !is_espressif_elf(family, &program) {
         tracing::debug!("{} ELF is not Espressif firmware", family.name());
         return None;
@@ -776,6 +854,33 @@ mod tests {
         // The Xtensa chips go by region.
         assert!(!Chip::Esp32.is_rom_function(rom_symbol(Chip::Esp32, "_ctype_")));
         assert!(!Chip::Esp32S2.is_rom_function(rom_symbol(Chip::Esp32S2, "_ctype_")));
+    }
+
+    fn program_header(kind: u32, offset: u32, vaddr: u32, filesz: u32, memsz: u32) -> Vec<u8> {
+        [kind, offset, vaddr, vaddr, filesz, memsz, 5, 4]
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect()
+    }
+
+    #[test]
+    fn empty_load_segments_are_ignored() {
+        let segment = load_segment(&program_header(1, 0x100, 0x4200_0020, 0x40, 0x80)).unwrap();
+        assert_eq!((segment.vaddr, segment.memsz), (0x4200_0020, 0x80));
+        assert_eq!(segment.file_offset_of(0x4200_0024), Some(0x104));
+        // In memory but not in the file (.bss), and outside the segment.
+        assert_eq!(segment.file_offset_of(0x4200_0060), None);
+        assert_eq!(segment.file_offset_of(0x4200_0000), None);
+        // Espressif's ROM ELF files have many empty segments at address 0,
+        // in no chip's memory map: they occupy no memory and are ignored.
+        assert_eq!(load_segment(&program_header(1, 0xd8f0, 0, 0, 0)), None);
+        assert_eq!(load_segment(&program_header(1, 0, 0x3ffa_e270, 0, 0)), None);
+        // Only PT_LOAD segments, from whole program headers.
+        assert_eq!(load_segment(&program_header(4, 0, 0x4200_0020, 4, 4)), None);
+        assert_eq!(
+            load_segment(&program_header(1, 0, 0x4200_0020, 4, 4)[..28]),
+            None
+        );
     }
 
     #[test]

@@ -504,21 +504,47 @@ pub fn holds_image(view: &BinaryView, chip: Chip, elf: &RomElf) -> bool {
 /// there (an imported function, see [`apply`]) that has a prototype in the
 /// chip's ROM type library, in a ROM code region. Functions in the region
 /// that are not (the ones analysis finds in a ROM image) are ordinary code.
+///
+/// In the chip's ROM ELF file opened as the view (see [`type_rom_elf`]),
+/// whose segments hold the ROM, it is the name of a function in the ROM's
+/// code whose type is the user's (`type_rom_elf` pins the prototypes) and
+/// whose symbol has a prototype in the library.
+///
+/// It only reads the view: recognizers call it.
 pub fn rom_function_name(view: &BinaryView, func: &Function) -> Option<String> {
     let addr = func.start();
-    if !in_rom_region(view, addr) {
-        return None;
-    }
     let chip = Chip::from_platform_name(&func.platform().name())?;
+    let kinds: &[SymbolType] = if in_rom_region(view, addr) {
+        &[SymbolType::ImportedFunction]
+    } else if func.has_user_type()
+        && chip
+            .rom_code_ranges()
+            .iter()
+            .any(|&(s, e)| s as u64 <= addr && addr < e as u64)
+        && is_own_rom_elf(view, chip)
+    {
+        &[SymbolType::Function, SymbolType::ImportedFunction]
+    } else {
+        return None;
+    };
     let lib = library(chip)?;
     view.symbols_in_range(addr..addr + 1)
         .iter()
-        .filter(|s| s.address() == addr && s.sym_type() == SymbolType::ImportedFunction)
+        .filter(|s| s.address() == addr && kinds.contains(&s.sym_type()))
         .map(|s| s.raw_name().to_string_lossy().into_owned())
         .find(|name| {
             lib.get_named_object(name.as_str().into())
                 .is_some_and(|t| t.type_class() == TypeClass::FunctionTypeClass)
         })
+}
+
+/// The view metadata that marks a view as the chip's ROM ELF file (the
+/// chip's platform name), whose typed ROM functions [`type_rom_elf`] pinned.
+const ROM_ELF_METADATA: &str = "espressif.rom.elf";
+
+fn is_own_rom_elf(view: &BinaryView, chip: Chip) -> bool {
+    view.get_metadata::<String>(ROM_ELF_METADATA)
+        .is_some_and(|name| name == chip.platform_name())
 }
 
 /// Fixes up the typed ROM functions (see [`rom_function_name`]) after
@@ -653,6 +679,84 @@ pub fn register_recognizer() {
             arch.register_function_recognizer(RomRecognizer);
         }
     }
+}
+
+/// Types the ROM functions of the chip's ROM ELF file itself, `elf`, opened
+/// as the view. Its own segments hold the ROM, so no ROM region is added
+/// (see [`add_rom_region`]) and [`apply`] types none of them. Each function
+/// the ROM table names where the file names it too (or its jump table
+/// entry, `__call_<name>`) gets its prototype, pinned as with a ROM image
+/// (see [`pin_rom_function`]), and so does the function a jump table entry
+/// jumps to.
+pub fn type_rom_elf(view: &BinaryView, chip: Chip, elf: &RomElf) {
+    // A database keeps them.
+    if view.file().is_database_backed() {
+        return;
+    }
+    let (Some(platform), Some(lib)) = (view.default_platform(), library(chip)) else {
+        return;
+    };
+    // Before any function is analyzed: the recognizers then treat the
+    // pinned functions as the ROM API they are (see rom_function_name).
+    if !is_own_rom_elf(view, chip) {
+        view.store_metadata(
+            ROM_ELF_METADATA,
+            chip.platform_name(),
+            MetadataStoreFlags::PERSISTENT,
+        );
+    }
+    let names_at = |addr: u32| -> Vec<String> {
+        let addr = addr as u64;
+        view.symbols_in_range(addr..addr + 1)
+            .iter()
+            .filter(|s| s.address() == addr)
+            .map(|s| s.raw_name().to_string_lossy().into_owned())
+            .collect()
+    };
+    let (table, revisions) = chip.rom_symbols();
+    let tables = std::iter::once(table).chain(revisions.iter().map(|&(_, t)| t));
+    let in_file = tables.flatten().copied().filter(|&(name, addr)| {
+        let jump = format!("__call_{name}");
+        chip.is_rom_function(addr) && names_at(addr).iter().any(|n| *n == name || *n == jump)
+    });
+    let functions = pick_typed(
+        in_file,
+        |name| {
+            lib.get_named_object(name.into())
+                .is_some_and(|t| t.type_class() == TypeClass::FunctionTypeClass)
+        },
+        |addr| names_at(addr).into_iter().next(),
+    );
+    if functions.is_empty() {
+        return;
+    }
+    if view.type_library_by_name(&lib.name()).is_none() {
+        view.add_type_library(&lib);
+    }
+    let function_at = |addr: u64| {
+        view.function_at(&platform, addr)
+            .or_else(|| view.add_auto_function_ext(addr, &platform, None, false))
+    };
+    let mut pinned = 0;
+    for (name, addr) in &functions {
+        let Some(func) = function_at(*addr as u64) else {
+            continue;
+        };
+        if pin_rom_function(view, &lib, &func, name, name) {
+            view.record_imported_object_library(&lib, name.as_str(), *addr as u64, &platform);
+            pinned += 1;
+        }
+        if let Some((imp_name, imp)) = elf.implementation(*addr)
+            && let Some(imp) = function_at(imp as u64)
+            && pin_rom_function(view, &lib, &imp, name, imp_name)
+        {
+            pinned += 1;
+        }
+    }
+    tracing::info!(
+        "typed {pinned} functions of the {} ROM ELF file",
+        chip.display_name()
+    );
 }
 
 /// From ROM symbols, in order of preference, the ones to type: one per

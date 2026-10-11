@@ -21,12 +21,13 @@
 //! plugin's own download cache. The first file found that passes
 //! [`RomElf::parse`]'s checks against the chip is used.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use crate::espressif::Chip;
 use crate::espressif::elf::elf_symbols;
+use crate::espressif::{Chip, Family};
 
 /// A release of esp-rom-elfs: the archive the plugin downloads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -426,6 +427,72 @@ impl RomElf {
     }
 }
 
+/// Whose mask ROM a ROM ELF file holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RomOf {
+    Chip(Chip),
+    /// A chip the plugin does not support.
+    Other,
+}
+
+/// Recognizes one of Espressif's ROM ELF files for a chip of `family`.
+///
+/// It is the ROM of a chip if it passes [`RomElf::parse`]'s checks for the
+/// chip, and of the functions and variables the chip's ROM table (of every
+/// revision) puts in its ROM code, it defines more where the table puts
+/// them than elsewhere. The ESP32-C61's ROM, which the plugin does not
+/// support, passes the C5's checks (it keeps the C5's jump table entries for
+/// `ets_printf` and `memset`), but defines 581 of the C5's names elsewhere
+/// and 298 in place; Espressif's ROM ELF files define at most 38 of their
+/// own chip's elsewhere, and hundreds in place.
+///
+/// It is the ROM of a chip the plugin does not support if it defines
+/// `ets_printf` in the ROM code of one of the family's chips (as the C61's
+/// does, where the C6's and C5's ROMs are). Firmware calls the ROM's
+/// `ets_printf`, as an `ABS` symbol, but never defines it there.
+///
+/// Any other file is not a ROM ELF file.
+pub fn recognize(file: &[u8], family: Family) -> Option<RomOf> {
+    let machine = file.get(0x12..0x14)?;
+    if u16::from_le_bytes([machine[0], machine[1]]) as u32 != family.elf_machine() {
+        return None;
+    }
+    let symbols = elf_symbols(file);
+    let defined: HashSet<(&str, u32)> = symbols
+        .iter()
+        .filter(|s| !s.absolute)
+        .map(|s| (s.name.as_str(), s.value))
+        .collect();
+    let in_rom_code = |chip: Chip, addr: u32| {
+        chip.rom_code_ranges()
+            .iter()
+            .any(|&(s, e)| s <= addr && addr < e)
+    };
+    let names: HashSet<&str> = defined.iter().map(|&(name, _)| name).collect();
+    let agrees_with = |chip: Chip| {
+        let (table, _) = chip.rom_symbols();
+        let (mut in_place, mut elsewhere) = (0usize, 0usize);
+        for &(name, addr) in table.iter().filter(|&&(_, a)| in_rom_code(chip, a)) {
+            let jump = format!("__call_{name}");
+            if defined.contains(&(name, addr)) || defined.contains(&(jump.as_str(), addr)) {
+                in_place += 1;
+            } else if names.contains(name) || names.contains(jump.as_str()) {
+                elsewhere += 1;
+            }
+        }
+        in_place > elsewhere
+    };
+    let chips = || Chip::ALL.into_iter().filter(|c| c.cpu().family() == family);
+    if let Some(chip) = chips().find(|&chip| RomElf::parse(file, chip).is_ok() && agrees_with(chip))
+    {
+        return Some(RomOf::Chip(chip));
+    }
+    symbols
+        .iter()
+        .any(|s| !s.absolute && s.name == "ets_printf" && chips().any(|c| in_rom_code(c, s.value)))
+        .then_some(RomOf::Other)
+}
+
 /// The lowercase hexadecimal SHA-256 of `data`.
 pub fn sha256_hex(data: &[u8]) -> String {
     Sha256::digest(data)
@@ -805,6 +872,64 @@ mod tests {
         assert!(RomElf::parse(&elf, Chip::Esp32H2).is_err());
     }
 
+    /// A ROM ELF file laid out like Espressif's for the ESP32-C3: the ROM
+    /// table's functions and variables in the ROM code as jump table
+    /// entries (`__call_<name>`), and `ets_printf` itself. Of the entries,
+    /// those but `ets_printf`'s and `memset`'s with an index below
+    /// `moved` are 2 bytes off the table's address, as if another chip's.
+    fn c3_rom(moved: usize) -> Vec<u8> {
+        let (start, end) = Chip::Esp32C3.rom_code_ranges()[0];
+        let (table, _) = Chip::Esp32C3.rom_symbols();
+        let mut names: Vec<(String, u32)> = table
+            .iter()
+            .filter(|&&(_, a)| start <= a && a < end)
+            .enumerate()
+            .map(|(i, &(n, a))| {
+                let anchor = n == "ets_printf" || n == "memset";
+                let a = if i < moved && !anchor { a + 2 } else { a };
+                (format!("__call_{n}"), a)
+            })
+            .collect();
+        names.push(("ets_printf()".into(), start + 0x1_0000));
+        let symbols: Vec<(&str, u32)> = names.iter().map(|(n, a)| (n.as_str(), *a)).collect();
+        let code = vec![0x13u8; (end - start) as usize];
+        rom_elf(243, &[(start, &code)], &symbols)
+    }
+
+    #[test]
+    fn recognizes_rom_elf_files() {
+        let c3 = Some(RomOf::Chip(Chip::Esp32C3));
+        let rom = c3_rom(0);
+        assert_eq!(recognize(&rom, Family::RiscV), c3);
+        // A RISC-V file is no Xtensa chip's ROM.
+        assert_eq!(recognize(&rom, Family::Xtensa), None);
+        // A few names elsewhere (a later revision's ROM moving them)...
+        assert_eq!(recognize(&c3_rom(100), Family::RiscV), c3);
+        // ... but not most: right where ets_printf and memset are, wrong
+        // elsewhere, as the ESP32-C61's ROM is against the C5's table. It
+        // defines ets_printf in the ROM, so it is another chip's ROM.
+        assert_eq!(
+            recognize(&c3_rom(usize::MAX), Family::RiscV),
+            Some(RomOf::Other)
+        );
+        // A ROM ELF file with no more names than the anchors is the chip's.
+        assert_eq!(
+            recognize(&esp32_rom(), Family::Xtensa),
+            Some(RomOf::Chip(Chip::Esp32))
+        );
+        // Firmware, which does not define ets_printf in the ROM; files that
+        // are not ELF files.
+        let mut firmware = rom_elf(
+            243,
+            &[(0x4200_0020, &[0x13; 0x100])],
+            &[("main()", 0x4200_0020)],
+        );
+        assert_eq!(recognize(&firmware, Family::RiscV), None);
+        firmware.truncate(0x40);
+        assert_eq!(recognize(&firmware, Family::RiscV), None);
+        assert_eq!(recognize(b"", Family::RiscV), None);
+    }
+
     #[test]
     fn jump_table_implementations() {
         let (table, _) = Chip::Esp32C6.rom_symbols();
@@ -1029,9 +1154,20 @@ mod tests {
             let path = entry.unwrap().path();
             let name = path.file_name().unwrap().to_string_lossy().into_owned();
             let Some((chip, rev)) = parse_member_name(&name) else {
+                // Another chip's ROM (the C61's, the P4's) is none of the
+                // supported chips'.
+                if name.ends_with("_rom.elf") {
+                    let data = std::fs::read(&path).unwrap();
+                    for family in [Family::Xtensa, Family::RiscV] {
+                        let rom = recognize(&data, family);
+                        assert!(!matches!(rom, Some(RomOf::Chip(_))), "{name}: {rom:?}");
+                    }
+                }
                 continue;
             };
             let data = std::fs::read(&path).unwrap();
+            let family = chip.cpu().family();
+            assert_eq!(recognize(&data, family), Some(RomOf::Chip(chip)), "{name}");
             for other in Chip::ALL
                 .into_iter()
                 .filter(|c| c.rom_type_library().is_some())
