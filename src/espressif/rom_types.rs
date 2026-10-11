@@ -194,8 +194,9 @@ fn region_flags() -> SegmentFlags {
 
 /// Maps the chip's ROM code, as memory regions of its own, unless the view
 /// already maps it (a reopened database keeps its regions). The regions
-/// hold the chip's ROM image if one is available (see
-/// [`rom_download::rom_image`]), else zeros. Returns whether the ROM code is
+/// hold the chip's ROM image if one is available, or headless, downloaded
+/// now (see [`rom_download::rom_image_for_load`]), else zeros. Returns
+/// whether the ROM code is
 /// mapped by these regions, and the ROM image they hold.
 pub fn add_rom_region(view: &BinaryView, chip: Chip) -> (bool, Option<Found>) {
     let mut map = view.memory_map();
@@ -226,7 +227,7 @@ pub fn add_rom_region(view: &BinaryView, chip: Chip) -> (bool, Option<Found>) {
             continue;
         }
         if !added {
-            image = rom_download::rom_image(view, chip);
+            image = rom_download::rom_image_for_load(view, chip);
         }
         let elf = image.as_ref().map(|f| &f.elf);
         let contents = DataBuffer::new(&rom_contents(elf, start, (end - start) as usize));

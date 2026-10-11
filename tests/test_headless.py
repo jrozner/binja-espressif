@@ -1214,6 +1214,17 @@ def logged(text):
         return [line for line in f if text in line]
 
 
+# Headless, nobody is asked: that no ROM image is available, and what to do
+# about it headless (the user settings, not load options; the command for a
+# database), is a warning, once per session. So is that a database keeps its
+# zeros.
+hint = logged("ROM image is available, so the ROM's code region holds zeros")
+check(len(hint) == 1 and all(s in hint[0] for s in ("espressif.rom.elfDirectory", "espressif.rom.autoDownload",
+                                                     "user settings", "load options", "Espressif\\\\Download ROM Images"))
+      and "Plugins >" not in hint[0], f"headless, the hint is a warning, once, with headless remedies ({hint})")
+noted = logged("this database was saved without the")
+check(len(noted) == 1 and "PluginCommand" in noted[0], f"headless, a database with zeros says how to map the image ({noted})")
+
 for chip_id, expected in [(20, "ESP image for ESP32-C61 (chip id 20) at file offset 0x0 " + UNSUPPORTED),
                           (18, "ESP image for ESP32-P4 (chip id 18) at file offset 0x0 " + UNSUPPORTED),
                           (0x7F, "ESP image with unknown chip id 127 (0x7f) at file offset 0x0 " + UNSUPPORTED)]:
@@ -1762,6 +1773,144 @@ def rom_image_checks(tarball):
     settings.set_bool("espressif.rom.autoDownload", False)
     server.shutdown()
     del os.environ["BN_XTENSA_ROM_TEST_URL"]
+    headless_download_checks(archive, release)
+
+
+# A fresh Binary Ninja session, as a server like bn-remote runs it: the
+# user settings turn espressif.rom.autoDownload on, the download cache is
+# empty, and each file is loaded, saved to a database at once, closed and
+# the database reopened. Prints the results as JSON.
+SESSION = r'''
+import json, os, sys, threading, time
+sys.path.insert(0, os.path.join(sys.argv[1], "python"))
+import binaryninja as bn
+bn.log_to_file(bn.LogLevel.WarningLog, os.path.join(os.environ["BN_USER_DIRECTORY"], "log.txt"))
+bn.Platform["esp32"]  # loads the plugins, before any thread loads a file
+def held(bv):
+    return bv.query_metadata("espressif.rom.image") if "espressif.rom.image" in bv.metadata else None
+def rom_functions(bv):
+    return sum(1 for f in bv.functions
+               if (bv.memory_map.get_active_memory_region_at(f.start) or "").startswith("espressif.rom"))
+def run(i, path, out):
+    start = time.time()
+    bv = bn.load(path)
+    r = {"file": os.path.basename(path), "seconds": time.time() - start, "loaded": held(bv),
+         "loaded_functions": rom_functions(bv)}
+    db = os.path.join(os.environ["BN_USER_DIRECTORY"], f"{i}.bndb")
+    bv.create_database(db)
+    bv.file.close()
+    bv = bn.load(db)
+    r.update(reopened=held(bv), reopened_functions=rom_functions(bv))
+    bv.file.close()
+    out[i] = r
+paths = sys.argv[3:]
+out = [None] * len(paths)
+if sys.argv[2] == "together":
+    threads = [threading.Thread(target=run, args=(i, p, out)) for i, p in enumerate(paths)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+else:
+    for i, p in enumerate(paths):
+        run(i, p, out)
+print("RESULTS " + json.dumps(out))
+'''
+
+
+def headless_session(name, url, paths, together=False, env=None):
+    """Runs SESSION in a Binary Ninja of its own: returns its results, and
+    the plugin's warnings and errors it logged."""
+    import json
+    import subprocess
+    ud = os.path.join(user_dir, f"session-{name}")
+    os.makedirs(os.path.join(ud, "plugins"))
+    os.symlink(plugin, os.path.join(ud, "plugins", os.path.basename(plugin)))
+    if os.path.exists(license_file):
+        os.symlink(license_file, os.path.join(ud, "license.dat"))
+    with open(os.path.join(ud, "settings.json"), "w") as f:
+        json.dump({"espressif.rom.autoDownload": True}, f)
+    script = os.path.join(user_dir, "session.py")
+    with open(script, "w") as f:
+        f.write(SESSION)
+    child_env = dict(os.environ, BN_USER_DIRECTORY=ud, HOME=ud, USERPROFILE=ud, BN_XTENSA_ROM_TEST_URL=url,
+                     **(env or {}))
+    out = subprocess.run([sys.executable, script, install, "together" if together else "apart", *paths],
+                         env=child_env, capture_output=True, text=True, timeout=600)
+    results = next((json.loads(line[len("RESULTS "):]) for line in out.stdout.splitlines()
+                    if line.startswith("RESULTS ")), None)
+    if results is None:
+        print(out.stdout[-2000:], out.stderr[-2000:])
+    log = open(os.path.join(ud, "log.txt")).read().splitlines() if os.path.exists(os.path.join(ud, "log.txt")) else []
+    return results or [], log
+
+
+def headless_download_checks(archive, release):
+    """Headless, with espressif.rom.autoDownload on, a load waits for the
+    download: the view that triggered it, and a database saved right after,
+    has the image. A failure or a timeout leaves zeros, and says so once."""
+    serve = {}
+    requests = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            requests.append(self.path)
+            body, delay = serve["body"], serve["delay"]
+            time.sleep(delay)  # the latency of a real download
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_address[1]}/{os.path.basename(release['url'])}"
+    c3, esp32 = os.path.join(DATA, "idf_esp32c3.elf"), os.path.join(DATA, "idf_esp32.elf")
+    c3_image = os.path.join(user_dir, "session_esp32c3.bin")
+    with open(c3_image, "wb") as f:
+        f.write(elf_to_image(c3, 5))
+
+    def downloaded(name, paths, images, together=False):
+        requests.clear()
+        results, log = headless_session(name, url, paths, together)
+        check(len(results) == len(paths) and len(requests) == 1,
+              f"{name}: one download for {len(paths)} files ({len(requests)} requests)")
+        for r, image in zip(results, images):
+            check(r["loaded"] == image and r["loaded_functions"] > 1000,
+                  f"{name}: {r['file']} has the image when bn.load returns ({r['loaded']}, "
+                  f"{r['loaded_functions']} ROM functions)")
+            check(r["reopened"] == image and r["reopened_functions"] == r["loaded_functions"],
+                  f"{name}: {r['file']}'s database, saved at once, keeps it ({r['reopened']}, "
+                  f"{r['reopened_functions']} ROM functions)")
+        check(not [line for line in log if "ROM image" in line], f"{name}: no ROM image warnings ({log[:3]})")
+
+    # Over a second of latency, as from GitHub: an analysis update after the
+    # load would come too late. An ESP image (the view's initialization
+    # maps the ROM), then an ELF file (the ELF fix-ups do) from the cache.
+    serve.update(body=archive, delay=1.5)
+    downloaded("autoDownload", [c3_image, esp32], ["esp32c3_rev0_rom.elf", "esp32_rev0_rom.elf"])
+    # Two loads at once: one download, which the other waits for.
+    downloaded("autoDownload, two loads at once", [c3, esp32], ["esp32c3_rev0_rom.elf", "esp32_rev0_rom.elf"],
+               together=True)
+
+    def zeros(name, env, warning, together=False):
+        requests.clear()
+        results, log = headless_session(name, url, [c3, esp32], together, env)
+        check(len(results) == 2 and all(r["loaded"] is None and r["reopened"] is None for r in results)
+              and len(requests) == 1, f"{name}: zeros, and not downloaded again ({results}, {len(requests)} requests)")
+        check(all(r["seconds"] < 20 for r in results), f"{name}: the loads end ({[r['seconds'] for r in results]})")
+        warned = [line for line in log if warning in line]
+        check(len(warned) == 1 and "holds zeros" in warned[0], f"{name}: warned once ({warned})")
+
+    serve.update(body=archive[:-1] + bytes([archive[-1] ^ 1]), delay=0)
+    zeros("a corrupted download", {}, "ROM image: the download failed")
+    serve.update(body=archive, delay=8)
+    # Two loads at once wait for it, and give up together.
+    zeros("a download that times out", {"BN_XTENSA_ROM_TEST_TIMEOUT": "2"}, "did not finish in 2 s", together=True)
+    server.shutdown()
 
 
 if os.environ.get("BN_XTENSA_ROM_TARBALL"):
