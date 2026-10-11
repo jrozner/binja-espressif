@@ -225,7 +225,8 @@ It provides:
   **Downloading** happens only with your consent, from the esp-rom-elfs
   release pinned in `src/espressif/rom_images.rs` (20260528, 4.9 MB),
   over HTTPS through Binary Ninja's download provider (its proxy settings
-  apply), never while a file loads (the ROM region holds zeros meanwhile):
+  apply). In the UI it never holds up loading a file (the ROM region holds
+  zeros meanwhile):
   - In the UI, the first file that would use a ROM image asks once whether
     to download them, naming the source and licence. If you answer No,
     it doesn't ask again for that release. If you answer Yes, the image is
@@ -236,9 +237,33 @@ It provides:
     In a file that has the image already, it creates the ROM functions
     the file lacks (a database saved with `espressif.rom.createFunctions`
     off, or by 0.1.0-rc.1, which only named most of them).
-  - Headless, it never asks; it downloads only if the
-    `espressif.rom.autoDownload` setting is enabled (with it on, the UI
-    doesn't ask either). A script then reanalyzes or reopens its views.
+  - Headless (scripts, `bn-remote`-style servers), it never asks; it
+    downloads only if the `espressif.rom.autoDownload` setting is enabled
+    (with it on, the UI doesn't ask either), and then the load that needs
+    the image waits for the download (at most 30 s), so the view, and a
+    database saved right after loading, has it. If the download fails or
+    times out, the view has zeros and a warning says so; an analysis tries
+    again a few minutes later. Without the setting or an image, a warning
+    says how to get one.
+
+  **Headless**, `espressif.rom.autoDownload` and
+  `espressif.rom.elfDirectory` must be in the user settings
+  (`settings.json` in the user directory, or `binaryninja.Settings()`
+  before loading): they are global, and as load options they are ignored.
+  To check which image a view holds, read its metadata:
+  `bv.query_metadata("espressif.rom.image")` is the ROM ELF file's name
+  (`KeyError` when the region holds zeros). A database keeps the ROM
+  region it was saved with; to map the image into one saved with zeros,
+  run the command on it and save:
+
+  ```python
+  ctx = binaryninja.PluginCommandContext(bv)
+  binaryninja.PluginCommand.get_valid_list(ctx)["Espressif\\Download ROM Images"].execute(ctx)
+  # it runs on a thread of its own: wait until
+  # "espressif.rom.image" in bv.metadata, then
+  bv.update_analysis_and_wait()
+  bv.file.save_auto_snapshot()
+  ```
 
   The archive is used only if its size and SHA-256 match the pinned ones;
   only the ROM ELF files of the chips the plugin supports are unpacked,

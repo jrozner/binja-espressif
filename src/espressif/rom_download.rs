@@ -22,19 +22,24 @@
 //!   If a download is already running, it waits for that one instead.
 //! * Headless, nothing is asked: the download happens only with the
 //!   `espressif.rom.autoDownload` setting on (which also skips the question
-//!   in the UI), and the views are left alone: a script reanalyzes or
-//!   reopens them. An automatic download that fails is tried again by an
-//!   analysis a few minutes later.
+//!   in the UI), and the hint about how to get an image is a warning, as
+//!   nobody sees a prompt.
 //!
-//! The download never blocks loading a view: it runs on a thread of its
-//! own, and the view loads with zeros meanwhile. It goes through Binary
-//! Ninja's download provider (so its proxy settings apply), over HTTPS,
-//! from the release pinned in [`RELEASE`], and is used only if its size and
-//! SHA-256 match the pinned ones.
+//! In the UI, the download never blocks loading a view: it runs on a thread
+//! of its own, and the view loads with zeros meanwhile. Headless, a load
+//! waits for it (see [`download_inline`], at most [`INLINE_TIMEOUT`]), so
+//! that the view, and a database saved right after the load, has the image:
+//! a script or server that saves its analysis at once gets no second
+//! chance. An automatic download that fails, or times out, leaves zeros and
+//! is tried again by an analysis a few minutes later.
+//!
+//! The download goes through Binary Ninja's download provider (so its proxy
+//! settings apply), over HTTPS, from the release pinned in [`RELEASE`], and
+//! is used only if its size and SHA-256 match the pinned ones.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, MutexGuard, TryLockError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use binaryninja::background_task::BackgroundTask;
@@ -67,6 +72,11 @@ const MIN_REVISION_METADATA: &str = "espressif.rom.minChipRevision";
 /// on a loopback address, instead of the release. The download is still
 /// verified against [`RELEASE`].
 const TEST_URL_ENV: &str = "BN_XTENSA_ROM_TEST_URL";
+/// Only for tests/test_headless.py, with [`TEST_URL_ENV`]: wait this many
+/// seconds for a headless download instead of [`INLINE_TIMEOUT`].
+const TEST_TIMEOUT_ENV: &str = "BN_XTENSA_ROM_TEST_TIMEOUT";
+/// How long a headless load waits for the automatic download (4.9 MB).
+pub const INLINE_TIMEOUT: Duration = Duration::from_secs(30);
 
 const TITLE: &str = "Espressif (binja-xtensa)";
 const COMMAND: &str = "Espressif\\Download ROM Images";
@@ -86,9 +96,33 @@ static AUTO_DOWNLOAD_FAILED: AtomicBool = AtomicBool::new(false);
 const RETRY_AFTER: Duration = Duration::from_secs(5 * 60);
 /// Has this session said how to map an image into a database?
 static DATABASE_NOTED: AtomicBool = AtomicBool::new(false);
-/// Held while downloading; holds the number of ROM ELF files the last
-/// download unpacked, if it succeeded.
-static DOWNLOADING: Mutex<Option<usize>> = Mutex::new(None);
+/// The download that is running, and the last one's outcome (see
+/// [`Downloads`]); signalled when one ends.
+static DOWNLOADS: Mutex<Downloads> = Mutex::new(Downloads {
+    running: None,
+    last: None,
+});
+static DOWNLOAD_ENDED: Condvar = Condvar::new();
+
+/// The download that is running, as its cancel flag, and the number of ROM
+/// ELF files the last one unpacked, if it succeeded. A download that was
+/// cancelled no longer counts as running: the provider has no deadline, so
+/// it may never return, and it unpacks nothing if it does (see [`fetch`]).
+struct Downloads {
+    running: Option<Arc<AtomicBool>>,
+    last: Option<usize>,
+}
+
+impl Downloads {
+    fn busy(&self) -> bool {
+        self.running
+            .as_ref()
+            .is_some_and(|c| !c.load(Ordering::SeqCst))
+    }
+}
+/// The automatic download a headless load started, for other loads to wait
+/// for (see [`download_inline`]).
+static INLINE: Mutex<Option<Arc<Inline>>> = Mutex::new(None);
 
 /// Where the automatic download stands: it is tried once per session, and
 /// again a while after it fails (the network may be back).
@@ -110,6 +144,42 @@ impl AutoDownload {
             AutoDownload::Failed(at) => now.saturating_duration_since(at) >= RETRY_AFTER,
         }
     }
+}
+
+/// What a headless load that wants the ROM image does about the automatic
+/// download (see [`download_inline`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InlinePlan {
+    /// Start it, and wait for it.
+    Start,
+    /// Wait for the one that is running.
+    Wait,
+    /// Load with zeros: it is done (and has no image for this view), or
+    /// failed or timed out a short while ago.
+    Skip,
+}
+
+/// [`download_inline`]'s rules, from the session's automatic download
+/// `state` and the headless one that is running, if any (whether it timed
+/// out and was cancelled).
+pub fn plan_inline(state: AutoDownload, running: Option<bool>, now: Instant) -> InlinePlan {
+    match running {
+        Some(false) => InlinePlan::Wait,
+        // Not running, or timed out: that failed (see `download_inline`),
+        // and is retried a while later, even if it is stuck.
+        _ if state.may_start(now) => InlinePlan::Start,
+        _ => InlinePlan::Skip,
+    }
+}
+
+/// A headless automatic download: its outcome once it is done, whether a
+/// load that waited for it gave up, and whether a warning said it failed.
+#[derive(Default)]
+struct Inline {
+    done: Mutex<Option<bool>>,
+    finished: Condvar,
+    cancel: Arc<AtomicBool>,
+    warned: AtomicBool,
 }
 
 /// Locks `mutex`, whether or not a thread panicked holding it.
@@ -243,11 +313,41 @@ fn wanted_revision(view: &BinaryView) -> Option<u16> {
 /// The chip's ROM image for the view, if ROM images are on and one is
 /// available.
 pub fn rom_image(view: &BinaryView, chip: Chip) -> Option<Found> {
-    let settings = Settings::global();
-    if !settings.get_bool_with_opts(LOAD_IMAGES, &mut QueryOptions::new_with_view(view)) {
+    if !load_images(view) {
         return None;
     }
     rom_images::find(chip, wanted_revision(view), &search_dirs(view))
+}
+
+fn load_images(view: &BinaryView) -> bool {
+    Settings::global().get_bool_with_opts(LOAD_IMAGES, &mut QueryOptions::new_with_view(view))
+}
+
+/// The chip's ROM image for a view that is being loaded or analyzed: as
+/// [`rom_image`], but headless, with [`AUTO_DOWNLOAD`] on, one is
+/// downloaded first if none is available, and the load waits for it (see
+/// [`download_inline`]). In the UI, the download is offered later, on a
+/// thread of its own (see [`offer`]).
+///
+/// This runs where the view's ROM region is added or refreshed (the view's
+/// initialization, the ELF fix-ups, the image step), never in the analysis
+/// of a function.
+pub fn rom_image_for_load(view: &BinaryView, chip: Chip) -> Option<Found> {
+    if let Some(found) = rom_image(view, chip) {
+        return Some(found);
+    }
+    let plan = plan_offer(binaryninja::is_ui_enabled(), auto_download(), false);
+    if plan != Offer::DownloadInline || !load_images(view) || !download_inline(chip) {
+        return None;
+    }
+    let found = rom_image(view, chip);
+    if found.is_none() {
+        tracing::warn!(
+            "the ROM image download has no {} ROM image for this view",
+            chip.display_name()
+        );
+    }
+    found
 }
 
 /// Whether a ROM image's functions all become functions of the view (see
@@ -269,26 +369,50 @@ fn refresh(view: &BinaryView) {
     if !rom_types::has_zero_filled_region(view, chip) {
         return;
     }
-    let settings = Settings::global();
-    if !settings.get_bool_with_opts(LOAD_IMAGES, &mut QueryOptions::new_with_view(view)) {
+    if !load_images(view) {
         return;
     }
     if view.file().is_database_backed() {
         if !DATABASE_NOTED.swap(true, Ordering::SeqCst) {
-            tracing::info!(
-                "this database was saved without the {} ROM image, and keeps its zero-filled ROM region; \
-                 Plugins > Espressif > Download ROM Images maps the image into it",
-                chip.display_name()
-            );
+            database_note(chip, binaryninja::is_ui_enabled());
         }
         return;
     }
-    match rom_image(view, chip) {
+    match rom_image_for_load(view, chip) {
         Some(found) => {
             rom_types::map_rom_image(view, chip, &found);
         }
         None => offer(view, chip),
     }
+}
+
+/// Says that a database saved with zeros keeps them, and how to map the
+/// image into it: in the UI from the menu; headless with the command, run
+/// from a script, then saving the database.
+fn database_note(chip: Chip, ui: bool) {
+    let chip = chip.display_name();
+    if ui {
+        tracing::info!(
+            "this database was saved without the {chip} ROM image, and keeps its zero-filled ROM region; \
+             Plugins > Espressif > Download ROM Images maps the image into it"
+        );
+    } else {
+        tracing::warn!(
+            "this database was saved without the {chip} ROM image, and keeps its zero-filled ROM region. \
+             To map the image into it, {}",
+            headless_database_remedy()
+        );
+    }
+}
+
+/// How to map a ROM image into a database headless.
+fn headless_database_remedy() -> String {
+    format!(
+        "run the plugin command '{COMMAND}' on the view (in Python: \
+         ctx = binaryninja.PluginCommandContext(bv); \
+         binaryninja.PluginCommand.get_valid_list(ctx)[{COMMAND:?}].execute(ctx)), wait for it, and save \
+         the database; or analyze the original file again"
+    )
 }
 
 /// Registers the analysis step that maps ROM images into zero-filled ROM
@@ -372,6 +496,35 @@ pub fn prompt_text(chip: Chip, release: &Release, cache: &std::path::Path) -> St
     )
 }
 
+/// How to get a ROM image, for a view that has none: in the UI, from the
+/// menu or the settings; headless, from the user settings (they are global:
+/// as load options they are ignored), then analyzing the file again, or
+/// from the command, run from a script.
+pub fn explain_text(chip: Chip, ui: bool, declined: bool) -> String {
+    let chip = chip.display_name();
+    if ui {
+        return format!(
+            "no {chip} ROM image is available, so the ROM's code region holds zeros. Set '{ELF_DIRECTORY}' \
+             to a directory of Espressif's ROM ELF files, or let the plugin download them from {SOURCE} \
+             (Plugins > Espressif > Download ROM Images, or the '{AUTO_DOWNLOAD}' setting){}",
+            if declined {
+                "; you declined the download before"
+            } else {
+                ""
+            }
+        );
+    }
+    format!(
+        "no {chip} ROM image is available, so the ROM's code region holds zeros (headless, the plugin \
+         never asks to download it). Set '{ELF_DIRECTORY}' to a directory of Espressif's ROM ELF files, \
+         or '{AUTO_DOWNLOAD}' to true to download them from {SOURCE}, in the user settings \
+         (settings.json in the user directory, or binaryninja.Settings() before loading; not as load \
+         options, which these global settings ignore), and analyze the file again. A database keeps \
+         the ROM region it was saved with: to map the image into one, {}.",
+        headless_database_remedy()
+    )
+}
+
 /// Runs `f` on the UI thread and returns its result.
 fn on_main_thread<T: Send + 'static>(f: impl Fn() -> T + Send + Sync + 'static) -> Option<T> {
     let result = std::sync::Arc::new(Mutex::new(None));
@@ -407,18 +560,24 @@ fn ask(text: String) -> bool {
 /// What to do when a view has no ROM image to map, by [`offer`]'s rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Offer {
+    /// In the background (the UI).
     Download,
+    /// Headless, while the view loads (see [`download_inline`]).
+    DownloadInline,
     Ask,
     /// Log how to get one.
     Explain,
 }
 
-/// [`offer`]'s rules: with `autoDownload`, download; in the UI, ask unless
-/// the user declined this release; otherwise (headless, or declined),
-/// explain. Each happens at most once per session (see [`once`]).
+/// [`offer`]'s rules: with `autoDownload`, download, in the background in
+/// the UI and while the view loads headless; in the UI, ask unless the user
+/// declined this release; otherwise (headless, or declined), explain. Each
+/// happens at most once per session (see [`once`], and for a headless
+/// download [`plan_inline`]).
 pub fn plan_offer(ui: bool, auto: bool, declined: bool) -> Offer {
     match () {
-        _ if auto => Offer::Download,
+        _ if auto && ui => Offer::Download,
+        _ if auto => Offer::DownloadInline,
         _ if ui && !declined => Offer::Ask,
         _ => Offer::Explain,
     }
@@ -437,6 +596,8 @@ fn once(offer: Offer) -> bool {
             }
             return start;
         }
+        // `rom_image_for_load` tried it already, and reported a failure.
+        Offer::DownloadInline => return false,
         Offer::Ask => &ASKED,
         Offer::Explain => &EXPLAINED,
     };
@@ -445,7 +606,8 @@ fn once(offer: Offer) -> bool {
 
 /// Offers to download the ROM images for a view that has none, by
 /// [`plan_offer`]'s rules. Never blocks: asking and downloading happen on a
-/// thread of their own.
+/// thread of their own. (Headless, [`rom_image_for_load`] has downloaded
+/// already, if it was to.)
 fn offer(view: &BinaryView, chip: Chip) {
     let declined = declined().is_some_and(|d| d.eq_ignore_ascii_case(RELEASE.sha256));
     let plan = plan_offer(binaryninja::is_ui_enabled(), auto_download(), declined);
@@ -453,17 +615,15 @@ fn offer(view: &BinaryView, chip: Chip) {
         return;
     }
     if plan == Offer::Explain {
-        tracing::info!(
-            "no {} ROM image is available, so the ROM's code region holds zeros. Set '{ELF_DIRECTORY}' \
-             to a directory of Espressif's ROM ELF files, or let the plugin download them from {SOURCE} \
-             (Plugins > Espressif > Download ROM Images, or the '{AUTO_DOWNLOAD}' setting){}",
-            chip.display_name(),
-            if declined {
-                "; you declined the download before"
-            } else {
-                ""
-            }
-        );
+        let ui = binaryninja::is_ui_enabled();
+        let text = explain_text(chip, ui, declined);
+        // Headless, nobody was asked, and this is all that tells that the
+        // ROM's code is missing.
+        if ui {
+            tracing::info!("{text}");
+        } else {
+            tracing::warn!("{text}");
+        }
         return;
     }
     let view = view.to_owned();
@@ -481,11 +641,10 @@ fn offer(view: &BinaryView, chip: Chip) {
         let failed_before = plan == Offer::Download && AUTO_DOWNLOAD_FAILED.load(Ordering::SeqCst);
         let downloaded = download_release(!failed_before).is_ok();
         if plan == Offer::Download && !downloaded {
-            AUTO_DOWNLOAD_FAILED.store(true, Ordering::SeqCst);
-            *lock(&AUTO_DOWNLOAD_STATE) = AutoDownload::Failed(Instant::now());
+            failed();
         }
-        // In the UI, the view that wanted the image maps it now; headless,
-        // a script reanalyzes or reopens its views (see `refresh`).
+        // In the UI, the view that wanted the image maps it now. (Headless,
+        // the view's load downloads, see `rom_image_for_load`.)
         if downloaded && binaryninja::is_ui_enabled() {
             map_into(&view, chip);
         }
@@ -522,7 +681,7 @@ pub fn download_url(release: &Release, test_url: Option<&str>) -> Result<String,
     Ok(url.to_string())
 }
 
-fn fetch(url: &str, task: &BackgroundTask) -> Result<Vec<u8>, String> {
+fn fetch(url: &str, task: &BackgroundTask, cancel: Arc<AtomicBool>) -> Result<Vec<u8>, String> {
     let provider = DownloadProvider::try_default()
         .map_err(|_| "Binary Ninja has no download provider".to_string())?;
     let mut instance = provider
@@ -531,6 +690,7 @@ fn fetch(url: &str, task: &BackgroundTask) -> Result<Vec<u8>, String> {
     let data = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
     let sink = data.clone();
     let progress_task = task.to_owned();
+    let progress_cancel = cancel.clone();
     let callbacks = DownloadInstanceInputOutputCallbacks {
         read: None,
         write: Some(Box::new(move |chunk: &[u8]| {
@@ -546,13 +706,13 @@ fn fetch(url: &str, task: &BackgroundTask) -> Result<Vec<u8>, String> {
                 progress_task
                     .set_progress_text(&format!("Espressif: downloading ROM images {percent}%"));
             }
-            !progress_task.is_cancelled()
+            !progress_task.is_cancelled() && !progress_cancel.load(Ordering::SeqCst)
         })),
     };
     let headers = [("User-Agent".to_string(), "binja-xtensa".to_string())];
     let response = instance.perform_custom_request("GET", url, headers, &callbacks)?;
     drop(callbacks);
-    if task.is_cancelled() {
+    if task.is_cancelled() || cancel.load(Ordering::SeqCst) {
         return Err("cancelled".into());
     }
     if !(200..300).contains(&response.status_code) {
@@ -568,23 +728,34 @@ fn fetch(url: &str, task: &BackgroundTask) -> Result<Vec<u8>, String> {
 /// `report` is set.
 ///
 /// If another download is running, this waits for it, and does not
-/// download again if it succeeded: the caller then has its files.
+/// download again if it succeeded: the caller then has its files. One that
+/// was cancelled (a headless load gave up on it) is not waited for.
 pub fn download_release(report: bool) -> Result<usize, String> {
-    let mut last = match DOWNLOADING.try_lock() {
-        Ok(guard) => guard,
-        Err(TryLockError::Poisoned(e)) => e.into_inner(),
-        Err(TryLockError::WouldBlock) => {
-            tracing::info!("waiting for the ROM image download that is running");
-            let guard = lock(&DOWNLOADING);
-            if let Some(n) = *guard {
-                return Ok(n);
-            }
-            guard
-        }
-    };
-    *last = None;
+    download_release_cancellable(report, Arc::default())
+}
+
+/// [`download_release`], given up (as a failure) once `cancel` is set.
+fn download_release_cancellable(report: bool, cancel: Arc<AtomicBool>) -> Result<usize, String> {
     let test_url = std::env::var(TEST_URL_ENV).ok();
     let url = download_url(&RELEASE, test_url.as_deref())?;
+    {
+        let mut downloads = lock(&DOWNLOADS);
+        if downloads.busy() {
+            tracing::info!("waiting for the ROM image download that is running");
+            // Woken when it ends, or checked again when it is cancelled.
+            while downloads.busy() {
+                downloads = DOWNLOAD_ENDED
+                    .wait_timeout(downloads, Duration::from_millis(500))
+                    .unwrap_or_else(|e| e.into_inner())
+                    .0;
+            }
+            if let Some(n) = downloads.last {
+                return Ok(n);
+            }
+        }
+        downloads.running = Some(cancel.clone());
+        downloads.last = None;
+    }
     let task = BackgroundTask::new("Espressif: downloading ROM images", true);
     tracing::info!(
         "downloading esp-rom-elfs {} ({}) from {url}",
@@ -592,26 +763,51 @@ pub fn download_release(report: bool) -> Result<usize, String> {
         mb(RELEASE.size)
     );
     let dest = cache_dir();
-    let result =
-        fetch(&url, &task).and_then(|archive| rom_images::unpack(&archive, &RELEASE, &dest));
+    let result = fetch(&url, &task, cancel.clone())
+        .and_then(|archive| rom_images::unpack(&archive, &RELEASE, &dest));
     task.finish();
-    *last = result.as_ref().ok().copied();
+    {
+        let mut downloads = lock(&DOWNLOADS);
+        // Unless it was cancelled, and another started since.
+        if downloads
+            .running
+            .as_ref()
+            .is_some_and(|c| Arc::ptr_eq(c, &cancel))
+        {
+            downloads.running = None;
+            downloads.last = result.as_ref().ok().copied();
+        }
+    }
+    DOWNLOAD_ENDED.notify_all();
     match &result {
         Ok(n) => {
             set_declined(None);
             let text = format!(
-                "Downloaded Espressif's ROM images (esp-rom-elfs {}, verified SHA-256 {}): {n} ROM ELF files in {}. \
-                 Views map them when they are next analyzed or reopened.",
+                "Downloaded Espressif's ROM images (esp-rom-elfs {}, verified SHA-256 {}): {n} ROM ELF files in {}. {}",
                 RELEASE.tag,
                 RELEASE.sha256,
-                dest.display()
+                dest.display(),
+                if binaryninja::is_ui_enabled() {
+                    "Views map them when they are next analyzed or reopened.".to_string()
+                } else {
+                    format!(
+                        "Views loaded from now on map them, and views loaded before when they are next \
+                         analyzed. A database keeps the ROM region it was saved with: to map the image into \
+                         one, {}.",
+                        headless_database_remedy()
+                    )
+                }
             );
             tracing::info!("{text}");
         }
         Err(err) => {
             let text = format!(
-                "Espressif's ROM images were not downloaded from {url}: {err}. \
-                 Plugins > Espressif > Download ROM Images tries again."
+                "Espressif's ROM images were not downloaded from {url}: {err}. {}",
+                if binaryninja::is_ui_enabled() {
+                    "Plugins > Espressif > Download ROM Images tries again.".to_string()
+                } else {
+                    format!("The plugin command '{COMMAND}' tries again.")
+                }
             );
             tracing::error!("{text}");
             if report {
@@ -620,6 +816,100 @@ pub fn download_release(report: bool) -> Result<usize, String> {
         }
     }
     result
+}
+
+/// Records that the automatic download failed (see [`AutoDownload`]).
+fn failed() {
+    AUTO_DOWNLOAD_FAILED.store(true, Ordering::SeqCst);
+    *lock(&AUTO_DOWNLOAD_STATE) = AutoDownload::Failed(Instant::now());
+}
+
+/// How long a headless load waits for the download.
+fn inline_timeout() -> Duration {
+    std::env::var(TEST_URL_ENV)
+        .ok()
+        .filter(|u| !u.is_empty())
+        .and_then(|_| std::env::var(TEST_TIMEOUT_ENV).ok()?.parse::<f64>().ok())
+        .filter(|s| s.is_finite() && *s > 0.0)
+        .map(Duration::from_secs_f64)
+        .unwrap_or(INLINE_TIMEOUT)
+}
+
+/// Headless, with [`AUTO_DOWNLOAD`] on: downloads the ROM images (the
+/// setting is the consent) and waits for them, at most [`inline_timeout`],
+/// so that the view being loaded maps the image itself. Returns whether the
+/// download succeeded.
+///
+/// The download runs on a thread of its own, once per session (see
+/// [`plan_inline`]): loads while it runs wait for it, and once it is done
+/// none starts again unless it failed, a while ago (see [`AutoDownload`]).
+/// One that times out is cancelled, and fails; the view loads with zeros,
+/// and a warning says so.
+fn download_inline(chip: Chip) -> bool {
+    let timeout = inline_timeout();
+    let inline = {
+        let mut state = lock(&AUTO_DOWNLOAD_STATE);
+        let mut current = lock(&INLINE);
+        let running = current
+            .as_ref()
+            .filter(|i| lock(&i.done).is_none())
+            .map(|i| i.cancel.load(Ordering::SeqCst));
+        match (
+            plan_inline(*state, running, Instant::now()),
+            current.clone(),
+        ) {
+            (InlinePlan::Skip, _) => return false,
+            (InlinePlan::Wait, Some(inline)) => {
+                tracing::info!("waiting for the ROM image download that is running");
+                inline
+            }
+            _ => {
+                *state = AutoDownload::Started;
+                let inline = Arc::new(Inline::default());
+                *current = Some(inline.clone());
+                let download = inline.clone();
+                std::thread::spawn(move || {
+                    let ok = download_release_cancellable(false, download.cancel.clone()).is_ok();
+                    // A download that timed out failed then.
+                    if !ok && !download.cancel.load(Ordering::SeqCst) {
+                        failed();
+                    }
+                    *lock(&download.done) = Some(ok);
+                    download.finished.notify_all();
+                });
+                inline
+            }
+        }
+    };
+    let done = lock(&inline.done);
+    let (done, _) = inline
+        .finished
+        .wait_timeout_while(done, timeout, |d| d.is_none())
+        .unwrap_or_else(|e| e.into_inner());
+    let outcome = *done;
+    drop(done);
+    let why = match outcome {
+        Some(true) => return true,
+        Some(false) => "the download failed".to_string(),
+        None => {
+            if !inline.cancel.swap(true, Ordering::SeqCst) {
+                failed();
+            }
+            format!("the download did not finish in {} s", timeout.as_secs_f64())
+        }
+    };
+    // Once, however many loads waited for it.
+    if inline.warned.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    tracing::warn!(
+        "no {} ROM image: {why}, so the ROM's code region holds zeros. An analysis of a view without \
+         one tries again in {} minutes; or set '{ELF_DIRECTORY}' to a directory of Espressif's ROM ELF \
+         files in the user settings, and analyze the file again.",
+        chip.display_name(),
+        RETRY_AFTER.as_secs() / 60
+    );
+    false
 }
 
 /// Maps the chip's ROM image into the view's zero-filled ROM code regions,
@@ -689,7 +979,7 @@ impl Command for DownloadCommand {
                     return;
                 }
             } else {
-                tracing::info!("a {} ROM image is already available", chip.display_name());
+                tracing::info!("an {} ROM image is already available", chip.display_name());
             }
             map_into(&view, chip);
         });
@@ -716,9 +1006,12 @@ mod tests {
     fn consent_rules() {
         use Offer::*;
         // The setting downloads without asking, in the UI and headless,
-        // even after a "No".
+        // even after a "No": in the background in the UI, while the view
+        // loads headless.
         assert_eq!(plan_offer(true, true, true), Download);
-        assert_eq!(plan_offer(false, true, false), Download);
+        assert_eq!(plan_offer(true, true, false), Download);
+        assert_eq!(plan_offer(false, true, false), DownloadInline);
+        assert_eq!(plan_offer(false, true, true), DownloadInline);
         // The UI asks, unless declined; headless never asks.
         assert_eq!(plan_offer(true, false, false), Ask);
         assert_eq!(plan_offer(true, false, true), Explain);
@@ -734,6 +1027,45 @@ mod tests {
         assert!(!Failed(now).may_start(now));
         assert!(!Failed(now).may_start(now + RETRY_AFTER / 2));
         assert!(Failed(now).may_start(now + RETRY_AFTER));
+    }
+
+    #[test]
+    fn headless_loads_wait_for_one_download() {
+        use AutoDownload::*;
+        use InlinePlan::*;
+        let now = Instant::now();
+        // The first load starts it; the loads while it runs wait for it.
+        assert_eq!(plan_inline(NotTried, None, now), Start);
+        assert_eq!(plan_inline(Started, Some(false), now), Wait);
+        // One that timed out is not waited for again, but retried a while
+        // later, even if it is stuck.
+        assert_eq!(plan_inline(Failed(now), Some(true), now), Skip);
+        assert_eq!(
+            plan_inline(Failed(now), Some(true), now + RETRY_AFTER),
+            Start
+        );
+        // Done: not again, unless it failed a while ago.
+        assert_eq!(plan_inline(Started, None, now), Skip);
+        assert_eq!(plan_inline(Failed(now), None, now), Skip);
+        assert_eq!(plan_inline(Failed(now), None, now + RETRY_AFTER), Start);
+    }
+
+    #[test]
+    fn headless_hints_name_headless_remedies() {
+        let text = explain_text(Chip::Esp32S3, false, false);
+        for needle in [
+            ELF_DIRECTORY,
+            AUTO_DOWNLOAD,
+            "user settings",
+            "load options",
+            COMMAND,
+            "save",
+        ] {
+            assert!(text.contains(needle), "{needle}: {text}");
+        }
+        assert!(!text.contains("Plugins >"), "{text}");
+        assert!(explain_text(Chip::Esp32, true, false).contains("Plugins > Espressif"));
+        assert!(explain_text(Chip::Esp32, true, true).contains("declined"));
     }
 
     #[test]
