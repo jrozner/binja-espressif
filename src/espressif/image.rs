@@ -246,8 +246,8 @@ pub fn fits_memory_map(chip: Chip, segments: &[(u32, u32)]) -> bool {
             let Some(region) = region_of(chip, cursor) else {
                 return false;
             };
-            // Region ends are exclusive, so `region.end - 1` is its last byte.
-            if last <= region.end - 1 {
+            // Region ends are exclusive.
+            if last < region.end {
                 return true;
             }
             cursor = region.end;
@@ -991,9 +991,9 @@ mod tests {
         let (base, _) = chip.rom_symbols();
         let mut out = Vec::new();
         for &(name, addr) in base {
-            let elsewhere = others.iter().any(|&o| {
-                rom_matches(o, &HashSet::from([(name, addr)])) > 0
-            });
+            let elsewhere = others
+                .iter()
+                .any(|&o| rom_matches(o, &HashSet::from([(name, addr)])) > 0);
             if !elsewhere {
                 out.push((name.to_string(), addr));
             }
@@ -1029,7 +1029,13 @@ mod tests {
         // that one C3 symbol does not tie two of the C2's.
         let shared = ("wDevCheckBlockError", 0x4000_17B4);
         let (_, c3_revisions) = Chip::Esp32C3.rom_symbols();
-        assert!(c3_revisions.iter().filter(|(_, t)| t.contains(&shared)).count() > 1);
+        assert!(
+            c3_revisions
+                .iter()
+                .filter(|(_, t)| t.contains(&shared))
+                .count()
+                > 1
+        );
         let mixed = [
             ("GetSecurityInfoProc".to_string(), 0x4000_00B0),
             ("MMU_Get_Page_Mode".to_string(), 0x4000_0700),
@@ -1037,7 +1043,10 @@ mod tests {
         ];
         assert_eq!(guess(Family::RiscV, &iram, &mixed), (Chip::Esp32C2, 2));
         // Symbols that are no chip's ROM symbols change nothing.
-        let junk = [("memcpy".to_string(), 0x1234), ("x".to_string(), 0x4000_0000)];
+        let junk = [
+            ("memcpy".to_string(), 0x1234),
+            ("x".to_string(), 0x4000_0000),
+        ];
         assert_eq!(guess(Family::RiscV, &sram, &junk), (Chip::Esp32C6, 0));
         // A chip whose memory map does not hold the program is never picked,
         // however its ROM symbols match.
@@ -1061,7 +1070,10 @@ mod tests {
         assert_eq!(guess_riscv_chip(&[0x4080_0000, 0x42FF_FF00]), Chip::Esp32C6);
         assert_eq!(guess(&segments), (Chip::Esp32C5, 0));
         // The same start with an end inside every window keeps the heuristic.
-        assert_eq!(guess(&[(0x4080_0000, 0x100), (0x42FF_FF00, 0x80)]), (Chip::Esp32C6, 0));
+        assert_eq!(
+            guess(&[(0x4080_0000, 0x100), (0x42FF_FF00, 0x80)]),
+            (Chip::Esp32C6, 0)
+        );
         // SRAM running past the H2's end: the heuristic's C6 still fits.
         assert_eq!(guess(&[(0x4084_FF00, 0x200)]), (Chip::Esp32C6, 0));
         // Fitting no chip, every chip is a candidate and the heuristic decides.
@@ -1075,11 +1087,17 @@ mod tests {
         assert!(!fits_memory_map(Chip::Esp32C6, &[(0x4087_F000, 0x2000)]));
         assert!(!fits_memory_map(Chip::Esp32C3, &[(0x1_0000, 0x100)]));
         // Wrapping around the address space.
-        assert!(!fits_memory_map(Chip::Esp32C3, &[(0x6000_0000, 0xFFFF_FFFF)]));
+        assert!(!fits_memory_map(
+            Chip::Esp32C3,
+            &[(0x6000_0000, 0xFFFF_FFFF)]
+        ));
         // Empty segments only need their address mapped.
         assert!(fits_memory_map(Chip::Esp32C3, &[(0x3FC8_8000, 0)]));
         // Both ends mapped, but with unmapped memory between them: DROM to DRAM.
-        assert!(!fits_memory_map(Chip::Esp32C3, &[(0x3C00_0020, 0x3FC8_8000 - 0x3C00_0020)]));
+        assert!(!fits_memory_map(
+            Chip::Esp32C3,
+            &[(0x3C00_0020, 0x3FC8_8000 - 0x3C00_0020)]
+        ));
         // Spanning adjacent regions is fine: the ESP32's DRAM runs into its ROM.
         assert!(fits_memory_map(Chip::Esp32, &[(0x3FFF_FFF0, 0x20)]));
         // ... and up to the very last byte of a region, but not past it.

@@ -461,8 +461,10 @@ fn read_abs_symbols(view: &BinaryView, header: &[u8]) -> Vec<(String, u32)> {
     let symbols = view.read_vec(offset, size);
     let names = view.read_vec(str_offset, str_size);
     symbols
-        .chunks_exact(16)
-        .filter(|sym| u16_at(sym, 14) == SHN_ABS)
+        .as_chunks::<16>()
+        .0
+        .iter()
+        .filter(|sym| u16_at(*sym, 14) == SHN_ABS)
         .filter_map(|sym| {
             let name = names.get(u32_at(sym, 0) as usize..)?;
             let name = &name[..name.iter().position(|&c| c == 0)?];
@@ -488,8 +490,7 @@ fn is_espressif_elf(family: Family, program: &ElfProgram) -> bool {
             program.flags & (EF_RISCV_FLOAT_ABI | EF_RISCV_RVE) == 0
                 && !program.segments.is_empty()
                 && Chip::ALL.into_iter().any(|chip| {
-                    chip.cpu().family() == family
-                        && image::fits_memory_map(chip, &program.segments)
+                    chip.cpu().family() == family && image::fits_memory_map(chip, &program.segments)
                 })
         }
     }
