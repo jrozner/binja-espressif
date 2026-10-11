@@ -16,9 +16,12 @@
 //! * **ESP8266 v2 images** (magic `0xEA`, NONOS OTA `user1.bin`, Arduino):
 //!   the `irom0` segment comes first, followed by a v1 image of the RAM
 //!   segments. The `irom0` data is mapped at `0x40200000 + flash offset`.
-//! * **Flash dumps**: only one image of the partition table at 0x8000 is
-//!   loaded: the factory (or first OTA) application, or the app partition or
-//!   bootloader selected by the view's `loader.esp.partition` load setting. ESP8266
+//! * **Flash dumps**: dumps with a partition table at 0x8000 are split into
+//!   their bootloader, partition table and partitions by the `EspFlash`
+//!   container transform (see [`crate::espressif::container`]). Where the
+//!   view is given the whole dump instead, only one image of it is loaded:
+//!   the factory (or first OTA) application, or the app partition or
+//!   bootloader the `files.espressif.partition` setting selects. ESP8266
 //!   dumps without a partition table (NONOS SDK) are additionally mapped as
 //!   a whole at the flash cache window `0x40200000`, where `irom0` lives.
 
@@ -650,31 +653,61 @@ pub const PARTITION_TABLE_OFFSET: usize = 0x8000;
 /// firmware distributions produce them).
 pub const DUMP_BASES: [usize; 2] = [0, 0x1000];
 
+/// The size of the partition table: at most 95 entries and an MD5 entry,
+/// in a 4 KiB flash sector of its own.
+pub const PARTITION_TABLE_SIZE: usize = 0xC00;
+
 /// Reads the partition table of a dump that starts at flash offset `base`.
-pub fn partitions(data: &[u8], base: usize) -> Vec<Partition> {
+///
+/// The table must look like one `gen_esp32part.py` writes, so that other
+/// files with the magic at that offset are not taken for flash dumps: at
+/// least one entry, each of a known type (or a custom one, 0x40 and up), at
+/// a 4 KiB-aligned offset after the table, of a non-zero size, and with a
+/// printable label; and after the entries, the MD5 entry, erased flash or
+/// the end of the data.
+pub fn partitions(data: &[u8], base: usize) -> Option<Vec<Partition>> {
+    parse_partition_table(data.get(PARTITION_TABLE_OFFSET.checked_sub(base)?..)?)
+}
+
+/// Parses the partition table at the start of `table` (see [`partitions`]).
+pub fn parse_partition_table(table: &[u8]) -> Option<Vec<Partition>> {
     let mut out = Vec::new();
-    let table = PARTITION_TABLE_OFFSET - base;
-    for off in (table..table + 0xC00).step_by(32) {
-        let Some(entry) = data.get(off..off + 32) else {
-            break;
-        };
+    for entry in table
+        .as_chunks::<32>()
+        .0
+        .iter()
+        .take(PARTITION_TABLE_SIZE / 32)
+    {
         if entry[0] != 0xAA || entry[1] != 0x50 {
+            let md5 = entry[..2] == [0xEB, 0xEB] && entry[2..16].iter().all(|&b| b == 0xFF);
+            if !md5 && entry.iter().any(|&b| b != 0xFF) {
+                return None;
+            }
             break;
         }
-        let label = entry[12..28]
-            .iter()
-            .take_while(|&&b| b != 0)
-            .map(|&b| b as char)
-            .collect();
-        out.push(Partition {
+        let p = Partition {
             kind: entry[2],
             subtype: entry[3],
-            offset: read_u32(entry, 4).unwrap(),
-            size: read_u32(entry, 8).unwrap(),
-            label,
-        });
+            offset: read_u32(entry, 4)?,
+            size: read_u32(entry, 8)?,
+            label: entry[12..28]
+                .iter()
+                .take_while(|&&b| b != 0)
+                .map(|&b| b as char)
+                .collect(),
+        };
+        let known_type = matches!(p.kind, 0..=3 | 0x40..=0xFE);
+        let placed = (p.offset as usize).is_multiple_of(0x1000)
+            && p.offset as usize >= PARTITION_TABLE_OFFSET + 0x1000
+            && p.size != 0
+            && p.offset.checked_add(p.size - 1).is_some();
+        let label = !p.label.is_empty() && p.label.chars().all(|c| (' '..='~').contains(&c));
+        if !(known_type && placed && label) {
+            return None;
+        }
+        out.push(p);
     }
-    out
+    (!out.is_empty()).then_some(out)
 }
 
 /// What was found in a file.
@@ -707,8 +740,7 @@ pub enum Selection<'a> {
 pub fn partition_table(data: &[u8]) -> Option<(usize, Vec<Partition>)> {
     DUMP_BASES
         .iter()
-        .map(|&base| (base, partitions(data, base)))
-        .find(|(_, parts)| !parts.is_empty())
+        .find_map(|&base| Some((base, partitions(data, base)?)))
 }
 
 /// The app partitions of a dump: factory (0x00) first, then ota_0..ota_15
@@ -1287,5 +1319,100 @@ mod tests {
         let f = find_firmware(&d, Selection::Bootloader).unwrap();
         assert_eq!((f.image.start, f.image.entry), (0, 0x4037_5008));
         assert_eq!(f.partition, None);
+    }
+
+    fn table_entry(kind: u8, subtype: u8, offset: u32, size: u32, label: &[u8]) -> Vec<u8> {
+        let mut e = vec![0xAA, 0x50, kind, subtype];
+        e.extend(offset.to_le_bytes());
+        e.extend(size.to_le_bytes());
+        let mut name = [0u8; 16];
+        name[..label.len()].copy_from_slice(label);
+        e.extend(name);
+        e.extend([0; 4]);
+        e
+    }
+
+    /// A partition table sector holding these entries, then `after`.
+    fn table(entries: &[Vec<u8>], after: &[u8]) -> Vec<u8> {
+        let mut t: Vec<u8> = entries.concat();
+        t.extend(after);
+        t.resize(0x1000, 0xFF);
+        t
+    }
+
+    #[test]
+    fn partition_tables() {
+        let nvs = table_entry(1, 2, 0x9000, 0x6000, b"nvs");
+        let factory = table_entry(0, 0, 0x10000, 0x100000, b"factory");
+        let parts = parse_partition_table(&table(&[nvs.clone(), factory.clone()], &[])).unwrap();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(
+            parts[1],
+            Partition {
+                kind: 0,
+                subtype: 0,
+                offset: 0x10000,
+                size: 0x100000,
+                label: "factory".into()
+            }
+        );
+        // The MD5 entry gen_esp32part.py writes after the entries.
+        let mut md5 = vec![0xEB, 0xEB];
+        md5.extend([0xFF; 14]);
+        md5.extend([0x5A; 16]);
+        let t = table(&[nvs.clone(), factory.clone()], &md5);
+        assert_eq!(parse_partition_table(&t).map(|p| p.len()), Some(2));
+        // The table may be all the data there is.
+        assert_eq!(parse_partition_table(&nvs).map(|p| p.len()), Some(1));
+        // Custom types, and labels with spaces.
+        let custom = table_entry(0x40, 0x01, 0x20000, 0x1000, b"my data");
+        assert!(parse_partition_table(&table(&[custom], &[])).is_some());
+    }
+
+    #[test]
+    fn not_partition_tables() {
+        let ok = table_entry(1, 2, 0x9000, 0x6000, b"nvs");
+        let bad = [
+            table_entry(1, 2, 0x9800, 0x6000, b"nvs"), // not 4 KiB-aligned
+            table_entry(1, 2, 0x8000, 0x1000, b"nvs"), // the table's own sector
+            table_entry(1, 2, 0x1000, 0x1000, b"nvs"), // before the table
+            table_entry(1, 2, 0x9000, 0, b"nvs"),      // empty
+            table_entry(1, 2, 0xFFFF_F000, 0x2000, b"nvs"), // past 4 GiB
+            table_entry(0x10, 0, 0x9000, 0x6000, b"nvs"), // reserved type
+            table_entry(0xFF, 0, 0x9000, 0x6000, b"nvs"), // erased type
+            table_entry(1, 2, 0x9000, 0x6000, b""),    // no label
+            table_entry(1, 2, 0x9000, 0x6000, b"nv\x01s"), // unprintable label
+        ];
+        for entry in bad {
+            assert_eq!(
+                parse_partition_table(&table(&[ok.clone(), entry], &[])),
+                None
+            );
+        }
+        // Something other than an entry, the MD5 entry or erased flash after
+        // the entries.
+        assert_eq!(
+            parse_partition_table(&table(std::slice::from_ref(&ok), &[0; 32])),
+            None
+        );
+        // No entries at all.
+        assert_eq!(parse_partition_table(&table(&[], &[])), None);
+        // Only the magic, as in a file that happens to have it there.
+        let mut d = vec![0u8; 0x9000];
+        d[PARTITION_TABLE_OFFSET..PARTITION_TABLE_OFFSET + 2].copy_from_slice(&[0xAA, 0x50]);
+        assert_eq!(partition_table(&d), None);
+    }
+
+    #[test]
+    fn partition_table_of_a_dump() {
+        for base in DUMP_BASES {
+            let mut d = vec![0xFF; 0x9000 - base];
+            let t = table(&[table_entry(0, 0, 0x10000, 0x1000, b"factory")], &[]);
+            d[PARTITION_TABLE_OFFSET - base..].copy_from_slice(&t);
+            let (found, parts) = partition_table(&d).unwrap();
+            assert_eq!((found, parts[0].label.as_str()), (base, "factory"));
+        }
+        // An app image is not a dump.
+        assert_eq!(partition_table(&s3_app(0x4037_5000)), None);
     }
 }

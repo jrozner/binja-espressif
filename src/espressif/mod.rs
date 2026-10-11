@@ -4,6 +4,7 @@
 //! core, looked up by name.
 
 pub mod cache;
+pub mod container;
 pub mod elf;
 pub mod image;
 pub mod rom_download;
@@ -703,7 +704,7 @@ fn add_calling_convention(platform: &str, arch: &str, cc: &str) {
 
 /// Registers the chip platforms, the mask ROM type libraries (and the
 /// recognizer for the ROM's functions), the ESP firmware view, the SVD settings
-/// and activity, the ELF fix-ups, and the recognizers for Xtensa and RISC-V
+/// and activity, the flash dump container transform, the ELF fix-ups, and the recognizers for Xtensa and RISC-V
 /// ELF files. The architectures must already be registered.
 pub fn register() {
     register_platforms();
@@ -716,6 +717,7 @@ pub fn register() {
     rom_download::register_activity();
     rom_download::register_command();
     register_binary_view_type(view::EspViewType);
+    container::register();
 
     if let Some(elf) = BinaryViewType::by_name("ELF") {
         // EM_XTENSA has no architecture of its own; EM_RISCV belongs to

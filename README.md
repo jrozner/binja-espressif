@@ -71,12 +71,9 @@ It provides:
   - ESP8266 v1 images (NONOS/RTOS SDK, including the RTOS SDK v3 layout with an
     extended header) and v2 images (`0xEA`, NONOS OTA `user1.bin`, Arduino);
   - flash dumps, starting at flash offset 0 or 0x1000 (as `esptool merge_bin`
-    and most firmware distributions produce for the ESP32/ESP32-S2). Only one
-    partition is loaded, by default the factory (or first OTA) app. The
-    `loader.esp.partition` load setting (*Open with Options*, or
-    `bn.load(path, options={"loader.esp.partition": "ota_1"})`) picks another
-    app partition by label, or `bootloader` for the second stage bootloader.
-    ESP8266 NONOS dumps (no partition table) are mapped through the
+    and most firmware distributions produce for the ESP32/ESP32-S2), through
+    the `EspFlash` container transform (see **Flash dumps** below). ESP8266
+    NONOS dumps (no partition table) are mapped as a whole through the
     0x40200000 flash cache window so `irom0` code is present.
 
   The view maps every segment into the chip's memory map with appropriate
@@ -111,6 +108,34 @@ It provides:
   plugin (`svd_ninja`); without it, peripherals are left unnamed. The ESP8266
   has no official SVD, so the view names its peripheral blocks itself; there
   is no SVD file for the ESP32-C5 yet.
+- **Flash dumps**: a dump with a partition table at flash offset 0x8000
+  opens as a container (the `EspFlash` transform), like an archive: its
+  files are `bootloader` (the second stage bootloader, up to the table),
+  `partition-table`, and one per partition, named by its label, each
+  described by its type, subtype, flash offset and size. In the UI,
+  Binary Ninja's container browser lists them all to choose from. Headless,
+  `bn.load` opens the one the `files.espressif.partition` setting names,
+  by default the factory app (or else the first OTA app with an image):
+  `bn.load(path, options={"files.espressif.partition": "ota_1"})`, or
+  `"bootloader"`, `"nvs"`, ...; `"*"` opens the whole dump instead, as
+  does a name the dump has no file for (with an error logged). The app and
+  bootloader files open with the `ESP` view; data partitions and the
+  partition table are not code, and are left to Binary Ninja (`bn.load`
+  opens them in a `Mapped` view with its default architecture). The
+  view of a file records where it came from (its virtual path, partition
+  label, type, subtype, flash offset and size) in its
+  `espressif.flash.entry` metadata, which a database keeps.
+
+  With the container off (`files.container.mode` set to `Disabled`, or
+  `files.container.excludedTransforms` containing `EspFlash`), the `ESP`
+  view loads the whole dump, mapping only one image of it: the app
+  partition or bootloader `files.espressif.partition` names, by default the
+  factory app. There it is read from the global settings (`bn.Settings()`):
+  in `bn.load`'s options it only reaches the container. The files of a dump can also be listed and extracted with
+  `binaryninja.transform.TransformSession` (with
+  `options={"files.espressif.partition": "*"}` to see them all, as in
+  `tests/test_headless.py`); keep the session alive as long as views of its
+  files are open.
 - **ELF support**: `EM_XTENSA` and `EM_RISCV` files open with the ELF view
   on the chip's platform. A RISC-V file counts as Espressif firmware only if
   it is 32-bit, uses the soft-float ABI and loads entirely into one
@@ -462,8 +487,9 @@ initialized. `tests/test_headless.py`
 runs Binary Ninja with a throwaway user directory containing only this plugin
 and checks ELF loading, chip detection, calling conventions, call-site
 arguments, loop recovery, lifting semantics, patching, and the ESP view
-(including partition selection and malformed images) on images and flash
-dumps synthesized from `tests/data/*.elf`. Those ELFs are built from
+(including partition selection and malformed images) and the flash dump
+container on images and flash dumps synthesized from `tests/data/*.elf`.
+Those ELFs are built from
 `tests/data/corpus.c` by `scripts/build_test_elfs.sh` with Espressif's GCC,
 which also builds the relocatable objects in `tests/data/obj` (with and
 without `-mlongcalls`, ESP-IDF style with `-ffunction-sections`, and

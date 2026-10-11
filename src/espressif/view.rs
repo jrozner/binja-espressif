@@ -2,27 +2,17 @@
 
 use binaryninja::Endianness;
 use binaryninja::binary_view::{
-    BinaryView, BinaryViewBase, BinaryViewType, CustomBinaryView, CustomBinaryViewType,
+    BinaryView, BinaryViewBase, CustomBinaryView, CustomBinaryViewType, MetadataStoreFlags,
 };
 use binaryninja::platform::Platform;
-use binaryninja::rc::Ref;
 use binaryninja::section::{SectionBuilder, Semantics};
 use binaryninja::segment::{SegmentBuilder, SegmentFlags};
-use binaryninja::settings::{QueryOptions, Settings};
-use binaryninja::string::BnString;
+use binaryninja::settings::Settings;
 use binaryninja::symbol::{SymbolBuilder, SymbolType};
 use binaryninja::types::{MemberAccess, MemberScope, StructureBuilder, Type};
-use binaryninjacore_sys::{
-    BNFreeSettings, BNGetBinaryViewDefaultLoadSettingsForData, BNSettingsSerializeSchema,
-};
 
 use crate::espressif::image::{self, Firmware, RegionKind, Segment};
-use crate::espressif::{Chip, rom_download, rom_types};
-
-/// The load setting that selects the image of a flash dump to load: an app
-/// partition's label, [`BOOTLOADER`], or empty for the default.
-pub const PARTITION_SETTING: &str = "loader.esp.partition";
-pub const BOOTLOADER: &str = "bootloader";
+use crate::espressif::{Chip, container, rom_download, rom_types};
 
 pub struct EspViewType;
 
@@ -31,81 +21,34 @@ impl CustomBinaryViewType for EspViewType {
     const NAME: &'static str = "ESP";
     const LONG_NAME: &'static str = "Espressif Firmware Image";
 
+    /// Loads the image of a file. Flash dumps with a partition table are
+    /// normally split by the `EspFlash` container transform, whose app and
+    /// bootloader files are loaded as they are; of a whole dump, the image
+    /// the `files.espressif.partition` setting names is loaded.
     fn create_binary_view(&self, data: &BinaryView) -> Result<EspView, ()> {
         let bytes = data.read_vec(0, data.len() as usize);
-        let choice = data
-            .load_settings(Self::NAME)
-            .filter(|s| s.contains(PARTITION_SETTING))
-            .map(|s| {
-                s.get_string_with_opts(PARTITION_SETTING, &mut QueryOptions::new_with_view(data))
-            })
-            .unwrap_or_default();
+        let from_container = container::entry_metadata(data).is_some();
+        let choice = if from_container || image::partition_table(&bytes).is_none() {
+            String::new()
+        } else {
+            Settings::global().get_string(container::PARTITION_SETTING)
+        };
         let selection = match choice.as_str() {
-            "" => image::Selection::Default,
-            BOOTLOADER => image::Selection::Bootloader,
+            "" | container::ALL => image::Selection::Default,
+            container::BOOTLOADER => image::Selection::Bootloader,
             label => image::Selection::Partition(label),
         };
-        let Some(firmware) = image::find_firmware(&bytes, selection) else {
+        let Some(mut firmware) = image::find_firmware(&bytes, selection) else {
             if selection != image::Selection::Default {
                 tracing::error!("no loadable image in the selected partition '{choice}'");
             }
             return Err(());
         };
-        Ok(EspView { bytes, firmware })
-    }
-
-    /// Flash dumps with a partition table offer a choice of the image to
-    /// load: an app partition or the bootloader.
-    fn load_settings_for_data(&self, data: &BinaryView) -> Option<Ref<Settings>> {
-        let bytes = data.read_vec(0, data.len() as usize);
-        let (_, parts) = image::partition_table(&bytes)?;
-        let apps = image::app_partitions(&parts);
-        let mut values = vec![String::new()];
-        let mut descriptions = vec!["The factory app, or the first OTA app".to_string()];
-        for p in apps {
-            values.push(p.label.clone());
-            descriptions.push(format!(
-                "App partition '{}' at {:#x} ({} KiB)",
-                p.label,
-                p.offset,
-                p.size / 1024
-            ));
+        // An ESP8266 app partition is not a NONOS dump, however long it is.
+        if from_container {
+            firmware.map_flash_window = false;
         }
-        values.push(BOOTLOADER.into());
-        descriptions.push("The second stage bootloader".into());
-
-        // The core's defaults (platform, image base, ...) plus the choice.
-        // The bindings cannot wrap the core's settings instance, so its
-        // schema is copied into a new one.
-        let view_type = BinaryViewType::by_name(Self::NAME)?;
-        let defaults = unsafe {
-            let handle = BNGetBinaryViewDefaultLoadSettingsForData(view_type.handle, data.handle);
-            if handle.is_null() {
-                return None;
-            }
-            let schema = BNSettingsSerializeSchema(handle);
-            BNFreeSettings(handle);
-            BnString::into_string(schema)
-        };
-        // One instance per open file: the core keeps named instances, and
-        // it asks for the load settings of a file more than once.
-        let id = format!(
-            "{}_load_settings_{}",
-            Self::NAME,
-            data.file().session_id().0
-        );
-        let settings = Settings::new_with_id(&id);
-        settings.deserialize_schema(&defaults);
-        let schema = serde_json::json!({
-            "title": "Partition",
-            "type": "string",
-            "default": "",
-            "enum": values,
-            "enumDescriptions": descriptions,
-            "description": "The image of the flash dump to load.",
-        });
-        settings.register_setting_json(PARTITION_SETTING, &schema.to_string());
-        Some(settings)
+        Ok(EspView { bytes, firmware })
     }
 
     fn is_valid_for(&self, data: &BinaryView) -> bool {
@@ -239,7 +182,9 @@ impl EspView {
     /// ESP8266 flash dumps without a partition table: the flash cache window
     /// maps the first megabyte of flash at 0x40200000, where NONOS SDK
     /// `irom0` code lives. With a partition table only the app partition is
-    /// loaded; its image maps its own flash segments.
+    /// loaded, and an app partition the `EspFlash` container extracts is no
+    /// such dump however long it is; their images map their own flash
+    /// segments.
     fn add_esp8266_flash(&self, view: &BinaryView, mapped: &mut Vec<(u64, u64)>) {
         if !self.firmware.map_flash_window {
             return;
@@ -479,6 +424,17 @@ impl CustomBinaryView for EspView {
             image.min_chip_rev % 100
         );
         view.set_default_platform(&platform);
+        // Where the file came from in its flash dump, on the view itself too.
+        if let Some(entry) = view
+            .parent_view()
+            .and_then(|raw| raw.query_metadata(container::ENTRY_METADATA))
+        {
+            view.store_metadata(
+                container::ENTRY_METADATA,
+                entry,
+                MetadataStoreFlags::PERSISTENT,
+            );
+        }
 
         let mut mapped = self.add_image_segments(view);
         if mapped.is_empty() {
