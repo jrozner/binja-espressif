@@ -56,7 +56,6 @@ MANIFESTS = "v2/manifests"
 EXTENSIONS = "extensions.json"
 VERSIONS = "versions.json"
 MANIFEST_NAME = "binja-xtensa-test"
-BRANCH = re.compile(r"^[A-Za-z0-9_.][A-Za-z0-9_./-]*(?<![/.])\Z")
 # Download platforms of the extension server, by plugin.json platform.
 PLATFORMS = {
     "Darwin": ("darwin-x64", "darwin-arm64"),
@@ -82,9 +81,19 @@ def github_base_url(spec):
         raise ValueError("--github {!r} is not owner/name[:branch]".format(spec))
     if not colon:
         branch = "main"
-    if BRANCH.match(branch) is None or ".." in branch or "//" in branch:
+    if not valid_branch(branch):
         raise ValueError("--github {!r} has an invalid branch name".format(spec))
-    return "https://raw.githubusercontent.com/{}/{}".format(repo, branch)
+    return "https://raw.githubusercontent.com/{}/{}".format(
+        repo, "/".join(urllib.parse.quote(part, safe="") for part in branch.split("/")))
+
+
+def valid_branch(name):
+    """Whether `name` is a valid branch name (git check-ref-format --branch)."""
+    if not name or name == "@" or name.startswith("-") or name.endswith((".", "/")):
+        return False
+    if any(s in name for s in ("..", "@{", "//")) or any(ord(c) < 0x20 or c in " ~^:?*[\\\x7f" for c in name):
+        return False
+    return all(part and not part.startswith(".") and not part.endswith(".lock") for part in name.split("/"))
 
 
 def install_path(repository):

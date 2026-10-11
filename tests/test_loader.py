@@ -1000,7 +1000,8 @@ class TestTestExtensionRepo(TempDirTest):
     def test_github(self):
         raw = "https://raw.githubusercontent.com/"
         for spec, base in [("jrozner/binja-extensions-test", raw + "jrozner/binja-extensions-test/main"),
-                           ("someone/repo.name:rc/test-1", raw + "someone/repo.name/rc/test-1")]:
+                           ("someone/repo.name:rc/test-1", raw + "someone/repo.name/rc/test-1"),
+                           ("someone/repo:release/1.0+rc1@x#y", raw + "someone/repo/release/1.0%2Brc1%40x%23y")]:
             with self.subTest(spec=spec):
                 r = self.generate("v0.1.0-rc.1", "--github", spec, base=None)
                 self.assertEqual(r.returncode, 0, r.stderr)
@@ -1020,6 +1021,11 @@ class TestTestExtensionRepo(TempDirTest):
                      ("--github", "jrozner/binja-extensions-test:../x"),
                      ("--github", "jrozner/binja-extensions-test:main/"),
                      ("--github", "jrozner/binja-extensions-test:a?b"),
+                     ("--github", "jrozner/binja-extensions-test:a b"),
+                     ("--github", "jrozner/binja-extensions-test:-x"),
+                     ("--github", "jrozner/binja-extensions-test:x/.y"),
+                     ("--github", "jrozner/binja-extensions-test:x.lock"),
+                     ("--github", "jrozner/binja-extensions-test:a@{1}"),
                      ("--github", "jrozner/binja-extensions-test", "--base-url", "http://127.0.0.1:8000"),
                      ()]:  # neither
             with self.subTest(args=args):
