@@ -501,6 +501,10 @@ class FakeBinaryNinja:
             def get_bool(self, key):
                 return fake.settings[key]
 
+            def set_bool(self, key, value):
+                fake.settings[key] = value
+                return True
+
         settings.Settings = Settings
 
         interaction = types.ModuleType("binaryninja.interaction")
@@ -657,6 +661,19 @@ class TestPluginGlue(TempDirTest):
         # Removing it declines this version, so the next start doesn't ask.
         self.plugin.startup_check()
         self.assertEqual(len(self.prompts()), 2)
+
+    def test_remove_turns_off_auto_download(self):
+        self.bn.settings[self.plugin.AUTO_DOWNLOAD] = True
+        self.plugin.startup_check()
+        self.assertTrue(os.path.exists(self.installed))
+        self.bn.ui = True
+        self.bn.answers = [self.bn.yes]
+        self.plugin.remove_command()
+        self.assertFalse(os.path.exists(self.installed))
+        self.assertFalse(self.bn.settings[self.plugin.AUTO_DOWNLOAD])
+        self.assertIn("now off", self.bn.messages[-1][0])
+        self.plugin.startup_check()  # no prompt (answers is empty), no download
+        self.assertFalse(os.path.exists(self.installed))
 
     def test_install_command_refuses_second_copy(self):
         self.bn.ui = True

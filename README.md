@@ -214,7 +214,8 @@ it doesn't ask.
 
 **Uninstalling.** Removing the plugin in the extension manager removes the
 loader but not the native library. Run **Plugins > Espressif > Remove
-Native Library** first (it asks no more for that version), or delete
+Native Library** first (it then doesn't ask about that version again, and
+turns `espressif.loader.autoDownload` off if it was on), or delete
 `binja_xtensa-native.so` (`.dll`, `.dylib`) from the user plugin folder
 yourself, then restart Binary Ninja.
 

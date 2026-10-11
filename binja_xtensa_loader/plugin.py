@@ -264,7 +264,7 @@ def remove_command() -> None:
         if not _ask("Remove binja-xtensa's prebuilt native library {}? Restart Binary Ninja afterwards.".format(path)):
             return
         core.uninstall(plugin_dir, platform)
-        # Don't offer it again at the next start.
+        # Don't offer it again at the next start, nor download it again.
         try:
             facts = Facts()
             if facts.asset is not None:
@@ -272,6 +272,10 @@ def remove_command() -> None:
         except Exception:
             pass
         text = "Removed {}. Restart Binary Ninja to unload it.".format(path)
+        if auto_download_enabled():
+            Settings().set_bool(AUTO_DOWNLOAD, False)
+            text += " The '{}' setting was on; it is now off, so the library is not downloaded again.".format(
+                AUTO_DOWNLOAD)
         LOG.log_info(text)
         _message(text)
     except Exception:
