@@ -1298,6 +1298,23 @@ def rom_image_checks(tarball):
                     "esp32_rev0_rom.elf")
     bv.file.close()
 
+    # A calling convention the user gave a typed ROM function stays when an
+    # image is mapped later.
+    settings.set_string("espressif.rom.elfDirectory", "")
+    bv = bn.load(elf)
+    memset = bv.get_function_at(0x4000C44C)
+    lib = memset.type
+    memset.type = bn.FunctionType.create(lib.return_value, lib.parameters, bv.arch.calling_conventions["call0"],
+                                         lib.has_variable_arguments)
+    bv.update_analysis_and_wait()
+    settings.set_string("espressif.rom.elfDirectory", elfs)
+    bv.update_analysis_and_wait()
+    memset = bv.get_function_at(0x4000C44C)
+    check(held(bv) == "esp32_rev0_rom.elf" and memset.calling_convention.name == "call0"
+          and str(memset.type.parameters[0].type) == "void*",
+          f"a ROM function's user calling convention survives the image ({memset.type})")
+    bv.file.close()
+
     # The download, from a local server: only with consent, verified, and
     # only the supported chips' ROM ELF files are unpacked.
     settings.set_string("espressif.rom.elfDirectory", "")

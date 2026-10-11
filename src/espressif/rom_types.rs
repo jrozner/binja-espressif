@@ -420,7 +420,8 @@ impl FunctionRecognizer for RomRecognizer {
 ///   unused vanish from HLIL.
 ///
 /// `name` names the prototype; `symbol` is the function's name, and its
-/// kind is kept. Returns whether it pinned them.
+/// kind is kept. A type the user gave the function is kept as it is.
+/// Returns whether it pinned them.
 fn pin_rom_function(
     view: &BinaryView,
     lib: &TypeLibrary,
@@ -431,15 +432,24 @@ fn pin_rom_function(
     let Some(ty) = view.import_type_library_object(name, Some(lib)) else {
         return false;
     };
-    // A type the user gave the function stays. (A database reopened from a
-    // view without a ROM image reports the library's type as a user type.)
-    if func.has_user_type() && !same_prototype(&func.function_type(), &ty) {
+    // A type the user gave the function stays, with all it says (its
+    // calling convention, say), and nothing is pinned unless it has the
+    // library's prototype. (A database reopened from a view without a ROM
+    // image reports the library's type as a user type.)
+    let user = func.has_user_type().then(|| func.function_type());
+    if user.as_ref().is_some_and(|u| !same_prototype(u, &ty)) {
         return false;
     }
     let kind = func.symbol().sym_type();
     let sym = SymbolBuilder::new(kind, symbol, func.start()).create();
     view.define_user_symbol(&sym);
-    func.set_user_type(&ty);
+    let ty = match user {
+        Some(user) => user,
+        None => {
+            func.set_user_type(&ty);
+            ty
+        }
+    };
     func.set_user_pure(Conf::new(ty.pure().contents, MAX_CONFIDENCE));
     func.set_user_is_return_value_default_location(true);
     true
