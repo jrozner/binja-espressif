@@ -1,0 +1,22 @@
+[package]
+name = "xtensa"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.87"
+description = "Dependency-free disassembler for the Xtensa ISA as used by the ESP8266 and ESP32"
+license = "MIT"
+repository = "https://github.com/jrozner/xtensa"
+readme = "README.md"
+exclude = ["/.github", "/scripts", "/tests", "/examples/oracle_diff.rs"]
+keywords = ["xtensa", "disassembler", "esp32", "esp8266"]
+categories = ["no-std", "embedded", "development-tools"]
+
+[dependencies]
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"

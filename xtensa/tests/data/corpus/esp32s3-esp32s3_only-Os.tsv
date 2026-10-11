@@ -1,0 +1,53 @@
+004136	42000000	3	entry a1, 32
+722230	42000003	3	salt a2, a2, a3
+f01d	42000006	2	retw.n
+004136	42000008	3	entry a1, 32
+080c	4200000b	2	movi.n a8, 0
+000346	4200000d	3	j 4200001e
+830134	42000010	3	ee.vld.128.ip q0, a3, 16
+838144	42000013	3	ee.vld.128.ip q1, a4, 16
+9e0884	42000016	3	ee.vadds.s8 q2, q0, q1
+9a0124	42000019	3	ee.vst.128.ip q2, a2, 16
+881b	4200001c	2	addi.n a8, a8, 1
+ee2857	4200001e	3	blt a8, a5, 42000010
+f01d	42000021	2	retw.n
+004136	42000024	3	entry a1, 32
+028d	42000027	2	mov.n a8, a2
+039d	42000029	2	mov.n a9, a3
+250804	4200002b	3	ee.zero.accx
+830184	4200002e	3	ee.vld.128.ip q0, a8, 16
+838194	42000031	3	ee.vld.128.ip q1, a9, 16
+f180018e	42000034	4	ee.vmulas.s16.accx.ld.ip q2, a8, 16, q0, q1
+0dab0e9e	42000038	4	ee.vmulas.s16.accx.ld.ip.qup q3, a9, -32, q0, q1, q2, q3
+7e1234	4200003c	3	ee.srs.accx a2, a3, 0
+e34000	4200003f	3	rur.accx_0 a4
+f30d50	42000042	3	wur.sar_byte a5
+f01d	42000045	2	retw.n
+004136	42000048	3	entry a1, 32
+ed7fa4	4200004b	3	ee.zero.q q4
+250844	4200004e	3	ee.zero.qacc
+cdf964	42000051	3	ee.movi.32.a q1, a6, 2
+dd3e74	42000054	3	ee.movi.32.q q2, a7, 3
+cd3414	42000057	3	ee.andq q0, q1, q2
+ddff84	4200005a	3	ee.notq q3, q4
+aedec4	4200005d	3	ee.vcmp.gt.s16 q5, q6, q7
+cc83d4	42000060	3	ee.vzip.8 q0, q1
+dc1304	42000063	3	ee.src.q q0, q1, q2
+cdfb84	42000066	3	ee.bitrev q1, a8
+9e6334	42000069	3	ee.vmax.s32 q2, q3, q4
+8e1134	4200006c	3	ee.cmul.s16 q0, q1, q2, 3
+cc1564	4200006f	3	ee.fft.r2bf.s16 q0, q1, q2, q3, 1
+c27f94	42000072	3	ee.vldbc.32.ip q0, a9, -4
+261ba0	42000075	3	ee.ldf.64.xp f1, f2, a10, a11
+473dc0	42000078	3	ee.stf.64.xp f3, f4, a12, a13
+cda224	4200007b	3	ld.qr q1, a2, 32
+dd6f34	4200007e	3	st.qr q2, a3, -16
+9f8804	42000081	3	mv.qr q3, q4
+754054	42000084	3	ee.set_bit_gpio_out 5
+650824	42000087	3	ee.get_gpio_in a2
+e330c0	4200008a	3	rur.gpio_out a3
+035f40	4200008d	3	rsr.eraccess a4
+740234	42000090	3	mul.aa.ll a2, a3
+0a0120	42000093	3	add.s f0, f1, f2
+f03d	42000096	2	nop.n
+f01d	42000098	2	retw.n

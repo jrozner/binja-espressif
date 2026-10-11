@@ -1,0 +1,84 @@
+004136	400d0000	3	entry a1, 32
+e32e70	400d0003	3	rur.threadptr a2
+f01d	400d0006	2	retw.n
+004136	400d0008	3	entry a1, 32
+740234	400d000b	3	mul.aa.ll a2, a3
+7b0454	400d000e	3	mula.aa.hh a4, a5
+3e0604	400d0011	3	muls.ad.lh a6, m2
+654074	400d0014	3	mul.da.hl m1, a7
+2b0044	400d0017	3	mula.dd.hh m0, m3
+710894	400d001a	3	umul.aa.hl a8, a9
+802a04	400d001d	3	ldinc m2, a10
+903b04	400d0020	3	lddec m3, a11
+481cd4	400d0023	3	mula.da.ll.ldinc m1, a12, m0, a13
+1b6e44	400d0026	3	mula.dd.hh.lddec m2, a14, m1, m3
+031020	400d0029	3	rsr.acclo a2
+131130	400d002c	3	wsr.acchi a3
+032040	400d002f	3	rsr.m0 a4
+612350	400d0032	3	xsr.m3 a5
+f01d	400d0035	2	retw.n
+004136	400d0038	3	entry a1, 32
+020120	400d003b	3	andb b0, b1, b2
+323450	400d003e	3	orbc b3, b4, b5
+426780	400d0041	3	xorb b6, b7, b8
+008400	400d0044	3	any4 b0, b4:b5:b6:b7
+00b810	400d0047	3	all8 b1, b8:b9:b10:b11:b12:b13:b14:b15
+d32340	400d004a	3	movt a2, a3, b4
+c34560	400d004d	3	movf a4, a5, b6
+030420	400d0050	3	rsr.br a2
+021176	400d0053	3	bt b1, 400d0059
+ff0276	400d0056	3	bf b2, 400d0059
+f01d	400d0059	2	retw.n
+004136	400d005c	3	entry a1, 32
+001210	400d005f	3	movsp a1, a2
+408010	400d0062	3	rotw 1
+4080f0	400d0065	3	rotw -1
+09c140	400d0068	3	l32e a4, a1, -16
+49d150	400d006b	3	s32e a5, a1, -12
+003400	400d006e	3	rfwo
+003500	400d0071	3	rfwu
+034820	400d0074	3	rsr.windowbase a2
+134930	400d0077	3	wsr.windowstart a3
+0006d0	400d007a	3	callx4 a6
+0007f0	400d007d	3	callx12 a7
+f01d	400d0080	2	retw.n
+004136	400d0084	3	entry a1, 32
+432340	400d0087	3	min a2, a3, a4
+735670	400d008a	3	maxu a5, a6, a7
+238980	400d008d	3	sext a8, a9, 15
+33ab00	400d0090	3	clamps a10, a11, 7
+d22340	400d0093	3	quos a2, a3, a4
+e25670	400d0096	3	remu a5, a6, a7
+a22340	400d0099	3	muluh a2, a3, a4
+b25670	400d009c	3	mulsh a5, a6, a7
+01b322	400d009f	3	l32ai a2, a3, 4
+02f542	400d00a2	3	s32ri a4, a5, 8
+130c20	400d00a5	3	wsr.scompare1 a2
+00e432	400d00a8	3	s32c1i a3, a4, 0
+030020	400d00ab	3	rsr.lbeg a2
+030130	400d00ae	3	rsr.lend a3
+030240	400d00b1	3	rsr.lcount a4
+f01d	400d00b4	2	retw.n
+004136	400d00b8	3	entry a1, 32
+010203	400d00bb	3	lsi f0, a2, 4
+024313	400d00be	3	ssi f1, a3, 8
+082450	400d00c1	3	lsx f2, a4, a5
+483670	400d00c4	3	ssx f3, a6, a7
+fa2440	400d00c7	3	rfr a2, f4
+fa5350	400d00ca	3	wfr f5, a3
+4a0120	400d00cd	3	madd.s f0, f1, f2
+5a3450	400d00d0	3	msub.s f3, f4, f5
+8a2000	400d00d3	3	round.s a2, f0, 0
+aa3120	400d00d6	3	floor.s a3, f1, 2
+ba4230	400d00d9	3	ceil.s a4, f2, 3
+da6510	400d00dc	3	ufloat.s f6, a5, 1
+1b0120	400d00df	3	un.s b0, f1, f2
+5b1340	400d00e2	3	ult.s b1, f3, f4
+db5620	400d00e5	3	movt.s f5, f6, b2
+ab7890	400d00e8	3	movltz.s f7, f8, a9
+e32e80	400d00eb	3	rur.fcr a2
+f3e930	400d00ee	3	wur.fsr a3
+fa1270	400d00f1	3	div0.s f1, f2
+fa34b0	400d00f4	3	nexp01.s f3, f4
+6a5670	400d00f7	3	maddn.s f5, f6, f7
+f01d	400d00fa	2	retw.n
