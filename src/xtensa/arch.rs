@@ -57,6 +57,15 @@ impl Xtensa {
     }
 }
 
+/// Runs an architecture callback, turning a panic into `None`: a bug must
+/// not take the whole process down (a panic cannot unwind into the core).
+fn guard<T>(what: &str, addr: u64, f: impl FnOnce() -> Option<T>) -> Option<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|_| {
+        tracing::error!("{what} panicked at {addr:#x}");
+        None
+    })
+}
+
 impl AsRef<CoreArchitecture> for Xtensa {
     fn as_ref(&self) -> &CoreArchitecture {
         &self.handle
@@ -128,54 +137,58 @@ impl Architecture for Xtensa {
     }
 
     fn instruction_info(&self, data: &[u8], addr: u64) -> Option<InstructionInfo> {
-        let insn = self.decode(data, addr)?;
-        let next = insn.next_address() as u64;
-        let mut info = InstructionInfo::new(insn.len(), 0);
-        match insn.control_flow() {
-            ControlFlow::Sequential => {
-                if let Some(lbeg) = self.loop_back(addr, next) {
-                    info.add_branch(BranchKind::True(lbeg));
+        guard("instruction_info", addr, || {
+            let insn = self.decode(data, addr)?;
+            let next = insn.next_address() as u64;
+            let mut info = InstructionInfo::new(insn.len(), 0);
+            match insn.control_flow() {
+                ControlFlow::Sequential => {
+                    if let Some(lbeg) = self.loop_back(addr, next) {
+                        info.add_branch(BranchKind::True(lbeg));
+                        info.add_branch(BranchKind::False(next));
+                    }
+                }
+                ControlFlow::Branch { target } => {
+                    info.add_branch(BranchKind::True(target as u64));
                     info.add_branch(BranchKind::False(next));
+                    if let Some(lbeg) = self.loop_back(addr, next) {
+                        info.add_branch(BranchKind::True(lbeg));
+                    }
                 }
-            }
-            ControlFlow::Branch { target } => {
-                info.add_branch(BranchKind::True(target as u64));
-                info.add_branch(BranchKind::False(next));
-                if let Some(lbeg) = self.loop_back(addr, next) {
-                    info.add_branch(BranchKind::True(lbeg));
+                ControlFlow::Jump { target } => {
+                    info.add_branch(BranchKind::Unconditional(target as u64))
                 }
-            }
-            ControlFlow::Jump { target } => {
-                info.add_branch(BranchKind::Unconditional(target as u64))
-            }
-            ControlFlow::IndirectJump => info.add_branch(BranchKind::Indirect),
-            ControlFlow::Call { target, .. } => info.add_branch(BranchKind::Call(target as u64)),
-            ControlFlow::IndirectCall { .. } => {}
-            ControlFlow::Return | ControlFlow::ExceptionReturn => {
-                info.add_branch(BranchKind::FunctionReturn)
-            }
-            ControlFlow::Loop { end, conditional } => {
-                if let Some(loops) = &self.loops {
-                    loops.record(next, end as u64);
+                ControlFlow::IndirectJump => info.add_branch(BranchKind::Indirect),
+                ControlFlow::Call { target, .. } => {
+                    info.add_branch(BranchKind::Call(target as u64))
                 }
-                if conditional {
-                    info.add_branch(BranchKind::True(end as u64));
-                    info.add_branch(BranchKind::False(next));
-                } else if let Some(lbeg) = self.loop_back(addr, next) {
-                    // A loop instruction ending an enclosing loop's body.
-                    info.add_branch(BranchKind::True(lbeg));
-                    info.add_branch(BranchKind::False(next));
+                ControlFlow::IndirectCall { .. } => {}
+                ControlFlow::Return | ControlFlow::ExceptionReturn => {
+                    info.add_branch(BranchKind::FunctionReturn)
                 }
+                ControlFlow::Loop { end, conditional } => {
+                    if let Some(loops) = &self.loops {
+                        loops.record(next, end as u64);
+                    }
+                    if conditional {
+                        info.add_branch(BranchKind::True(end as u64));
+                        info.add_branch(BranchKind::False(next));
+                    } else if let Some(lbeg) = self.loop_back(addr, next) {
+                        // A loop instruction ending an enclosing loop's body.
+                        info.add_branch(BranchKind::True(lbeg));
+                        info.add_branch(BranchKind::False(next));
+                    }
+                }
+                ControlFlow::Trap => match insn.opcode() {
+                    xtensa_isa::Opcode::Syscall => info.add_branch(BranchKind::SystemCall),
+                    xtensa_isa::Opcode::Ill | xtensa_isa::Opcode::IllN => {
+                        info.add_branch(BranchKind::Exception)
+                    }
+                    _ => {}
+                },
             }
-            ControlFlow::Trap => match insn.opcode() {
-                xtensa_isa::Opcode::Syscall => info.add_branch(BranchKind::SystemCall),
-                xtensa_isa::Opcode::Ill | xtensa_isa::Opcode::IllN => {
-                    info.add_branch(BranchKind::Exception)
-                }
-                _ => {}
-            },
-        }
-        Some(info)
+            Some(info)
+        })
     }
 
     fn instruction_text(
@@ -183,8 +196,10 @@ impl Architecture for Xtensa {
         data: &[u8],
         addr: u64,
     ) -> Option<(usize, Vec<InstructionTextToken>)> {
-        let insn = self.decode(data, addr)?;
-        Some((insn.len(), tokens::tokens(&insn)))
+        guard("instruction_text", addr, || {
+            let insn = self.decode(data, addr)?;
+            Some((insn.len(), tokens::tokens(&insn)))
+        })
     }
 
     fn instruction_llil(
@@ -193,7 +208,7 @@ impl Architecture for Xtensa {
         addr: u64,
         il: &LowLevelILMutableFunction,
     ) -> Option<(usize, bool)> {
-        let insn = self.decode(data, addr)?;
+        let insn = guard("decoding", addr, || self.decode(data, addr))?;
         let lifter = Lifter {
             il,
             isa: &self.isa,

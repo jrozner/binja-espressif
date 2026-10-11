@@ -354,6 +354,11 @@ for code, name, op in [("4023a2", "muluh", "LLIL_MULU_DP"), ("4023b2", "mulsh", 
     wide = shift.left
     check(wide.operation.name == op and wide.size == 4 and wide.left.size == 4 and shift.size == 8,
           f"{name}: 4-byte operands, 8-byte product")
+for code, name, op in [("0023a1", "sll", "LLIL_LSR"), ("302091", "srl", "LLIL_LSR"),
+                       ("3020b1", "sra", "LLIL_ASR")]:
+    il = llil(esp32, code)
+    check(il.src.operation.name == "LLIL_LOW_PART" and il.src.src.operation.name == op
+          and il.src.src.size == 8, f"{name}: 64-bit funnel shift (exact for SAR 0 and 32)")
 for code, name in [("20014a", "madd.s"), ("20016a", "maddn.s"), ("20015a", "msub.s")]:
     il = llil(esp32, code)
     check(il.src.operation.name == "LLIL_FLOAT_CONV" and il.src.src.size == 8,

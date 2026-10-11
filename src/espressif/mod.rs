@@ -416,8 +416,11 @@ fn read_elf_program(view: &BinaryView) -> Option<ElfProgram> {
             u32_at(&ph, 20),
         );
         program.segments.push((vaddr, memsz));
-        if vaddr <= entry && entry < vaddr.wrapping_add(filesz) {
-            program.entry_code = Some(view.read_vec((offset + entry - vaddr) as u64, 4));
+        if vaddr <= entry
+            && entry < vaddr.wrapping_add(filesz)
+            && let Some(at) = offset.checked_add(entry - vaddr)
+        {
+            program.entry_code = Some(view.read_vec(at as u64, 4));
         }
     }
     Some(program)

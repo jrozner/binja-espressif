@@ -5,8 +5,8 @@ updates:
     schedule:
       interval: "weekly"
     ignore:
-      # Tracks the Binary Ninja API dev branch; bump these by hand to match
-      # the installed Binary Ninja version.
+      # Pinned to a binaryninja-api revision that must match the installed
+      # Binary Ninja version; bump the rev in Cargo.toml by hand.
       - dependency-name: "binaryninja"
       - dependency-name: "binaryninjacore-sys"
     groups:
