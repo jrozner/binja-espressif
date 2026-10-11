@@ -635,21 +635,28 @@ fn map_into(view: &BinaryView, chip: Chip) {
         message(text, MessageBoxIcon::WarningIcon);
         return;
     };
-    let text = if rom_types::holds_image(view, chip, &found.elf) && create_functions(view) {
+    let text = if rom_types::holds_image(view, chip, &found.elf) {
         // A view (a database, say) that holds this image's bytes but not
-        // all its functions: one saved by a version that only named them,
-        // or with `CREATE_FUNCTIONS` off then. Only the bytes say it is
-        // this image: another file of the same name may differ. A file
-        // with the same bytes may name more functions: they are named too.
-        rom_types::name_image_functions(view, &found.elf);
-        let created = rom_types::create_image_functions(view, &found.elf);
-        if created > 0 {
+        // all its functions, or not its data: one saved by a version that
+        // only named them or did not map the data, or with
+        // `CREATE_FUNCTIONS` off then. Only the bytes say it is this image:
+        // another file of the same name may differ. A file with the same
+        // bytes may name more functions: they are named too.
+        let data = rom_types::add_rom_data_region(view, chip, &found.elf);
+        let created = if create_functions(view) {
+            rom_types::name_image_functions(view, &found.elf);
+            rom_types::create_image_functions(view, &found.elf)
+        } else {
+            0
+        };
+        if data || created > 0 {
             view.update_analysis();
         }
         format!(
-            "This view has the {} ROM image of {}; created {created} more of its functions.",
+            "This view has the {} ROM image of {}; created {created} more of its functions{}.",
             chip.display_name(),
-            found.path.display()
+            found.path.display(),
+            if data { " and mapped its data" } else { "" }
         )
     } else if !rom_types::has_zero_filled_region(view, chip) {
         format!(

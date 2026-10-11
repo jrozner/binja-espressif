@@ -19,6 +19,8 @@
 //!
 //! The region holds the chip's ROM image when one is available (see
 //! `rom_images` and `rom_download`), and zeros otherwise. With an image, the
+//! ROM's read-only data is mapped too, where the data bus sees it (see
+//! [`add_rom_data_region`]), so the variables there have values. The
 //! typed functions have real bodies, which Binary Ninja analyzes: their
 //! names and prototypes are then pinned against what that analysis would
 //! change, the functions behind the ROM's jump table are typed too, and the
@@ -53,6 +55,7 @@ use binaryninja::segment::SegmentFlags;
 use binaryninja::symbol::{SymbolBuilder, SymbolType};
 use binaryninja::types::{Type, TypeClass, TypeLibrary};
 
+use crate::espressif::image::RegionKind;
 use crate::espressif::rom_images::{Found, RomElf};
 use crate::espressif::{Chip, cache, rom_download};
 
@@ -245,6 +248,7 @@ pub fn add_rom_region(view: &BinaryView, chip: Chip) -> (bool, Option<Found>) {
     }
     if let Some(found) = &image {
         record_image(view, chip, found);
+        add_rom_data_region(view, chip, &found.elf);
     }
     (mapped, image)
 }
@@ -305,6 +309,7 @@ pub fn map_rom_image(view: &BinaryView, chip: Chip, found: &Found) -> bool {
     }
     if ok {
         record_image(view, chip, found);
+        add_rom_data_region(view, chip, &found.elf);
         use_image(view, chip, &found.elf);
     }
     ok
@@ -408,6 +413,79 @@ pub fn create_image_functions(view: &BinaryView, elf: &RomElf) -> usize {
                     .is_some()
         })
         .count()
+}
+
+/// The name of the memory region that maps the ROM's data bus alias (not a
+/// ROM code region: see [`is_rom_region_name`]).
+pub const DATA_REGION: &str = "espressif.rom.data";
+
+/// Maps the ROM's read-only data where the data bus sees it (the chip's
+/// [`RegionKind::RomData`] region, from 0x3FF0_0000 or so), as the ROM
+/// image `elf` loads it there, unless the view maps it already. Returns
+/// whether it mapped it.
+///
+/// The ROM's code reads its constants (`_ctype_`, the ROM's strings, the
+/// tables of its drivers) there and not where the ROM holds them: with the
+/// image's bytes there, those reads and the variables typed there (see
+/// [`apply`]) have their values, and references into them resolve. Only
+/// with an image: zeros would read as the constants' values. The region is
+/// read-only data, and spans the image's data there, not the whole alias.
+///
+/// [`RegionKind::RomData`]: crate::espressif::image::RegionKind::RomData
+pub fn add_rom_data_region(view: &BinaryView, chip: Chip, elf: &RomElf) -> bool {
+    let mut map = view.memory_map();
+    if map.get_region(DATA_REGION).is_some() {
+        return false;
+    }
+    let Some((start, data)) = chip
+        .regions()
+        .iter()
+        .filter(|r| r.kind == RegionKind::RomData)
+        .find_map(|r| elf.data_alias(r.start, r.end))
+    else {
+        return false;
+    };
+    let range = start as u64..start as u64 + data.len() as u64;
+    let overlaps = |r: std::ops::Range<u64>| r.start < range.end && range.start < r.end;
+    if map
+        .regions()
+        .into_iter()
+        .any(|r| r.enabled && overlaps(r.start..r.end()))
+        || view.segments().iter().any(|s| overlaps(s.address_range()))
+    {
+        tracing::info!(
+            "the {} ROM's data at {:#x}..{:#x} is already mapped in part",
+            chip.display_name(),
+            range.start,
+            range.end
+        );
+        return false;
+    }
+    let flags = SegmentFlags::new()
+        .readable(true)
+        .contains_data(true)
+        .deny_write(true)
+        .deny_execute(true);
+    let added = map.add_data_memory_region(
+        DATA_REGION,
+        range.start,
+        &DataBuffer::new(&data),
+        Some(flags),
+    );
+    if added {
+        tracing::info!(
+            "mapped the {} ROM's data at {:#x}..{:#x}",
+            chip.display_name(),
+            range.start,
+            range.end
+        );
+    } else {
+        tracing::warn!(
+            "could not map the {} ROM's data at {start:#x}",
+            chip.display_name()
+        );
+    }
+    added
 }
 
 /// Do the view's ROM code regions hold the ROM image `elf`, byte for byte?

@@ -216,11 +216,24 @@ It provides:
   The first file that is the chip's (an ELF of the chip's architecture
   whose symbols put `ets_printf` and `memset`, or their ROM jump table
   entries, where the chip's ROM table does) is used, and only its loadable
-  contents within the ROM's code range. The revision is the minimum chip
+  contents within the ROM's code range and its data bus alias. The revision is the minimum chip
   revision an ESP image requires, and the lowest for an ELF file, or the
   `espressif.rom.revision` setting's (`v3.0`; settable per file with
   *Open with Options*); the file of the highest revision up to it is used,
   or the lowest there is. `espressif.rom.loadImages` turns all this off.
+
+  The ROM's constants (`_ctype_`, its strings, its drivers' tables) are
+  read by its code where the data bus sees the ROM, not where the ROM
+  region has them. With an image, that alias is mapped too, as read-only
+  data (`espressif.rom.data`), with the ELF file's `.rodata`: in
+  0x3FF90000..0x3FFA0000 on the ESP32, 0x3FFA0000..0x3FFB0000 on the
+  ESP32-S2 and from 0x3FF00000 on the ESP32-S3, C2 and C3 (the C6, H2 and
+  C5 keep their constants in the ROM region). The ROM variables
+  there then have values, and the ROM code's references to them (and
+  switch tables) resolve. Without an image it is left unmapped, as zeros
+  would read as the constants' values. A database saved with the image by
+  an earlier version gets it from **Plugins > Espressif > Download ROM
+  Images**.
 
   **Downloading** happens only with your consent, from the esp-rom-elfs
   release pinned in `src/espressif/rom_images.rs` (20260528, 4.9 MB),

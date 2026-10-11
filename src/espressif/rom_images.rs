@@ -221,9 +221,16 @@ fn read_limited(path: &Path) -> std::io::Result<Vec<u8>> {
 /// the ROM holds them. Code is loaded where it runs; the ROM's read-only
 /// data and the initial values of its RAM data are loaded at their place in
 /// the ROM, which is what the ROM's code region shows.
+///
+/// The ROM's read-only data is also kept at its virtual address, where the
+/// ROM's code reads it: the ROM seen from the data bus, on the chips that
+/// have such an alias (see [`RomElf::data_alias`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RomElf {
     segments: Vec<(u32, Vec<u8>)>,
+    /// The read-only segments loaded at another address than the ROM holds
+    /// them at: (virtual address, bytes).
+    aliased: Vec<(u32, Vec<u8>)>,
     /// The functions its symbol table names in the ROM's code, by address.
     functions: Vec<(String, u32)>,
     /// The other names it gives addresses in the ROM's code (labels, such
@@ -240,6 +247,7 @@ impl RomElf {
     pub fn parse(file: &[u8], chip: Chip) -> Result<RomElf, String> {
         const ET_EXEC: u16 = 2;
         const PT_LOAD: u32 = 1;
+        const PF_W: u32 = 2;
         let u16_at = |o: usize| file.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
         let u32_at = |o: usize| {
             file.get(o..o + 4)
@@ -270,6 +278,7 @@ impl RomElf {
             return Err("malformed program headers".into());
         }
         let mut segments = Vec::new();
+        let mut aliased = Vec::new();
         for i in 0..phnum {
             let ph = phoff
                 .checked_add(i * phentsize)
@@ -278,7 +287,8 @@ impl RomElf {
             if field(0)? != PT_LOAD {
                 continue;
             }
-            let (offset, paddr, filesz) = (field(1)? as usize, field(3)?, field(4)? as usize);
+            let (offset, vaddr, paddr) = (field(1)? as usize, field(2)?, field(3)?);
+            let (filesz, flags) = (field(4)? as usize, field(6)?);
             if filesz == 0 {
                 continue;
             }
@@ -286,8 +296,13 @@ impl RomElf {
                 .checked_add(filesz)
                 .and_then(|end| file.get(offset..end))
                 .ok_or("a segment lies outside the file")?;
-            if paddr.checked_add(filesz as u32 - 1).is_none() {
+            if paddr.checked_add(filesz as u32 - 1).is_none()
+                || vaddr.checked_add(filesz as u32 - 1).is_none()
+            {
                 return Err("a segment wraps around the address space".into());
+            }
+            if vaddr != paddr && flags & PF_W == 0 {
+                aliased.push((vaddr, bytes.to_vec()));
             }
             segments.push((paddr, bytes.to_vec()));
         }
@@ -305,6 +320,7 @@ impl RomElf {
         };
         let elf = RomElf {
             segments,
+            aliased,
             functions: pairs(functions),
             labels: pairs(labels),
         };
@@ -363,6 +379,33 @@ impl RomElf {
         self.segments
             .iter()
             .any(|(start, bytes)| *start <= addr && (addr - start) < bytes.len() as u32)
+    }
+
+    /// The read-only data the image loads in `start..end` at another
+    /// address than the ROM holds it (the ROM's data bus alias, see
+    /// [`RegionKind::RomData`]): the address of its first byte and the bytes
+    /// up to its last, zero between segments; `None` if there is none.
+    ///
+    /// [`RegionKind::RomData`]: crate::espressif::image::RegionKind::RomData
+    pub fn data_alias(&self, start: u32, end: u32) -> Option<(u32, Vec<u8>)> {
+        let inside: Vec<_> = self
+            .aliased
+            .iter()
+            .filter(|(addr, bytes)| {
+                start <= *addr && *addr as u64 + bytes.len() as u64 <= end as u64
+            })
+            .collect();
+        let first = inside.iter().map(|(addr, _)| *addr).min()?;
+        let last = inside
+            .iter()
+            .map(|(addr, bytes)| *addr + bytes.len() as u32)
+            .max()?;
+        let mut out = vec![0u8; (last - first) as usize];
+        for (addr, bytes) in inside {
+            let at = (addr - first) as usize;
+            out[at..at + bytes.len()].copy_from_slice(bytes);
+        }
+        Some((first, out))
     }
 
     /// The ROM's bytes at `start..start + len`, zero where the image has
@@ -822,6 +865,35 @@ mod tests {
         assert!(rom.contains(ESP32_MEMSET) && !rom.contains(0x4000_0000));
     }
 
+    #[test]
+    fn data_bus_alias() {
+        // The ROM's data, loaded where the data bus sees it (vaddr) and held
+        // in the ROM (paddr), as in the ESP32's ROM ELF files.
+        let (lo, hi) = (0x3FF9_0000, 0x3FFA_0000);
+        let mut elf = esp32_rom();
+        let rodata_vaddr = 0x34 + 32 + 8; // the second program header's p_vaddr
+        assert!(
+            RomElf::parse(&elf, Chip::Esp32)
+                .unwrap()
+                .data_alias(lo, hi)
+                .is_none()
+        );
+        elf[rodata_vaddr..rodata_vaddr + 4].copy_from_slice(&0x3FF9_6000u32.to_le_bytes());
+        let rom = RomElf::parse(&elf, Chip::Esp32).unwrap();
+        assert_eq!(
+            rom.data_alias(lo, hi),
+            Some((0x3FF9_6000, b"rodata!!".to_vec()))
+        );
+        assert_eq!(rom.contents(0x4006_6000, 8), b"rodata!!");
+        assert!(rom.data_alias(0x3FFA_0000, 0x3FFB_0000).is_none());
+        assert!(rom.data_alias(lo, 0x3FF9_6004).is_none());
+        // Writable data (the initial values of RAM data) is not the ROM's.
+        let flags = 0x34 + 32 + 24; // its p_flags
+        elf[flags..flags + 4].copy_from_slice(&6u32.to_le_bytes());
+        let rom = RomElf::parse(&elf, Chip::Esp32).unwrap();
+        assert!(rom.data_alias(lo, hi).is_none());
+    }
+
     fn tar_entry(name: &str, typeflag: u8, data: &[u8]) -> Vec<u8> {
         let mut h = vec![0u8; 512];
         h[..name.len()].copy_from_slice(name.as_bytes());
@@ -950,6 +1022,7 @@ mod tests {
     #[test]
     #[ignore]
     fn real_rom_elfs() {
+        use crate::espressif::image::RegionKind::RomData;
         let dir = PathBuf::from(std::env::var("BN_XTENSA_ROM_ELFS").expect("BN_XTENSA_ROM_ELFS"));
         let mut checked = 0;
         for entry in std::fs::read_dir(&dir).unwrap() {
@@ -979,6 +1052,28 @@ mod tests {
                     code[..16].iter().any(|&b| b != 0),
                     "{name} starts with zeros"
                 );
+            }
+            // The ROM's data bus alias holds its .rodata, which is the
+            // ROM's: the same bytes as the ROM holds.
+            for region in chip.regions().iter().filter(|r| r.kind == RomData) {
+                let (addr, data) = elf.data_alias(region.start, region.end).unwrap();
+                let delta = elf
+                    .aliased
+                    .iter()
+                    .find(|(a, _)| *a == addr)
+                    .and_then(|(_, bytes)| {
+                        elf.segments
+                            .iter()
+                            .find(|(_, b)| b == bytes)
+                            .map(|(paddr, _)| paddr - addr)
+                    })
+                    .unwrap();
+                assert_eq!(
+                    elf.contents(addr + delta, data.len()),
+                    data,
+                    "{name}'s data bus alias"
+                );
+                assert!(data.len() > 0x1000, "{name}: {:#x} bytes", data.len());
             }
             checked += 1;
         }
