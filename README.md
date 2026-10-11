@@ -138,10 +138,11 @@ It provides:
   functions in the ROM, and the libgcc helpers' standard prototypes
   (`scripts/rom_types_extra.h`), and embedded in the plugin; it is unpacked
   to `<user directory>/espressif/rom_types/` at startup. The ROM's code is
-  mapped as a memory region of zeros (`espressif.rom`), where each typed
-  ROM function is defined as an imported function: Binary Ninja applies a
-  callee's type only to a function, and creates functions only where there
-  are bytes. ROM functions with several names (`ets_printf` and
+  mapped as a memory region of its own (`espressif.rom`), holding the ROM
+  image if there is one (see **Mask ROM images** below) and zeros
+  otherwise, where each typed ROM function is defined as an imported
+  function: Binary Ninja applies a callee's type only to a function, and
+  creates functions only where there are bytes. ROM functions with several names (`ets_printf` and
   `esp_rom_printf`) are typed under the one already shown, and revision-
   specific ones (the ESP32 v3.0 ROM's Secure Boot v2 API) only for images
   that require that revision. All of the ROM functions that ESP-IDF's
@@ -162,6 +163,65 @@ It provides:
 
   Databases keep the types; a database saved before this feature existed is
   not retyped when reopened.
+- **Mask ROM images**: the ROM region holds the chip's real ROM when one of
+  Espressif's ROM ELF files is available, so the ROM's code can be read
+  and decompiled (`memset` at 0x4000c44c on the ESP32 starts
+  `entry a1, 16`). The plugin does not bundle them: they come from
+  [esp-rom-elfs](https://github.com/espressif/esp-rom-elfs), whose ELF
+  files are licensed under Apache-2.0; the ROM code itself is closed
+  source, Copyright Espressif Systems, and includes third-party libraries
+  listed in [ESP-IDF's copyrights page](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/COPYRIGHT.html#rom-source-code-copyrights).
+  The plugin looks for `<chip>_rev<REV>_rom.elf`, in order, in:
+  1. the directory in the `espressif.rom.elfDirectory` setting;
+  2. ESP-IDF's tools install, `$IDF_TOOLS_PATH/tools/esp-rom-elfs/<version>/`
+     and `~/.espressif/tools/esp-rom-elfs/<version>/` (newest version
+     first);
+  3. its own download cache, `<user directory>/espressif/rom-elfs/<release>/`.
+
+  The first file that is the chip's (an ELF of the chip's architecture
+  whose symbols put `ets_printf` and `memset`, or their ROM jump table
+  entries, where the chip's ROM table does) is used, and only its loadable
+  contents within the ROM's code range. The revision is the minimum chip
+  revision an ESP image requires, and the lowest for an ELF file, or the
+  `espressif.rom.revision` setting's (`v3.0`; settable per file with
+  *Open with Options*); the file of the highest revision up to it is used,
+  or the lowest there is. `espressif.rom.loadImages` turns all this off.
+
+  **Downloading** happens only with your consent, from the esp-rom-elfs
+  release pinned in `src/espressif/rom_images.rs` (20260528, 4.9 MB),
+  over HTTPS through Binary Ninja's download provider (its proxy settings
+  apply), never while a file loads (the ROM region holds zeros meanwhile):
+  - In the UI, the first file that would use a ROM image asks once whether
+    to download them, naming the source and licence. If you answer No,
+    it doesn't ask again for that release. If you answer Yes, the image is
+    mapped into that file when the download is done; other open files map
+    it when they are next reanalyzed or reopened.
+  - **Plugins > Espressif > Download ROM Images** downloads them on
+    request and maps the image into the current file, database or not.
+  - Headless, it never asks; it downloads only if the
+    `espressif.rom.autoDownload` setting is enabled (with it on, the UI
+    doesn't ask either). A script then reanalyzes or reopens its views.
+
+  The archive is used only if its size and SHA-256 match the pinned ones;
+  only the ROM ELF files of the chips the plugin supports are unpacked,
+  under names made from the chip and revision, never from the archive's
+  paths.
+
+  With real code in the ROM, Binary Ninja analyzes the typed ROM
+  functions' bodies, and creates the ROM functions they call (about 80
+  more on the ESP32, 450 to 600 on the RISC-V chips and the ESP32-S3, whose
+  ROM API is a jump table to the implementations), not the whole ROM: the
+  region is not swept. The ROM's other functions are named from the ELF
+  file's symbol table. The typed ROM functions' names, prototypes and
+  purity are made user data then, as the analysis of a body would change
+  them (a jump table entry is named `j_sub_...` after its target, `void *`
+  parameters narrow to `uint8_t *`, `__pure` is inferred), and the
+  functions behind the jump table get the same prototypes. They still
+  clobber the caller-saved registers, the API's contract, whatever their
+  bodies do. A database keeps the ROM region it was saved with: one saved
+  with zeros gets the image only through **Download ROM Images**. The ROM
+  adds a few MB to a database (the ROM image and the analysis of its
+  functions: 2.2 MB to 4.3 MB for an ESP32 test ELF).
 - **Relocatable objects**: `.o` files, and the members of static libraries
   such as ESP-IDF's binary Wi-Fi, PHY and Bluetooth libraries
   (`libnet80211.a`, `libphy.a`, `libbtdm_app.a`), load with their
@@ -415,6 +475,21 @@ directory) also holds the databases and images the test writes, and is
 removed when the test exits; set `BN_XTENSA_KEEP_TMP=1` to keep it for
 debugging (the test prints its path).
 
+Those checks run without ROM images (ESP-IDF's are hidden from the plugin).
+The mask ROM image checks need the pinned esp-rom-elfs archive, which the
+test does not download:
+
+```sh
+curl -LO https://github.com/espressif/esp-rom-elfs/releases/download/20260528/esp-rom-elfs-20260528.tar.gz
+BN_XTENSA_ROM_TARBALL=$PWD/esp-rom-elfs-20260528.tar.gz tests/test_headless.py
+```
+
+They check the ROM types again with a directory of ROM ELF files (and in
+databases), the revision chosen, a view that maps an image found after it
+was loaded, and the download: served from a local HTTP server (through the
+`BN_XTENSA_ROM_TEST_URL` override, loopback only), not without consent, not
+when corrupted, and through the command.
+
 `tests/test_loader.py` needs only Python (it stands in for the
 `binaryninja` module where it needs one) and runs in CI.
 `tests/test_loader_headless.py` installs the loader into a throwaway user
@@ -437,4 +512,9 @@ mask ROM symbol tables are derived from ESP-IDF's ROM linker scripts
 and the Espressif MIT License). The ROM type libraries in `data/rom_types/`
 are derived from ESP-IDF v5.4.1's headers (Apache-2.0, Espressif) and from
 newlib's headers as shipped with Espressif's toolchains (BSD-style licenses,
-see newlib's `COPYING.NEWLIB`).
+see newlib's `COPYING.NEWLIB`). The mask ROM images are not part of the
+plugin: they are downloaded, with your consent, from
+[esp-rom-elfs](https://github.com/espressif/esp-rom-elfs), whose ELF files
+Espressif licenses under Apache-2.0; the ROM code is Copyright Espressif
+Systems, not open source, and includes the third-party libraries listed
+[here](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/COPYRIGHT.html#rom-source-code-copyrights).
