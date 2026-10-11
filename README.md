@@ -168,7 +168,58 @@ Not supported for now:
   `cm.push`/`cm.pop` as `fsd` and does not decode the Zcb instructions, so
   firmware built with that option analyzes incorrectly.
 
-## Building and installing
+## Installing
+
+The plugin is a native library, but Binary Ninja's extension manager only
+installs Python plugins, from the source of the latest release. So what it
+installs is a small Python loader (`__init__.py` and
+`binja_xtensa_loader/`), which installs the prebuilt native library from
+the matching GitHub release into your
+[user plugin folder](https://docs.binary.ninja/guide/index.html#user-folder).
+Prebuilt libraries exist for Linux x86_64, Windows x86_64 and macOS
+(universal), built for the core ABI of the stable Binary Ninja named in
+`scripts/use_stable_api.sh`. For any other platform, or a dev build of
+Binary Ninja whose core ABI differs, the loader logs what is available and
+does nothing; [build from source](#building-from-source) instead.
+
+1. Install **Espressif Xtensa** in the extension manager.
+2. Nothing is downloaded without your consent:
+   - In the UI, the loader asks once whether to download the library (it
+     asks again only when a new version needs a different library). If you
+     decline, use **Plugins > Espressif > Install or Update Native Library**
+     later.
+   - Headless, it never asks; it downloads only if the
+     `espressif.loader.autoDownload` setting is enabled (in the UI, or in
+     `settings.json` in the user folder:
+     `{"espressif.loader.autoDownload": true}`), and otherwise logs what to
+     do. With the setting on, the UI doesn't ask either.
+3. Restart Binary Ninja to load the library. The loader does not load it
+   from Python: Binary Ninja loads it like any native plugin, after the
+   plugins it depends on.
+
+The library is downloaded over HTTPS from this repository's GitHub release
+(redirects are only followed to GitHub's release asset storage), and is
+installed only if its size and SHA-256 match
+`binja_xtensa_loader/manifest.json`, which is part of the plugin's source as
+the extension manager installed it; nothing fetched from the release is
+trusted. It is written to a temporary file in the plugin folder, checked,
+and then renamed to `binja_xtensa-native.so` (`.dll`, `.dylib`), so a new
+version replaces the old one and only one is ever installed.
+
+If the plugin folder already has a copy of the plugin, such as a
+`libbinja_xtensa.so` you built (any `*binja_xtensa*` library), the loader
+doesn't install a second one, which would register the same architectures
+twice, and logs why. If the native plugin is already loaded from elsewhere,
+it doesn't ask.
+
+**Uninstalling.** Removing the plugin in the extension manager removes the
+loader but not the native library. Run **Plugins > Espressif > Remove
+Native Library** first (it then doesn't ask about that version again, and
+turns `espressif.loader.autoDownload` off if it was on), or delete
+`binja_xtensa-native.so` (`.dll`, `.dylib`) from the user plugin folder
+yourself, then restart Binary Ninja.
+
+## Building from source
 
 Requires a Rust toolchain at least as new as the binaryninja-api revision's
 `rust-version` (1.98.1 at the pinned revision), libclang for `bindgen`
@@ -207,18 +258,72 @@ the `rev` of `binaryninja` and `binaryninjacore-sys` in `Cargo.toml`; to
 move to a newer stable release, update `STABLE_TAG` in
 `scripts/use_stable_api.sh`.
 
+A self-built library in the plugin folder takes precedence: if the
+extension manager's loader is installed too, it sees the library and
+installs nothing. Don't copy a self-built library into the plugin folder
+next to an installed `binja_xtensa-native.so`; remove that first.
+
+## Releasing
+
+The loader trusts only the hashes committed in the source the extension
+manager installs, that is, in the release tag. A tag cannot contain the
+hashes of libraries built from itself, so a release is built from one
+commit and published from a tag on a commit that adds only the manifest,
+by `.github/workflows/release.yml` (manual only) in two runs:
+
+1. **Build.** Run the Release workflow on `main` (or another branch) with
+   mode `build`, and optionally the version being released (default:
+   `plugin.json`'s):
+
+   ```sh
+   gh workflow run release.yml --ref main -f mode=build -f version=0.2.0
+   ```
+
+   It builds the dispatched commit for Linux, Windows and macOS against the
+   stable API, uploads the libraries as artifacts of the run (kept 90 days),
+   and generates the loader's manifest: the version, the build commit, the
+   run ID, and each library's name, core ABI, size and SHA-256. The run
+   summary shows it, and the `manifest` artifact holds it.
+2. **Commit and tag.** On top of the build commit, save the manifest as
+   `binja_xtensa_loader/manifest.json`, set `plugin.json`'s `version` to
+   the release version if it isn't already, and change nothing else.
+   Commit that on top of the build commit (through a PR works too, as long
+   as nothing else lands on `main` in between), then tag the commit
+   `v<version>` and push the tag.
+3. **Publish.** Run the workflow on the tag with mode `publish`:
+
+   ```sh
+   gh workflow run release.yml --ref v0.2.0 -f mode=publish
+   ```
+
+   It checks that `plugin.json` and the committed manifest are for the
+   tag; that the manifest's build commit is an ancestor of the tag whose
+   tree differs only in the manifest and `plugin.json`'s version; and that
+   the manifest's run is a successful dispatch of this workflow on that
+   commit. It then downloads that run's artifacts, checks them against the
+   committed manifest (exactly the listed files, with their sizes and
+   hashes), and creates the GitHub release from them, with a `SHA256SUMS`.
+
+`scripts/release_manifest.py` does the generating and checking. Between
+releases, `main`'s manifest stays that of the last release; if
+`plugin.json`'s version moves ahead of it, the loader of a checkout of
+`main` refuses to install anything, as it isn't a release.
+
 ## Testing
 
 ```sh
 cargo test --lib --no-default-features    # image formats, partitions, loops, intrinsics, patching, relocations
 cargo test --release --test lift_sweep    # lifts ~1.5M encodings through the real core
 cargo build --release && tests/test_headless.py
+tests/test_loader.py                      # the Python loader and release tooling
+cargo build --release && tests/test_loader_headless.py
 ```
 
 The unit tests link a stub core generated by `binaryninjacore-sys` (which
-needs CMake 3.28+ and Ninja), so they need no Binary Ninja installation. The
-last two need a headless-capable Binary Ninja license; `lift_sweep`
-skips itself when the core cannot be initialized. `tests/test_headless.py`
+needs CMake 3.28+ and Ninja), so they need no Binary Ninja installation.
+`lift_sweep` and the `test_headless` scripts need a headless-capable Binary
+Ninja license; `lift_sweep` skips itself when the core cannot be
+initialized. `tests/test_headless.py`
 runs Binary Ninja with a throwaway user directory containing only this plugin
 and checks ELF loading, chip detection, calling conventions, call-site
 arguments, loop recovery, lifting semantics, patching, and the ESP view
@@ -234,6 +339,19 @@ listing. The user directory (`bn-xtensa-test-*` in the system temp
 directory) also holds the databases and images the test writes, and is
 removed when the test exits; set `BN_XTENSA_KEEP_TMP=1` to keep it for
 debugging (the test prints its path).
+
+`tests/test_loader.py` needs only Python (it stands in for the
+`binaryninja` module where it needs one) and runs in CI.
+`tests/test_loader_headless.py` installs the loader into a throwaway user
+directory with a manifest listing the locally built library as the release
+asset for the running core's ABI, serves it from a local HTTP server (the
+loader fetches from `$BN_XTENSA_LOADER_TEST_BASE_URL` instead of GitHub; it
+accepts only loopback addresses there, and still checks the manifest's hash),
+and runs headless Binary Ninja several times: it checks that nothing is
+downloaded without `espressif.loader.autoDownload`, that with it the library
+lands in the user plugin folder as `binja_xtensa-native.so` and loads after
+a restart, and that a tampered asset or a self-built copy in the plugin
+folder means nothing is installed.
 
 ## License
 
