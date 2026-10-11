@@ -1662,16 +1662,43 @@ def rom_image_checks(tarball):
         platform = bv.platform.name if bv.platform else None
         if chip in supported:
             arch = "rv32gc" if chip in RISCV_CHIPS else f"xtensa-{chip}"
-            check(bv.view_type == "ELF" and platform == chip and bv.arch.name == arch and not rom_regions(bv)
+            # The file's own segments hold the ROM's code and data: no ROM
+            # code or data region over them.
+            own = [r.name for r in bv.memory_map.regions if r.name.startswith("espressif.rom")]
+            check(bv.view_type == "ELF" and platform == chip and bv.arch.name == arch and not own
                   and len(bv.functions) > 500,
                   f"{name} opens as {chip} ({platform}, {bv.arch.name}, {len(bv.functions)} functions, "
-                  f"ROM regions {rom_regions(bv)})")
+                  f"ROM regions {own})")
             # Its ROM functions have the ROM type library's prototypes, pinned
             # (memset, and on the chips with a jump table, its entry too).
             memsets = [(str(f.type), f.has_user_type) for f in bv.functions if f.name == "memset"]
             check(memsets and all(t == "void*(void* arg1, int32_t arg2, uint32_t arg3)" and pinned
                                   for t, pinned in memsets),
                   f"{name}: memset has its prototype ({memsets})")
+            # They clobber their convention's caller-saved registers, as the
+            # typed ROM functions of a firmware view do, whatever analysis
+            # of a jump table entry finds, and so do the calls to them.
+            pinned = [f for f in bv.functions if f.has_user_type]
+            short = [f.name for f in pinned
+                     if set(f.clobbered_regs) != set(f.calling_convention.caller_saved_regs)]
+            check(len(pinned) > 200 and not short,
+                  f"{name}: {len(pinned)} typed ROM functions clobber the caller-saved registers ({short[:5]})")
+            kept = []
+            sites = 0
+            for f in pinned:
+                if sites >= 100:
+                    break
+                saved = set(f.calling_convention.caller_saved_regs) - {"zero"}
+                for ref in list(bv.get_code_refs(f.start))[:5]:
+                    call = ref.function.get_llil_at(ref.address)
+                    if call is None or call.operation != bn.LowLevelILOperation.LLIL_CALL:
+                        continue
+                    sites += 1
+                    out = {str(r.reg) for r in call.ssa_form.output}
+                    if not saved <= out:
+                        kept.append((hex(ref.address), f.name, sorted(saved - out)))
+            check(sites > 20 and not kept,
+                  f"{name}: {sites} calls to them clobber the caller-saved registers ({kept[:3]})")
         else:
             check(platform not in supported, f"{name}, another chip's ROM, keeps {platform}")
         bv.file.close()
