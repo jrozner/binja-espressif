@@ -3,6 +3,7 @@
 //! firmware. Each chip's code is analyzed with the architecture of its CPU
 //! core, looked up by name.
 
+pub mod cache;
 pub mod elf;
 pub mod image;
 pub mod rom_symbols;
