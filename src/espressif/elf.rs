@@ -36,7 +36,7 @@ use crate::espressif::{Chip, Cpu, rom_types};
 use crate::riscv;
 
 /// The first step of module analysis, which the fix-ups run before.
-const FIRST_STEP: &str = "core.module.loadDebugInfo";
+pub const FIRST_STEP: &str = "core.module.loadDebugInfo";
 
 /// The chip of an ELF view on one of the chip platforms.
 fn chip_of(view: &BinaryView) -> Option<Chip> {
@@ -226,6 +226,8 @@ pub struct ElfSymbol {
     pub value: u32,
     /// Defined with `SHN_ABS` (a linker-script address).
     pub absolute: bool,
+    /// A function (`STT_FUNC`).
+    pub function: bool,
 }
 
 /// The symbols of a little-endian ELF32 file's `SHT_SYMTAB`, or none if it
@@ -233,6 +235,7 @@ pub struct ElfSymbol {
 pub fn elf_symbols(file: &[u8]) -> Vec<ElfSymbol> {
     const SHT_SYMTAB: u32 = 2;
     const SHN_ABS: u16 = 0xfff1;
+    const STT_FUNC: u8 = 2;
     let u16_at = |o: usize| file.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
     let u32_at = |o: usize| {
         file.get(o..o + 4)
@@ -285,6 +288,7 @@ pub fn elf_symbols(file: &[u8]) -> Vec<ElfSymbol> {
                 name,
                 value: u32::from_le_bytes(sym[4..8].try_into().unwrap()),
                 absolute: u16::from_le_bytes([sym[14], sym[15]]) == SHN_ABS,
+                function: sym[12] & 0xf == STT_FUNC,
             });
         }
     }
@@ -342,7 +346,8 @@ mod tests {
             ElfSymbol {
                 name: "memcpy".into(),
                 value: 0x4000_c2c8,
-                absolute: true
+                absolute: true,
+                function: false,
             }
         );
         assert!(!syms[2].absolute);

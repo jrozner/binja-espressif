@@ -13,13 +13,24 @@ Runs Binary Ninja from ~/binaryninja (or $BN_INSTALL_DIR) with a temporary
 user directory that contains only this plugin and a link to your license.
 Everything the test writes goes in that directory, which is removed at exit
 unless $BN_XTENSA_KEEP_TMP is set to a non-empty value.
+
+The mask ROM image checks need Espressif's esp-rom-elfs release archive (the
+one pinned in src/espressif/rom_images.rs): set $BN_XTENSA_ROM_TARBALL to
+its path, or they are skipped. The other checks run without ROM images, as
+an ESP-IDF install's ROM ELF files are hidden from the plugin.
 """
 import atexit
+import hashlib
+import http.server
 import os
+import re
 import shutil
 import struct
 import sys
+import tarfile
 import tempfile
+import threading
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(ROOT, "tests", "data")
@@ -49,6 +60,10 @@ if os.path.exists(license_file):
 with open(os.path.join(user_dir, "settings.json"), "w") as f:
     f.write("{}")
 os.environ["BN_USER_DIRECTORY"] = user_dir
+# The plugin looks for ESP-IDF's ROM ELF files in $IDF_TOOLS_PATH and
+# ~/.espressif: none of those here.
+os.environ.pop("IDF_TOOLS_PATH", None)
+os.environ["HOME"] = os.environ["USERPROFILE"] = user_dir
 sys.path.insert(0, os.path.join(install, "python"))
 
 import binaryninja as bn  # noqa: E402
@@ -735,9 +750,10 @@ def rom_functions(bv):
     return [f for f in bv.functions if bv.memory_map.get_active_memory_region_at(f.start).startswith("espressif.rom")]
 
 
-def check_rom_types(bv, chip, syms, label):
+def check_rom_types(bv, chip, syms, label, image=None):
     """The ROM calls in rom_calls (at its address in `syms`) and their
-    callees."""
+    callees. With `image`, the ROM ELF file the ROM region holds, else
+    zeros."""
     f = bv.get_function_at(syms["rom_calls"])
     calls = {}
     for ins in (f.mlil.instructions if f else []):
@@ -761,30 +777,54 @@ def check_rom_types(bv, chip, syms, label):
     check(clobbered == callers, f"{label}: ROM memset clobbers the caller-saved registers ({sorted(clobbered)})")
     regions = rom_regions(bv)
     check(len(regions) == 1 and regions[0].start == 0x40000000, f"{label}: one ROM code region ({regions})")
-    stray = [f.name for f in rom_functions(bv) if f.symbol.type != bn.SymbolType.ImportedFunctionSymbol
-             or f.name.startswith("sub_")]
-    check(not stray, f"{label}: the ROM region holds only the typed ROM functions ({stray[:5]})")
+    held = bv.query_metadata("espressif.rom.image") if "espressif.rom.image" in bv.metadata else None
+    check(held == image, f"{label}: the ROM region holds {image or 'zeros'} ({held})")
+    code = bv.read(syms["memset"], 4)
+    check((code != bytes(4)) == bool(image), f"{label}: ROM memset's code is {'real' if image else 'zeros'} ({code.hex()})")
+    if not image:
+        stray = [f.name for f in rom_functions(bv) if f.symbol.type != bn.SymbolType.ImportedFunctionSymbol
+                 or f.name.startswith("sub_")]
+        check(not stray, f"{label}: the ROM region holds only the typed ROM functions ({stray[:5]})")
+        return
+    # With real bodies, analysis must not change the typed functions: no
+    # thunk names over the ROM's, no narrowed parameters, no __pure.
+    check(memset is not None and memset.name == "memset" and str(memset.type.parameters[0].type) == "void*"
+          and not memset.is_pure.value, f"{label}: ROM memset keeps its name and prototype ({memset and memset.type})")
+    renamed = [f.name for f in rom_functions(bv) if f.name.startswith("j_")
+               and any(s.type == bn.SymbolType.ImportedFunctionSymbol for s in bv.get_symbols(f.start, 1))]
+    check(not renamed, f"{label}: no typed ROM function is renamed as a thunk ({renamed[:5]})")
+    # Analysis creates the ROM functions that code calls, not thousands.
+    check(len(rom_functions(bv)) < 2000, f"{label}: {len(rom_functions(bv))} functions in the ROM")
 
 
-for chip, chip_id in ROM_TYPED_CHIPS.items():
+def check_rom_types_saved(chip, chip_id, image=None):
+    """check_rom_types on the ELF file and an image of it, and on databases
+    of them reopened twice."""
     elf = os.path.join(DATA, f"idf_{chip}.elf")
     syms = elf_symbols(elf)
     for label, bv in ((f"idf_{chip}.elf", bn.load(elf)),
                       (f"idf_{chip} image", load_bytes(elf_to_image(elf, chip_id), ".bin"))):
-        check_rom_types(bv, chip, syms, label)
+        held = image and image(label)
+        check_rom_types(bv, chip, syms, label, held)
         functions, rom = len(bv.functions), len(rom_functions(bv))
-        db = os.path.join(user_dir, f"rom_types_{chip}_{label.split()[-1]}.bndb")
+        code = bv.read(0x40000000, 0x1000)
+        db = os.path.join(user_dir, f"rom_types_{chip}_{label.split()[-1]}{'_image' if image else ''}.bndb")
         bv.create_database(db)
         bv.file.close()
         for reopen in ("reopened", "reopened again"):
             bv = bn.load(db)
             bv.update_analysis_and_wait()
-            check_rom_types(bv, chip, syms, f"{label} {reopen}")
+            check_rom_types(bv, chip, syms, f"{label} {reopen}", held)
             check(len(bv.functions) == functions and len(rom_functions(bv)) == rom,
                   f"{label} {reopen}: no new functions ({len(bv.functions)} of {functions}, "
                   f"{len(rom_functions(bv))} of {rom} in the ROM)")
+            check(bv.read(0x40000000, 0x1000) == code, f"{label} {reopen}: the ROM region keeps its contents")
             bv.file.save_auto_snapshot()
             bv.file.close()
+
+
+for chip, chip_id in ROM_TYPED_CHIPS.items():
+    check_rom_types_saved(chip, chip_id)
 
 # The ESP32 v3.0 ROM's Secure Boot v2 API is typed only for images that
 # require v3.0.
@@ -1178,6 +1218,167 @@ for member, chip in [("esp32-longcalls.o", "esp32"), ("esp8266.o", "esp8266")]:
         check(bv.platform.name == chip and bv.relocation_ranges and add3 is not None
               and bv.get_functions_by_name("start") and "add3(1, 2, 3)" in hlil_text(func(bv, "start")),
               f"libcorpus.a: {member} loads as {bv.platform} with its relocations applied")
+
+print("Mask ROM images:")
+
+
+def pinned_release():
+    """The esp-rom-elfs release pinned in src/espressif/rom_images.rs."""
+    src = open(os.path.join(ROOT, "src", "espressif", "rom_images.rs")).read()
+    body = src[src.index("pub const RELEASE: Release"):]
+    return {k: re.search(rf'{k}: "([^"]+)"', body).group(1) for k in ("tag", "url", "sha256")}
+
+
+def wait_for(cond, seconds=60):
+    end = time.time() + seconds
+    while time.time() < end:
+        if cond():
+            return True
+        time.sleep(0.1)
+    return cond()
+
+
+def rom_image_checks(tarball):
+    release = pinned_release()
+    archive = open(tarball, "rb").read()
+    check(hashlib.sha256(archive).hexdigest() == release["sha256"],
+          f"{os.path.basename(tarball)} is the pinned esp-rom-elfs {release['tag']}")
+    settings = bn.Settings()
+    elfs = os.path.join(user_dir, "rom-elfs-configured")
+    with tarfile.open(tarball) as tar:
+        if hasattr(tarfile, "data_filter"):
+            tar.extractall(elfs, filter="data")
+        else:
+            tar.extractall(elfs)
+
+    # A directory of ROM ELF files: the ROM region holds the chip's ROM, and
+    # the typed ROM functions, their calls and databases are as without.
+    settings.set_string("espressif.rom.elfDirectory", elfs)
+    for chip, chip_id in ROM_TYPED_CHIPS.items():
+        check_rom_types_saved(chip, chip_id, lambda label, chip=chip: f"{chip}_rev0_rom.elf")
+    elf = os.path.join(DATA, "idf_esp32.elf")
+    bv = bn.load(elf)
+    memset = bv.get_function_at(0x4000C44C)
+    check(bv.get_disassembly(0x4000C44C).startswith("entry") and memset is not None
+          and "uint32_t" in hlil_text(memset) and len(memset.basic_blocks) > 5,
+          f"ESP32 ROM memset disassembles and decompiles ({bv.get_disassembly(0x4000C44C)})")
+    named = bv.get_symbol_by_raw_name("_malloc_r")
+    check(named is not None and 0x40000000 <= named.address < 0x40070000,
+          f"ESP32 ROM functions are named from the ROM ELF file ({named})")
+    bv.file.close()
+
+    # The image's revision: the minimum an image requires, the lowest for an
+    # ELF file, or the setting's.
+    def held(bv):
+        return bv.query_metadata("espressif.rom.image") if "espressif.rom.image" in bv.metadata else None
+    for min_rev, rom in ((0, "esp32_rev0_rom.elf"), (100, "esp32_rev0_rom.elf"), (300, "esp32_rev300_rom.elf")):
+        bv = load_bytes(elf_to_image(elf, 0, min_rev), ".bin")
+        v3_code = bv.read(0x4000F800, 4) != bytes(4)  # only in the v3.0 ROM
+        check(held(bv) == rom and v3_code == (min_rev == 300),
+              f"ESP32 v{min_rev // 100}.{min_rev % 100} image maps {rom} ({held(bv)})")
+        bv.file.close()
+    settings.set_string("espressif.rom.revision", "v3.0")
+    bv = bn.load(elf)
+    check(held(bv) == "esp32_rev300_rom.elf", f"espressif.rom.revision picks the ESP32 ROM v3.0 ({held(bv)})")
+    bv.file.close()
+    settings.set_string("espressif.rom.revision", "")
+    settings.set_bool("espressif.rom.loadImages", False)
+    bv = bn.load(elf)
+    check(held(bv) is None and bv.read(0x4000C44C, 4) == bytes(4), "espressif.rom.loadImages off: zeros")
+    bv.file.close()
+    settings.set_bool("espressif.rom.loadImages", True)
+
+    # A view loaded without an image maps one found later when reanalyzed.
+    settings.set_string("espressif.rom.elfDirectory", "")
+    bv = bn.load(elf)
+    check(held(bv) is None, "no ROM ELF directory: zeros")
+    settings.set_string("espressif.rom.elfDirectory", elfs)
+    bv.update_analysis_and_wait()
+    check_rom_types(bv, "esp32", elf_symbols(elf), "idf_esp32.elf reanalyzed with a ROM ELF directory",
+                    "esp32_rev0_rom.elf")
+    bv.file.close()
+
+    # A calling convention the user gave a typed ROM function stays when an
+    # image is mapped later.
+    settings.set_string("espressif.rom.elfDirectory", "")
+    bv = bn.load(elf)
+    memset = bv.get_function_at(0x4000C44C)
+    lib = memset.type
+    memset.type = bn.FunctionType.create(lib.return_value, lib.parameters, bv.arch.calling_conventions["call0"],
+                                         lib.has_variable_arguments)
+    bv.update_analysis_and_wait()
+    settings.set_string("espressif.rom.elfDirectory", elfs)
+    bv.update_analysis_and_wait()
+    memset = bv.get_function_at(0x4000C44C)
+    check(held(bv) == "esp32_rev0_rom.elf" and memset.calling_convention.name == "call0"
+          and str(memset.type.parameters[0].type) == "void*",
+          f"a ROM function's user calling convention survives the image ({memset.type})")
+    bv.file.close()
+
+    # The download, from a local server: only with consent, verified, and
+    # only the supported chips' ROM ELF files are unpacked.
+    settings.set_string("espressif.rom.elfDirectory", "")
+    serve = os.path.join(user_dir, "serve")
+    os.makedirs(serve)
+    requests = []
+
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=serve, **kwargs)
+
+        def do_GET(self):
+            requests.append(self.path)
+            super().do_GET()
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    name = os.path.basename(release["url"])
+    os.environ["BN_XTENSA_ROM_TEST_URL"] = f"http://127.0.0.1:{server.server_address[1]}/{name}"
+    with open(os.path.join(serve, name), "wb") as f:
+        f.write(archive[:-1] + bytes([archive[-1] ^ 1]))  # corrupted
+    cache = os.path.join(user_dir, "espressif", "rom-elfs")
+    c3 = os.path.join(DATA, "idf_esp32c3.elf")
+    bv = bn.load(c3)
+    time.sleep(1)
+    check(held(bv) is None and not requests, f"no download without consent ({requests})")
+    settings.set_bool("espressif.rom.autoDownload", True)
+    bv.update_analysis_and_wait()
+    wait_for(lambda: requests)
+    time.sleep(2)
+    check(len(requests) == 1 and not os.path.exists(cache),
+          f"espressif.rom.autoDownload downloads; a corrupted archive is not unpacked ({requests})")
+    with open(os.path.join(serve, name), "wb") as f:
+        f.write(archive)
+    commands = bn.PluginCommand.get_valid_list(bn.PluginCommandContext(bv))
+    command = commands.get("Espressif\\Download ROM Images")
+    check(command is not None, f"the download command is offered for an ESP32-C3 ELF ({sorted(commands)})")
+    if command is not None:
+        command.execute(bn.PluginCommandContext(bv))
+        wait_for(lambda: held(bv) is not None)
+        bv.update_analysis_and_wait()
+        check_rom_types(bv, "esp32c3", elf_symbols(c3), "idf_esp32c3.elf after the download command",
+                        "esp32c3_rev0_rom.elf")
+        unpacked = sorted(os.listdir(os.path.join(cache, release["tag"]))) if os.path.exists(cache) else []
+        supported = ("esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3", "esp32c6", "esp32h2", "esp32c5")
+        check(len(requests) == 2 and unpacked and all(re.fullmatch(r"(\w+)_rev\d+_rom\.elf", n).group(1) in supported
+                                                      for n in unpacked),
+              f"the command downloads and unpacks the supported chips' ROM ELF files ({unpacked})")
+    bv.file.close()
+    bv = bn.load(os.path.join(DATA, "idf_esp32s3.elf"))
+    check(held(bv) == "esp32s3_rev0_rom.elf" and len(requests) == 2, "the download cache serves the next file")
+    bv.file.close()
+    settings.set_bool("espressif.rom.autoDownload", False)
+    server.shutdown()
+    del os.environ["BN_XTENSA_ROM_TEST_URL"]
+
+
+if os.environ.get("BN_XTENSA_ROM_TARBALL"):
+    rom_image_checks(os.environ["BN_XTENSA_ROM_TARBALL"])
+else:
+    print("  skipped: set BN_XTENSA_ROM_TARBALL to the esp-rom-elfs archive pinned in src/espressif/rom_images.rs")
 
 print()
 if failures:
