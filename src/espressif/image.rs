@@ -39,7 +39,8 @@ pub const ESP8266_FLASH_MAP: u32 = 0x4020_0000;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegionKind {
     Rom,
-    /// The mask ROM seen from the data bus (ESP32-C2/C3): its constants.
+    /// The mask ROM seen from the data bus (ESP32-S3, C2, C3): its
+    /// constants.
     RomData,
     Iram,
     Dram,
@@ -149,6 +150,9 @@ pub static ESP32S2_REGIONS: &[Region] = &[
 pub static ESP32S3_REGIONS: &[Region] = &[
     r("drom", 0x3C00_0000, 0x3E00_0000, K::Drom),
     r("dram", 0x3FC8_0000, 0x3FD0_0000, K::Dram),
+    // The upper 128 KiB of the ROM (ROM1, 0x4004_0000..0x4006_0000) as the
+    // data bus sees it: the ROM's .rodata.
+    r("rom_data", 0x3FF0_0000, 0x3FF2_0000, K::RomData),
     r("rom", 0x4000_0000, 0x4006_0000, K::Rom),
     r("iram", 0x4037_0000, 0x403E_0000, K::Iram),
     r("irom", 0x4200_0000, 0x4400_0000, K::Irom),
@@ -1238,10 +1242,28 @@ mod tests {
         // The ROM's data in the top of SRAM is mapped.
         assert_eq!(region_of(Chip::Esp32C3, 0x3FCD_F800).unwrap().kind, K::Dram);
         assert_eq!(region_of(Chip::Esp32C6, 0x4087_FF00).unwrap().kind, K::Sram);
-        assert_eq!(
-            region_of(Chip::Esp32C3, 0x3FF0_0100).unwrap().kind,
-            K::RomData
-        );
+        for chip in [Chip::Esp32S3, Chip::Esp32C2, Chip::Esp32C3] {
+            assert_eq!(region_of(chip, 0x3FF0_0100).unwrap().kind, K::RomData);
+        }
+    }
+
+    #[test]
+    fn rom_symbols_are_in_the_memory_map() {
+        // The ROM's functions and data: in the ROM, its data bus alias, or
+        // the RAM the ROM keeps for itself. Not yet the ESP32's and the
+        // S2's, whose maps lack their ROM's data bus alias.
+        let mut missing: Vec<_> = Chip::ALL
+            .into_iter()
+            .filter(|&chip| !matches!(chip, Chip::Esp32 | Chip::Esp32S2))
+            .flat_map(|chip| {
+                rom_symbol_set(chip)
+                    .into_iter()
+                    .filter(move |&(_, addr)| region_of(chip, addr).is_none())
+                    .map(move |(name, addr)| (chip, addr, name))
+            })
+            .collect();
+        missing.sort_by_key(|&(chip, addr, name)| (chip as u8, addr, name));
+        assert!(missing.is_empty(), "{missing:#x?}");
     }
 
     #[test]
