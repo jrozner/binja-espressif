@@ -45,6 +45,13 @@ It provides:
   architecture's own `default` passes floating point values in `fa0`–`fa7`),
   is the RISC-V chip platforms' default.
 - **Zero-overhead loops** (`loop`/`loopnez`/`loopgtz`) recovered as real loops.
+- **Patching** on the Xtensa architectures: converting to nops (`nop`,
+  `nop.n`), never branch, invert branch (every conditional branch, narrow
+  `beqz.n`/`bnez.n` included) and always branch (a 3-byte branch becomes a
+  `j` to the same target; a narrow branch has no room for one). Skip and
+  return value turns a call into a `movi` of the value (-2048 to 2047) to
+  the register the call returns in: `a2` after `call0`, `a10` after `call8`.
+  Loop instructions and `entry` are not offered as branches.
 - An **`ESP` binary view** for raw firmware:
   - ESP32/ESP32-S2/ESP32-S3 and ESP32-C2/C3/C6/H2/C5 application and
     bootloader images from any ESP-IDF version (the chip is taken from the
@@ -114,7 +121,7 @@ It provides:
   revision only, as an ELF does not say which revision it needs); and the
   RISC-V global pointer is taken from `__global_pointer$`.
 
-Patching and assembling are not supported.
+Assembling is not supported on the Xtensa architectures.
 
 Not supported for now:
 
@@ -154,7 +161,7 @@ Ninja build.
 ## Testing
 
 ```sh
-cargo test --lib --no-default-features    # image formats, partitions, loops, intrinsics
+cargo test --lib --no-default-features    # image formats, partitions, loops, intrinsics, patching
 cargo test --release --test lift_sweep    # lifts ~1.5M encodings through the real core
 cargo build --release && tests/test_headless.py
 ```
@@ -165,9 +172,9 @@ last two need a headless-capable Binary Ninja license; `lift_sweep`
 skips itself when the core cannot be initialized. `tests/test_headless.py`
 runs Binary Ninja with a throwaway user directory containing only this plugin
 and checks ELF loading, chip detection, calling conventions, call-site
-arguments, loop recovery, lifting semantics, and the ESP view (including
-partition selection and malformed images) on images and flash dumps
-synthesized from `tests/data/*.elf`. Those ELFs are built from
+arguments, loop recovery, lifting semantics, patching, and the ESP view
+(including partition selection and malformed images) on images and flash
+dumps synthesized from `tests/data/*.elf`. Those ELFs are built from
 `tests/data/corpus.c` by `scripts/build_test_elfs.sh` with Espressif's GCC.
 
 ## License

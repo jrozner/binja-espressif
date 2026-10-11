@@ -16,6 +16,7 @@ use crate::xtensa::flags::{Flag, FlagClass, FlagGroup, FlagWrite};
 use crate::xtensa::intrinsics::{self, Intrinsic};
 use crate::xtensa::lift::Lifter;
 use crate::xtensa::loops::Loops;
+use crate::xtensa::patch;
 use crate::xtensa::registers::Reg;
 use crate::xtensa::{Core, tokens};
 
@@ -64,6 +65,11 @@ fn guard<T>(what: &str, addr: u64, f: impl FnOnce() -> Option<T>) -> Option<T> {
         tracing::error!("{what} panicked at {addr:#x}");
         None
     })
+}
+
+/// [`guard`] for the patching callbacks, where a panic means "not patched".
+fn patching(what: &str, addr: u64, f: impl FnOnce() -> bool) -> bool {
+    guard(what, addr, || Some(f())).unwrap_or(false)
 }
 
 impl AsRef<CoreArchitecture> for Xtensa {
@@ -284,6 +290,56 @@ impl Architecture for Xtensa {
 
     fn intrinsic_from_id(&self, id: IntrinsicId) -> Option<Intrinsic> {
         self.intrinsics.get(&id.0).copied()
+    }
+
+    // Patching. Assembling is not supported (`can_assemble` stays false).
+
+    fn is_never_branch_patch_available(&self, data: &[u8], addr: u64) -> bool {
+        patching("is_never_branch_patch_available", addr, || {
+            patch::is_conditional_branch(&self.isa, data, addr)
+        })
+    }
+
+    fn is_invert_branch_patch_available(&self, data: &[u8], addr: u64) -> bool {
+        patching("is_invert_branch_patch_available", addr, || {
+            patch::is_conditional_branch(&self.isa, data, addr)
+        })
+    }
+
+    fn is_always_branch_patch_available(&self, data: &[u8], addr: u64) -> bool {
+        patching("is_always_branch_patch_available", addr, || {
+            patch::can_always_branch(&self.isa, data, addr)
+        })
+    }
+
+    fn is_skip_and_return_value_patch_available(&self, data: &[u8], addr: u64) -> bool {
+        patching("is_skip_and_return_value_patch_available", addr, || {
+            patch::is_call(&self.isa, data, addr)
+        })
+    }
+
+    fn convert_to_nop(&self, data: &mut [u8], addr: u64) -> bool {
+        patching("convert_to_nop", addr, || {
+            patch::convert_to_nop(&self.isa, data)
+        })
+    }
+
+    fn invert_branch(&self, data: &mut [u8], addr: u64) -> bool {
+        patching("invert_branch", addr, || {
+            patch::invert_branch(&self.isa, data, addr)
+        })
+    }
+
+    fn always_branch(&self, data: &mut [u8], addr: u64) -> bool {
+        patching("always_branch", addr, || {
+            patch::always_branch(&self.isa, data, addr)
+        })
+    }
+
+    fn skip_and_return_value(&self, data: &mut [u8], addr: u64, value: u64) -> bool {
+        patching("skip_and_return_value", addr, || {
+            patch::skip_and_return_value(&self.isa, data, addr, value)
+        })
     }
 
     fn handle(&self) -> Self::Handle {
