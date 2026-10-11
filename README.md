@@ -284,11 +284,16 @@ Assembling is not supported on the Xtensa architectures.
 
 Not supported for now:
 
-- **ESP32-P4.** Its images are not loaded, and its ELFs are not recognised
-  as Espressif firmware. Its custom instructions (the PIE SIMD extension,
-  in two incompatible versions for chip revisions before and from v3.0, and
-  the hardware loops) are not decoded; Binary Ninja's `rv32gc` treats them
-  as invalid instructions.
+- **ESP32-P4.** Its images are not loaded (the log says so), and its ELFs
+  are not recognised as Espressif firmware. Its custom instructions (the
+  PIE SIMD extension, in two incompatible versions for chip revisions
+  before and from v3.0, and the hardware loops) are not decoded; Binary
+  Ninja's `rv32gc` treats them as invalid instructions.
+- **ESP32-C61, H21, H4 and S31.** Their images are not loaded either: the
+  log names the chip ("ESP image for ESP32-C61 (chip id 20) ... is not
+  supported by binja-xtensa"), or gives the raw `chip_id` of an image for
+  a chip it does not know, and the file opens as it would without the
+  plugin.
 - **Other relocations.** The dynamic and TLS relocations (Espressif
   firmware is linked statically), the FLIX slot relocations
   (`R_XTENSA_SLOTn_OP`/`ALT` for slots 1 and up, and `SLOT0_ALT`) and
