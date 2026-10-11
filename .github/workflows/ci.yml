@@ -119,9 +119,9 @@ jobs:
       - name: Test
         run: python3 tests/test_loader.py -v
 
-  # main builds against the binaryninja-api dev revision pinned in Cargo.toml;
-  # releases are built against the stable API. This checks that the code
-  # still builds and passes against stable.
+  # main and releases build against the binaryninja-api dev revision pinned
+  # in Cargo.toml. This checks that the code still builds and passes against
+  # the stable API, which the release workflow builds with api=stable.
   stable-api:
     runs-on: ubuntu-latest
     steps:

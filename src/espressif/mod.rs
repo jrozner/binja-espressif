@@ -671,8 +671,10 @@ fn register_platforms() {
 /// Adds an architecture's calling convention to a platform, so that types
 /// can name it.
 ///
-/// `main` builds against the dev API, but releases are built against the
-/// stable API (`scripts/use_stable_api.sh`). Binary Ninja 6.0 stable's Rust
+/// `main` and releases build against the dev API, but the code must keep
+/// building against the stable API too (`scripts/use_stable_api.sh`, CI's
+/// stable-api job, the release workflow's `api: stable`). Binary Ninja 6.0
+/// stable's Rust
 /// API has no wrapper for this (`Platform::register_calling_convention`
 /// arrived in 6.1 dev) and does not expose the platform and calling
 /// convention handles, so the core is called with handles looked up by name,
