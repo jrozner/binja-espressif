@@ -59,6 +59,8 @@ pub const REVISION: &str = "espressif.rom.revision";
 pub const AUTO_DOWNLOAD: &str = "espressif.rom.autoDownload";
 /// Use ROM images at all.
 pub const LOAD_IMAGES: &str = "espressif.rom.loadImages";
+/// Create a function at each function a ROM image's symbol table names.
+pub const CREATE_FUNCTIONS: &str = "espressif.rom.createFunctions";
 /// The minimum chip revision of an ESP image, for the ROM revision.
 const MIN_REVISION_METADATA: &str = "espressif.rom.minChipRevision";
 /// Only for tests/test_headless.py: download from this URL, which must be
@@ -125,6 +127,16 @@ pub fn register_settings() {
             "type": "boolean",
             "default": true,
             "description": "Fill the mask ROM's code region with the chip's ROM image, from Espressif's ROM ELF files (esp-rom-elfs), when one is available: in the directory below, in an ESP-IDF tools install, or downloaded by this plugin. Without one, or with this off, the region holds zeros and only the ROM's typed functions.",
+            "ignore": ["SettingsProjectScope", "SettingsResourceScope"]
+        }"#,
+    );
+    settings.register_setting_json(
+        CREATE_FUNCTIONS,
+        r#"{
+            "title": "Create Espressif ROM image functions",
+            "type": "boolean",
+            "default": true,
+            "description": "When a ROM image is mapped, create a function, and analyze it, at each function its ROM ELF file's symbol table names. Off, those are only named, and analysis creates the ROM functions that code calls: a smaller database and a faster analysis.",
             "ignore": ["SettingsProjectScope", "SettingsResourceScope"]
         }"#,
     );
@@ -236,6 +248,12 @@ pub fn rom_image(view: &BinaryView, chip: Chip) -> Option<Found> {
         return None;
     }
     rom_images::find(chip, wanted_revision(view), &search_dirs(view))
+}
+
+/// Whether a ROM image's functions all become functions of the view (see
+/// [`CREATE_FUNCTIONS`]).
+pub fn create_functions(view: &BinaryView) -> bool {
+    Settings::global().get_bool_with_opts(CREATE_FUNCTIONS, &mut QueryOptions::new_with_view(view))
 }
 
 /// Maps the chip's ROM image into the view's zero-filled ROM code regions
@@ -605,7 +623,8 @@ pub fn download_release(report: bool) -> Result<usize, String> {
 }
 
 /// Maps the chip's ROM image into the view's zero-filled ROM code regions,
-/// database or not, and says what it did.
+/// database or not, and says what it did. A view that has the image
+/// already gets the image's functions it lacks (see [`CREATE_FUNCTIONS`]).
 fn map_into(view: &BinaryView, chip: Chip) {
     let Some(found) = rom_image(view, chip) else {
         let text = format!(
@@ -616,7 +635,21 @@ fn map_into(view: &BinaryView, chip: Chip) {
         message(text, MessageBoxIcon::WarningIcon);
         return;
     };
-    let text = if !rom_types::has_zero_filled_region(view, chip) {
+    let held = rom_types::held_image(view);
+    let same = held.as_deref() == found.path.file_name().and_then(|n| n.to_str());
+    let text = if same && create_functions(view) {
+        // A view (a database, say) that holds this image but not all its
+        // functions: one saved by a version that only named them, or with
+        // `CREATE_FUNCTIONS` off then.
+        let created = rom_types::create_image_functions(view, &found.elf);
+        if created > 0 {
+            view.update_analysis();
+        }
+        format!(
+            "This view has the {} ROM image; created {created} more of its functions.",
+            chip.display_name()
+        )
+    } else if !rom_types::has_zero_filled_region(view, chip) {
         format!(
             "This view needs no {} ROM image: it has one, or maps the ROM itself.",
             chip.display_name()

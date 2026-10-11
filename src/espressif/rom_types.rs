@@ -21,9 +21,11 @@
 //! typed functions have real bodies, which Binary Ninja analyzes: their
 //! names and prototypes are then pinned against what that analysis would
 //! change, the functions behind the ROM's jump table are typed too, and the
-//! ROM's other functions get the image's names (see [`use_image`]).
-//! Analysis creates functions in the ROM only where code calls them; the
-//! region is not swept.
+//! ROM's other functions get the image's names, and become functions
+//! unless `espressif.rom.createFunctions` is off (see [`use_image`]); then
+//! analysis creates functions in the ROM only where code calls them. The
+//! region is never swept: the image's symbol table says where its
+//! functions are.
 //!
 //! Only names that have a prototype are typed, and only one per address
 //! (preferring the name the view already shows), so that the name shown for
@@ -304,8 +306,9 @@ pub fn map_rom_image(view: &BinaryView, chip: Chip, found: &Found) -> bool {
 ///   name, pinned too: a jump table entry is a thunk, whose return value
 ///   Binary Ninja takes from the function it jumps to.
 /// * The ROM's other functions get the names the ELF file's symbol table
-///   gives them, where the view has none. This only names them: analysis
-///   creates functions where code calls them, not here.
+///   gives them, where the view has none, and become functions, unless
+///   [`rom_download::CREATE_FUNCTIONS`] is off: then only analysis creates
+///   functions, where code calls them.
 ///
 /// This runs where nothing else changes the view (the view's
 /// initialization, the ELF fix-ups, the image step), not in the analysis of
@@ -354,10 +357,41 @@ fn use_image(view: &BinaryView, chip: Chip, elf: &RomElf) {
             named += 1;
         }
     }
+    let created = if rom_download::create_functions(view) {
+        create_image_functions(view, elf)
+    } else {
+        0
+    };
     tracing::info!(
-        "pinned {pinned} typed {} ROM functions and named {named} others from the ROM image",
+        "pinned {pinned} typed {} ROM functions, named {named} others and created {created} functions from the ROM image",
         chip.display_name()
     );
+}
+
+/// Creates a function at each function the ROM image's symbol table names
+/// where the view has none, and returns how many it created. They are not
+/// auto-discovered: the symbol table says they are functions, so analysis
+/// keeps them whether or not anything calls them.
+pub fn create_image_functions(view: &BinaryView, elf: &RomElf) -> usize {
+    let Some(platform) = view.default_platform() else {
+        return 0;
+    };
+    elf.functions()
+        .iter()
+        .map(|&(_, addr)| addr as u64)
+        .filter(|&addr| {
+            view.function_at(&platform, addr).is_none()
+                && view
+                    .add_auto_function_ext(addr, &platform, None, false)
+                    .is_some()
+        })
+        .count()
+}
+
+/// The name of the ROM ELF file whose image the view's ROM code regions
+/// hold, if they hold one.
+pub fn held_image(view: &BinaryView) -> Option<String> {
+    view.get_metadata::<String>(IMAGE_METADATA)
 }
 
 /// The name of the typed ROM function at the start of `func`: a ROM symbol
