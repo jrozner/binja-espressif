@@ -1,9 +1,13 @@
 //! A binary view for Espressif firmware images and flash dumps.
 
+use std::collections::VecDeque;
+use std::sync::Mutex;
+
 use binaryninja::Endianness;
 use binaryninja::binary_view::{
     BinaryView, BinaryViewBase, CustomBinaryView, CustomBinaryViewType, MetadataStoreFlags,
 };
+use binaryninja::file_metadata::SessionId;
 use binaryninja::platform::Platform;
 use binaryninja::section::{SectionBuilder, Semantics};
 use binaryninja::segment::{SegmentBuilder, SegmentFlags};
@@ -41,7 +45,12 @@ impl CustomBinaryViewType for EspViewType {
         };
         let Some(mut firmware) = image::find_firmware(&bytes, selection) else {
             if selection != image::Selection::Default {
-                tracing::error!("no loadable image in the selected partition '{choice}'");
+                match image::find_unsupported(&bytes, selection) {
+                    Some(unsupported) => log_unsupported(unsupported),
+                    None => {
+                        tracing::error!("no loadable image in the selected partition '{choice}'")
+                    }
+                }
             }
             return Err(());
         };
@@ -73,11 +82,48 @@ impl CustomBinaryViewType for EspViewType {
         if !(header || table || at_1000) || data.len() > 0x0400_0000 {
             return false;
         }
-        image::find_firmware(
-            &data.read_vec(0, data.len() as usize),
-            image::Selection::Default,
-        )
-        .is_some()
+        let bytes = data.read_vec(0, data.len() as usize);
+        if image::find_firmware(&bytes, image::Selection::Default).is_some() {
+            return true;
+        }
+        if let Some(unsupported) = image::find_unsupported(&bytes, image::Selection::Default) {
+            report_unsupported(data, unsupported);
+        }
+        false
+    }
+}
+
+/// The images of unsupported chips reported last: the session of the file
+/// and the image. Binary Ninja asks whether a view type is valid for a file
+/// while opening it, so only the latest few are kept.
+static REPORTED: Mutex<VecDeque<(SessionId, image::UnsupportedImage)>> =
+    Mutex::new(VecDeque::new());
+const REPORTED_KEPT: usize = 16;
+
+/// Says that the image of a file is for a chip that is not supported, once
+/// per opened file: Binary Ninja asks whether the view is valid for a file
+/// more than once. The view does not load such an image, so the file opens
+/// as it would without this plugin.
+fn report_unsupported(data: &BinaryView, unsupported: image::UnsupportedImage) {
+    let key = (data.file().session_id(), unsupported);
+    let mut reported = REPORTED.lock().unwrap_or_else(|e| e.into_inner());
+    if reported.contains(&key) {
+        return;
+    }
+    if reported.len() == REPORTED_KEPT {
+        reported.pop_front();
+    }
+    reported.push_back(key);
+    drop(reported);
+    log_unsupported(unsupported);
+}
+
+fn log_unsupported(unsupported: image::UnsupportedImage) {
+    let message = unsupported.message();
+    if image::chip_name_from_id(unsupported.chip_id).is_some() {
+        tracing::error!("{message}");
+    } else {
+        tracing::warn!("{message}");
     }
 }
 

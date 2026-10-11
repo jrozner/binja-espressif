@@ -69,6 +69,10 @@ sys.path.insert(0, os.path.join(install, "python"))
 
 import binaryninja as bn  # noqa: E402
 
+# The plugin's warnings and errors, for the checks of what it logs.
+log_path = os.path.join(user_dir, "log.txt")
+bn.log_to_file(bn.LogLevel.WarningLog, log_path)
+
 CHIPS = {"esp32": 0, "esp32s2": 2, "esp32s3": 9, "esp8266": None}
 failures = []
 
@@ -1128,6 +1132,35 @@ check(bv.view_type == "ESP" and bv.platform.name == "esp32", "ESP32 image with a
 bv = load_bytes(tiny_image([(0x40080000, code + bytes(3) + bytes.fromhex("364100"))]), ".bin")
 check(bv.get_function_at(0x40080008) is not None, "entry at the very end of a segment is found")
 
+print("Images of unsupported chips:")
+UNSUPPORTED = "is not supported by binja-xtensa"
+
+
+def chip_image(chip_id, entry=0x40800000):
+    """A one-segment image with `chip_id` in its extended header."""
+    ext = struct.pack("<BBBBHBHH4sB", 0xEE, 0, 0, 0, chip_id, 0, 0, 0, bytes(4), 0)
+    body = bytes.fromhex("1301f1ff8280")  # addi sp, sp, -16; ret
+    return struct.pack("<BBBBI", 0xE9, 1, 2, 0x20, entry) + ext + struct.pack("<II", entry, len(body)) + body
+
+
+def logged(text):
+    with open(log_path) as f:
+        return [line for line in f if text in line]
+
+
+for chip_id, expected in [(20, "ESP image for ESP32-C61 (chip id 20) at file offset 0x0 " + UNSUPPORTED),
+                          (18, "ESP image for ESP32-P4 (chip id 18) at file offset 0x0 " + UNSUPPORTED),
+                          (0x7F, "ESP image with unknown chip id 127 (0x7f) at file offset 0x0 " + UNSUPPORTED)]:
+    before = len(logged(expected))
+    bv = load_bytes(chip_image(chip_id), ".bin")
+    # The view type is asked again, as the UI's "Open with Options" does.
+    esp_view_type = bn.BinaryViewType["ESP"]
+    valid = esp_view_type.is_valid_for_data(bv.file.raw)
+    check(bv is not None and bv.view_type != "ESP" and not valid,
+          f"chip id {chip_id:#x}: not loaded (view type {bv.view_type if bv else None})")
+    check(len(logged(expected)) - before == 1, f"chip id {chip_id:#x}: says so once: {expected!r}")
+    bv.file.close()
+
 print("User calling conventions on functions without entry:")
 # entry a1, 32; movi a10, 1; movi a11, 2; movi a12, 3; call8 stub; retw.n
 # and at 0x40080014 the stub, a bare 4-byte ret.n (like the placeholders
@@ -1616,6 +1649,10 @@ if os.environ.get("BN_XTENSA_ROM_TARBALL"):
     rom_image_checks(os.environ["BN_XTENSA_ROM_TARBALL"])
 else:
     print("  skipped: set BN_XTENSA_ROM_TARBALL to the esp-rom-elfs archive pinned in src/espressif/rom_images.rs")
+
+# Images of supported chips are not reported: only the three above and the
+# ESP32-P4 image of the RISC-V checks are.
+check(len(logged(UNSUPPORTED)) == 4, f"no other image is reported unsupported ({logged(UNSUPPORTED)})")
 
 print()
 if failures:

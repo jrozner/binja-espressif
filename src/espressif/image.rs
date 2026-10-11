@@ -216,11 +216,32 @@ pub fn region_of(chip: Chip, addr: u32) -> Option<&'static Region> {
 }
 
 /// The chip of an ESP-IDF image `chip_id`. Other ids belong to chips that
-/// are not supported (the ESP32-P4, ...).
+/// are not supported (see [`UNSUPPORTED_CHIPS`]).
 pub fn chip_from_id(id: u16) -> Option<Chip> {
     Chip::ALL
         .into_iter()
         .find(|c| c.image_chip_id() == Some(id))
+}
+
+/// Chips with an ESP-IDF image `chip_id` (`esp_chip_id_t` in ESP-IDF's
+/// `esp_app_format.h`) that are not supported. The ESP32-P4's RISC-V cores
+/// have custom instructions that are not decoded.
+pub const UNSUPPORTED_CHIPS: &[(u16, &str)] = &[
+    (18, "ESP32-P4"),
+    (20, "ESP32-C61"),
+    (25, "ESP32-H21"),
+    (28, "ESP32-H4"),
+    (32, "ESP32-S31"),
+];
+
+/// The name of the chip of an ESP-IDF image `chip_id`, supported or not.
+pub fn chip_name_from_id(id: u16) -> Option<&'static str> {
+    chip_from_id(id).map(Chip::display_name).or_else(|| {
+        UNSUPPORTED_CHIPS
+            .iter()
+            .find(|&&(chip_id, _)| chip_id == id)
+            .map(|&(_, name)| name)
+    })
 }
 
 /// Guesses the chip from the load addresses of a program, for formats that
@@ -829,6 +850,94 @@ fn is_nonos_dump(data: &[u8], image: &Image) -> bool {
             .is_some_and(|rest| rest.iter().any(|&b| b != 0xFF))
 }
 
+/// An ESP32-family image header, at file offset `start`, for a chip that is
+/// not supported: its `chip_id` is that of no supported chip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnsupportedImage {
+    pub start: usize,
+    pub chip_id: u16,
+}
+
+impl UnsupportedImage {
+    /// What to tell the user about the image.
+    pub fn message(&self) -> String {
+        let id = self.chip_id;
+        match chip_name_from_id(id) {
+            Some(name) => format!(
+                "ESP image for {name} (chip id {id}) at file offset {:#x} is not supported by binja-xtensa",
+                self.start
+            ),
+            None => format!(
+                "ESP image with unknown chip id {id} ({id:#x}) at file offset {:#x} is not supported by binja-xtensa",
+                self.start
+            ),
+        }
+    }
+}
+
+/// The header at `start`, if it is an ESP32-family image header (magic,
+/// segment count, the extended header's reserved bytes and hash flag, and
+/// segment headers that fit in the file) whose `chip_id` no supported chip
+/// has.
+fn unsupported_image_at(data: &[u8], start: usize) -> Option<UnsupportedImage> {
+    let header = data.get(start..start.checked_add(24)?)?;
+    let count = header[1] as usize;
+    let ext = &header[8..];
+    let chip_id = read_u16(ext, 4)?;
+    // The extended header starts with the WP pin (a GPIO number, or 0xEE
+    // for none) and three bytes of SPI pin drive strengths, which esptool
+    // and ESP-IDF leave at 0. Where an ESP8266 v1 image, which has no
+    // extended header, has the load address of its first segment: never
+    // below 0x100.
+    let plausible = header[0] == IMAGE_MAGIC
+        && (1..=16).contains(&count)
+        && read_u32(ext, 0)? <= 0xFF
+        && ext[11..15] == [0; 4]
+        && ext[15] <= 1;
+    if !plausible || chip_from_id(chip_id).is_some() || parse_image(data, start).is_some() {
+        return None;
+    }
+    read_segments(data, start + 24, count)?;
+    Some(UnsupportedImage { start, chip_id })
+}
+
+/// Finds an image of an unsupported chip where [`find_firmware`] looks for
+/// the `selection`: by default in the app partitions of a flash dump, at
+/// offset 0 and at 0x1000. For saying why a file with no loadable image is
+/// not loaded.
+pub fn find_unsupported(data: &[u8], selection: Selection) -> Option<UnsupportedImage> {
+    let table = partition_table(data);
+    let in_partition = |p: &Partition| {
+        let base = table.as_ref()?.0;
+        let start = (p.offset as usize).checked_sub(base)?;
+        let end = start.saturating_add(p.size as usize).min(data.len());
+        unsupported_image_at(data.get(..end)?, start)
+    };
+    let apps = table
+        .as_ref()
+        .map(|(_, parts)| app_partitions(parts))
+        .unwrap_or_default();
+    match selection {
+        Selection::Default => apps.into_iter().find_map(in_partition).or_else(|| {
+            [0, 0x1000]
+                .into_iter()
+                .find_map(|start| unsupported_image_at(data, start))
+        }),
+        Selection::Partition(label) => apps
+            .into_iter()
+            .find(|p| p.label == label)
+            .and_then(in_partition),
+        Selection::Bootloader => {
+            let base = table.as_ref().map_or(0, |&(base, _)| base);
+            let end = (PARTITION_TABLE_OFFSET - base).min(data.len());
+            [0x1000usize.checked_sub(base), (base == 0).then_some(0)]
+                .into_iter()
+                .flatten()
+                .find_map(|start| unsupported_image_at(&data[..end], start))
+        }
+    }
+}
+
 /// Finds the image to load in a file: the selected image of a flash dump,
 /// or by default either an image at offset 0, or the factory/OTA app of a
 /// flash dump.
@@ -985,6 +1094,99 @@ mod tests {
         // The ESP32-P4 is not supported.
         let d = image(0xE9, Some(ext(18)), 0x4FF0_0000, &[(0x4FF0_0000, &[0; 4])]);
         assert!(parse_image(&d, 0).is_none());
+    }
+
+    #[test]
+    fn chip_names() {
+        // ESP-IDF's esp_chip_id_t (esp_app_format.h) and espflash's
+        // Chip::id().
+        for (id, name) in [
+            (0, "ESP32"),
+            (2, "ESP32-S2"),
+            (5, "ESP32-C3"),
+            (9, "ESP32-S3"),
+            (12, "ESP32-C2"),
+            (13, "ESP32-C6"),
+            (16, "ESP32-H2"),
+            (18, "ESP32-P4"),
+            (20, "ESP32-C61"),
+            (23, "ESP32-C5"),
+            (25, "ESP32-H21"),
+            (28, "ESP32-H4"),
+            (32, "ESP32-S31"),
+        ] {
+            assert_eq!(chip_name_from_id(id), Some(name), "{id}");
+        }
+        assert_eq!(chip_name_from_id(0x7F), None);
+        assert_eq!(chip_name_from_id(0xFFFF), None);
+        // No chip is both supported and unsupported.
+        for &(id, name) in UNSUPPORTED_CHIPS {
+            assert_eq!(chip_from_id(id), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn unsupported_chips() {
+        let seg: &[(u32, &[u8])] = &[(0x4FF0_0000, &[0; 4])];
+        for (id, message) in [
+            (
+                20,
+                "ESP image for ESP32-C61 (chip id 20) at file offset 0x0 is not supported by binja-xtensa",
+            ),
+            (
+                18,
+                "ESP image for ESP32-P4 (chip id 18) at file offset 0x0 is not supported by binja-xtensa",
+            ),
+            (
+                0x7F,
+                "ESP image with unknown chip id 127 (0x7f) at file offset 0x0 is not supported by binja-xtensa",
+            ),
+        ] {
+            let d = image(0xE9, Some(ext(id)), 0x4FF0_0000, seg);
+            assert!(find_firmware(&d, Selection::Default).is_none());
+            let found = find_unsupported(&d, Selection::Default).unwrap();
+            assert_eq!(
+                found,
+                UnsupportedImage {
+                    start: 0,
+                    chip_id: id
+                }
+            );
+            assert_eq!(found.message(), message);
+        }
+        // At 0x1000, after an ESP32/S2 dump's empty first sector.
+        let mut d = vec![0xFF; 0x1000];
+        d.extend(image(0xE9, Some(ext(20)), 0x4080_0000, seg));
+        assert_eq!(
+            find_unsupported(&d, Selection::Default),
+            Some(UnsupportedImage {
+                start: 0x1000,
+                chip_id: 20
+            })
+        );
+        // Supported chips, ESP8266 images and other data are not reported.
+        let d = image(0xE9, Some(ext(13)), 0x4FF0_0000, seg);
+        assert_eq!(find_unsupported(&d, Selection::Default), None);
+        let d = image(0xE9, None, 0x4010_0000, &[(0x4010_0000, &[0; 32])]);
+        assert!(parse_image(&d, 0).is_some());
+        assert_eq!(find_unsupported(&d, Selection::Default), None);
+        let mut e = ext(20);
+        e[12] = 1;
+        assert_eq!(
+            find_unsupported(&image(0xE9, Some(e), 0, seg), Selection::Default),
+            None
+        );
+        // An ESP8266 v1 image that does not parse (its segment is outside
+        // the memory map) is not taken for an ESP32-family image whose
+        // chip_id is its segment size.
+        let d = image(0xE9, None, 0x4010_0000, &[(0x4100_0000, &[0; 0x1000])]);
+        assert!(parse_image(&d, 0).is_none());
+        assert_eq!(find_unsupported(&d, Selection::Default), None);
+        // Segments past the end of the file.
+        let mut d = image(0xE9, Some(ext(20)), 0x4080_0000, seg);
+        d.truncate(30);
+        assert_eq!(find_unsupported(&d, Selection::Default), None);
+        assert_eq!(find_unsupported(&[0xE9; 8], Selection::Default), None);
     }
 
     #[test]
@@ -1364,6 +1566,30 @@ mod tests {
         assert_eq!(entry(Selection::Partition("ota_1")), Some(0x4037_5004));
         assert_eq!(entry(Selection::Partition("nvs")), None);
         assert_eq!(entry(Selection::Bootloader), None);
+    }
+
+    #[test]
+    fn unsupported_chip_in_selected_partition() {
+        // A supported factory app, an ESP32-C61 ota_0 app and an ESP32-P4
+        // bootloader.
+        let mut d = dump(&[
+            ("factory", 0x00, 0x10000, 0x1000),
+            ("ota_0", 0x10, 0x11000, 0x1000),
+        ]);
+        let c61 = image(0xE9, Some(ext(20)), 0x4080_0000, &[(0x4080_0000, &[0; 4])]);
+        let p4 = image(0xE9, Some(ext(18)), 0x4FF0_0000, &[(0x4FF0_0000, &[0; 4])]);
+        d[..p4.len()].copy_from_slice(&p4);
+        d.extend(s3_app(0x4037_5000));
+        d.resize(0x11000, 0xFF);
+        d.extend(&c61);
+        let found = |sel| find_unsupported(&d, sel);
+        let at = |start, chip_id| Some(UnsupportedImage { start, chip_id });
+        assert_eq!(found(Selection::Partition("ota_0")), at(0x11000, 20));
+        assert_eq!(found(Selection::Partition("factory")), None);
+        assert_eq!(found(Selection::Partition("nope")), None);
+        assert_eq!(found(Selection::Bootloader), at(0, 18));
+        // By default, the first app partition with such an image.
+        assert_eq!(found(Selection::Default), at(0x11000, 20));
     }
 
     #[test]
