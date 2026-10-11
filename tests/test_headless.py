@@ -647,8 +647,10 @@ print("ESP-IDF ELF fix-ups:")
 # `.flash.rodata` (WA, in an RW segment) holding a 12-entry jump table, and
 # the mask ROM's symbols as `ABS` symbols.
 IDF_ELFS = {
-    "esp32": dict(jump=0x400d0066, peripheral=(0x3FF48000, "RTC_CNTL"),
+    "esp32": dict(jump=0x400d0086, peripheral=(0x3FF48000, "RTC_CNTL"),
                   functions=["ets_printf", "memcpy", "memset"], data=["_global_impure_ptr", "_ctype_"]),
+    "esp32s3": dict(jump=0x42000086, peripheral=(0x60000000, "UART0"),
+                    functions=["ets_printf", "memcpy", "memset"], data=["_global_impure_ptr", "g_coex_param_ptr"]),
     "esp32c3": dict(jump=0x42000058, peripheral=(0x60000000, "UART0"),
                     functions=["ets_printf", "memset", "memcpy"], data=["g_coex_param_ptr"]),
     "esp32c6": dict(jump=0x42000058, peripheral=(0x60000000, "UART0"),
@@ -669,7 +671,7 @@ def check_idf_elf(bv, chip, case, syms, label):
             sym = bv.get_symbol_by_raw_name(name)
             check(sym is not None and sym.address == syms[name] and sym.type == expected,
                   f"{label}: ROM {name} is a {expected.name} at {syms[name]:#x}")
-    if chip != "esp32":
+    if chip in RISCV_CHIPS:
         gp = syms["__global_pointer$"]
         values = bv.user_global_pointer_values
         check(len(values) == 1 and values[0][1].value == gp, f"{label}: gp {gp:#x} from __global_pointer$")
@@ -700,6 +702,87 @@ for chip, case in IDF_ELFS.items():
 
 elf = os.path.join(DATA, "idf_esp32c3.elf")
 check_gp_set_once(elf, elf_symbols(elf)["__global_pointer$"], "idf_esp32c3.elf")
+
+print("Mask ROM types:")
+# tests/data/idf_*.elf's rom_calls calls ROM functions of one and three
+# arguments and the ROM's libgcc helpers, and reads the ROM's flash chip
+# structure (g_rom_flashchip on the ESP32, rom_spiflash_legacy_data->chip on
+# the others). With the ROM's types, the calls have the prototypes'
+# arguments and the read names the field.
+ROM_CALLS = {"ets_delay_us": 1, "memset": 3, "__floatsidf": 1, "__muldf3": 2, "__fixdfsi": 1, "__udivdi3": 2}
+ROM_TYPED_CHIPS = {"esp32": 0, "esp32s3": 9, "esp32c3": 5, "esp32c6": 13}
+
+
+def rom_regions(bv):
+    return [r for r in bv.memory_map.regions if r.name.startswith("espressif.rom")]
+
+
+def rom_functions(bv):
+    return [f for f in bv.functions if bv.memory_map.get_active_memory_region_at(f.start).startswith("espressif.rom")]
+
+
+def check_rom_types(bv, chip, syms, label):
+    """The ROM calls in rom_calls (at its address in `syms`) and their
+    callees."""
+    f = bv.get_function_at(syms["rom_calls"])
+    calls = {}
+    for ins in (f.mlil.instructions if f else []):
+        if ins.operation == bn.MediumLevelILOperation.MLIL_CALL and ins.dest.value.type in (
+                bn.RegisterValueType.ConstantPointerValue, bn.RegisterValueType.ConstantValue):
+            callee = bv.get_symbol_at(ins.dest.value.value)
+            if callee is not None:
+                calls[callee.name] = len(ins.params)
+    expected = {name: n for name, n in ROM_CALLS.items()}
+    check(calls == expected, f"{label}: rom_calls's ROM calls have their prototypes' arguments ({calls})")
+    text = hlil_text(f) if f else ""
+    field = "g_rom_flashchip.chip_size" if chip == "esp32" else "rom_spiflash_legacy_data->chip.chip_size"
+    check(field in text, f"{label}: the ROM's flash chip structure shows its fields ({field})")
+    memset = bv.get_function_at(syms["memset"])
+    cc = "ilp32" if chip in RISCV_CHIPS else "windowed"
+    check(memset is not None and memset.calling_convention is not None and memset.calling_convention.name == cc
+          and memset.symbol.type == bn.SymbolType.ImportedFunctionSymbol and len(memset.parameter_vars) == 3,
+          f"{label}: ROM memset is a typed {cc} function ({memset and memset.type})")
+    clobbered = set(memset.clobbered_regs) if memset else set()
+    callers = set(memset.calling_convention.caller_saved_regs) if memset and memset.calling_convention else {None}
+    check(clobbered == callers, f"{label}: ROM memset clobbers the caller-saved registers ({sorted(clobbered)})")
+    regions = rom_regions(bv)
+    check(len(regions) == 1 and regions[0].start == 0x40000000, f"{label}: one ROM code region ({regions})")
+    stray = [f.name for f in rom_functions(bv) if f.symbol.type != bn.SymbolType.ImportedFunctionSymbol
+             or f.name.startswith("sub_")]
+    check(not stray, f"{label}: the ROM region holds only the typed ROM functions ({stray[:5]})")
+
+
+for chip, chip_id in ROM_TYPED_CHIPS.items():
+    elf = os.path.join(DATA, f"idf_{chip}.elf")
+    syms = elf_symbols(elf)
+    for label, bv in ((f"idf_{chip}.elf", bn.load(elf)),
+                      (f"idf_{chip} image", load_bytes(elf_to_image(elf, chip_id), ".bin"))):
+        check_rom_types(bv, chip, syms, label)
+        functions, rom = len(bv.functions), len(rom_functions(bv))
+        db = os.path.join(user_dir, f"rom_types_{chip}_{label.split()[-1]}.bndb")
+        bv.create_database(db)
+        bv.file.close()
+        for reopen in ("reopened", "reopened again"):
+            bv = bn.load(db)
+            bv.update_analysis_and_wait()
+            check_rom_types(bv, chip, syms, f"{label} {reopen}")
+            check(len(bv.functions) == functions and len(rom_functions(bv)) == rom,
+                  f"{label} {reopen}: no new functions ({len(bv.functions)} of {functions}, "
+                  f"{len(rom_functions(bv))} of {rom} in the ROM)")
+            bv.file.save_auto_snapshot()
+            bv.file.close()
+
+# The ESP32 v3.0 ROM's Secure Boot v2 API is typed only for images that
+# require v3.0.
+elf = os.path.join(DATA, "idf_esp32.elf")
+for min_rev, present in ((0, False), (300, True)):
+    bv = load_bytes(elf_to_image(elf, 0, min_rev), ".bin")
+    f = bv.get_function_at(0x4000f8d4)  # ets_use_secure_boot_v2
+    check((f is not None and f.name == "ets_use_secure_boot_v2" and str(f.return_type) == "bool") == present,
+          f"ESP32 v{min_rev // 100}.{min_rev % 100} image: ets_use_secure_boot_v2 {'typed' if present else 'absent'}")
+# The ESP8266 has no ROM types, and so no ROM region.
+bv = bn.load(os.path.join(DATA, "esp8266.elf"))
+check(not rom_regions(bv), "esp8266.elf: no ROM code region")
 
 
 def c5_psram_elf():
