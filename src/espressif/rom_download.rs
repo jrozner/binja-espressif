@@ -1024,13 +1024,9 @@ impl Command for DownloadCommand {
         let view: Ref<BinaryView> = view.to_owned();
         std::thread::spawn(move || {
             if rom_image(&view, chip).is_none() {
-                if rom_types::has_zero_filled_region(&view, chip) {
-                    rom_status::record_status(&view, chip, rom_status::Status::Downloading);
-                }
+                rom_status::record_status(&view, chip, rom_status::Status::Downloading);
                 let downloaded = download_release(true);
-                if rom_types::has_zero_filled_region(&view, chip) {
-                    rom_status::record_unmapped(&view, chip);
-                }
+                rom_status::record_unmapped(&view, chip);
                 if downloaded.is_err() {
                     return;
                 }

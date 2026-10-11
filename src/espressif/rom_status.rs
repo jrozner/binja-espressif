@@ -37,6 +37,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Mutex;
 
 use binaryninja::binary_view::{BinaryView, MetadataStoreFlags};
 use binaryninja::metadata::Metadata;
@@ -174,9 +175,21 @@ fn same(stored: &HashMap<String, Ref<Metadata>>, fields: &[(&'static str, Value)
         })
 }
 
+/// Held while the metadata is written, so that a region of zeros is not
+/// recorded over an image mapped meanwhile (the download runs on a thread
+/// of its own, and analysis may map an image it has unpacked).
+static WRITING: Mutex<()> = Mutex::new(());
+
 /// Stores the view's ROM metadata, saved with its database, unless it is
-/// stored already (this runs on every analysis update).
+/// stored already (this runs on every analysis update). A status other
+/// than `mapped` is recorded only while the region holds zeros: the image
+/// is recorded (`espressif.rom.image`) before its status, so a status
+/// written after that sees it, and one written before is overwritten.
 pub fn record(view: &BinaryView, status: &RomStatus) {
+    let _writing = WRITING.lock().unwrap_or_else(|e| e.into_inner());
+    if status.status != Status::Mapped && !rom_types::has_zero_filled_region(view, status.chip) {
+        return;
+    }
     let fields = status.fields();
     let stored = view
         .query_metadata(METADATA)
