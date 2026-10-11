@@ -31,6 +31,7 @@ import tarfile
 import tempfile
 import threading
 import time
+import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(ROOT, "tests", "data")
@@ -180,18 +181,30 @@ for chip, chip_id in CHIPS.items():
     if chip_id is not None:
         for base in (0, 0x1000):
             bv = load_bytes(flash_dump(elf_to_image(elf, chip_id), base), ".bin")
-            check(bv.view_type == "ESP" and bv.platform.name == chip, f"flash dump based at {base:#x}")
+            check(bv.view_type == "ESP" and bv.platform.name == chip and bv.file.display_name == "factory",
+                  f"flash dump based at {base:#x}: its factory app")
 
 print("ESP8266 flash dumps:")
 esp8266_image = elf_to_image(os.path.join(DATA, "esp8266.elf"), None)
-bv = load_bytes(flash_dump(esp8266_image, 0), ".bin")
-check(bv.view_type == "ESP" and "flash" not in bv.sections, "with a partition table, only the app partition is loaded")
+# An RTOS SDK app longer than 64 KiB, in its partition: not a NONOS dump.
+rtos = flash_dump(esp8266_image, 0) + b"\xff" * 0x20000
+bv = load_bytes(rtos, ".bin")
+check(bv.view_type == "ESP" and bv.file.is_container_entry and "flash" not in bv.sections,
+      "with a partition table, the app partition is opened, without the flash cache window")
+db = os.path.join(user_dir, "esp8266_app.bndb")
+check(bv.create_database(db), "the app partition saves to a database")
+bv.file.close()
+bv = bn.load(db)
+check(bv.view_type == "ESP" and "flash" not in bv.sections, "nor once its database is reopened")
+bv.file.close()
+# NONOS: the app at 0, its irom0text.bin flashed at 0x10000.
 nonos = bytearray(b"\xff" * 0x20000)
 nonos[:len(esp8266_image)] = esp8266_image
+nonos[0x10000:0x10004] = bytes.fromhex("12c1f000")
 bv = load_bytes(bytes(nonos), ".bin")
 check("flash" in bv.sections, "without one (NONOS), the flash cache window is mapped")
 
-print("Choosing the partition of a flash dump:")
+print("Flash dumps as containers:")
 
 
 def stub_image(entry):
@@ -200,31 +213,200 @@ def stub_image(entry):
     return struct.pack("<BBBBI", 0xE9, 1, 2, 0x20, entry) + bytes(16) + struct.pack("<II", entry, len(body)) + body
 
 
-# Based at 0x1000 like `esptool merge_bin` output: bootloader at file offset 0.
+def table_entry(kind, subtype, offset, size, label):
+    return struct.pack("<2sBBII16sI", b"\xaa\x50", kind, subtype, offset, size, label.encode(), 0)
+
+
+# Based at 0x1000 like `esptool merge_bin` output: bootloader at file offset
+# 0. The factory app is tests/data/esp32.elf; ota_1 is past the end of the
+# dump.
 esp32_elf = os.path.join(DATA, "esp32.elf")
 dump = bytearray(flash_dump(elf_to_image(esp32_elf, 0), 0x1000))
 dump[:0x40] = stub_image(0x40080400).ljust(0x40, b"\xff")
-ota = struct.pack("<2sBBII16sI", b"\xaa\x50", 0, 0x10, 0x110000, 0x1000, b"ota_0", 0)
-dump[0x8000 - 0x1000 + 32:0x8000 - 0x1000 + 64] = ota
-dump = dump.ljust(0x110000 - 0x1000, b"\xff") + stub_image(0x40080800)
+table = (table_entry(0, 0x10, 0x110000, 0x1000, "ota_0") + table_entry(0, 0x11, 0x200000, 0x1000, "ota_1")
+         + table_entry(1, 2, 0x9000, 0x6000, "nvs"))
+dump[0x8000 - 0x1000 + 32:0x8000 - 0x1000 + 32 + len(table)] = table
+dump = dump.ljust(0x110000 - 0x1000, b"\xff") + stub_image(0x40080800).ljust(0x1000, b"\xff")
 dump_path = os.path.join(user_dir, "partitions.bin")
 with open(dump_path, "wb") as f:
     f.write(dump)
-bv = bn.load(dump_path)
 esp32_entry = struct.unpack_from("<I", open(esp32_elf, "rb").read(), 0x18)[0]
+
+bv = bn.load(dump_path)
 check(bv.view_type == "ESP" and bv.entry_point == esp32_entry, "default: the factory app")
-settings = bn.BinaryViewType["ESP"].get_load_settings_for_data(bv.parent_view)
-schema = settings.serialize_schema() if settings else ""
-check(settings is not None and settings.contains("loader.platform")
-      and '"enum":["","factory","ota_0","bootloader"]' in schema,
-      "load settings offer the app partitions and the bootloader, next to the core's")
+check(bv.file.is_container_entry and bv.file.virtual_path == f"EspFlash({dump_path})::factory"
+      and bv.file.display_name == "factory", f"named as a file of the dump ({bv.file.virtual_path})")
+provenance = {"name": "factory", "virtualPath": f"EspFlash({dump_path})::factory", "label": "factory",
+              "type": 0, "subtype": 0, "flashOffset": 0x10000, "size": 0x100000}
+check(bv.query_metadata("espressif.flash.entry") == provenance, "where in flash it came from is in its metadata")
 for choice, entry in [("factory", esp32_entry), ("ota_0", 0x40080800), ("bootloader", 0x40080400)]:
-    bv = bn.load(dump_path, options={"loader.esp.partition": choice})
-    check(bv.view_type == "ESP" and bv.entry_point == entry, f"loader.esp.partition = {choice}")
-bv = bn.load(dump_path, options={"loader.esp.partition": "nvs"})
-check(bv.view_type != "ESP", "a partition that is not an app is not loaded")
-check(bn.BinaryViewType["ESP"].get_load_settings_for_data(load_bytes(stub_image(0x40080000), ".bin").parent_view)
-      .contains("loader.esp.partition") is False, "no partition choice for a standalone image")
+    bv = bn.load(dump_path, options={"files.espressif.partition": choice})
+    check(bv.view_type == "ESP" and bv.entry_point == entry and bv.file.display_name == choice,
+          f"files.espressif.partition = {choice}")
+for choice in ("nvs", "partition-table"):
+    bv = bn.load(dump_path, options={"files.espressif.partition": choice})
+    check(bv.view_type != "ESP" and bv.file.display_name == choice, f"{choice} opens as data")
+
+
+def whole_dump(bv):
+    return bv.view_type == "ESP" and not bv.file.is_container_entry and bv.file.virtual_path == dump_path
+
+
+for choice in ("*", "nope", "ota_1"):
+    bv = bn.load(dump_path, options={"files.espressif.partition": choice})
+    check(whole_dump(bv) and bv.entry_point == esp32_entry, f"files.espressif.partition = {choice}: the whole dump")
+
+# The files of the dump, as the UI's container browser lists them. (A
+# session has to outlive the views of its files.)
+session = bn.TransformSession(dump_path, options={"files.espressif.partition": "*"})
+session.process()
+files = {c.filename: c for c in session.root_context.children}
+check(sorted(files) == ["bootloader", "factory", "nvs", "ota_0", "ota_1", "partition-table"],
+      f"a session lists the bootloader, partition table and partitions ({sorted(files)})")
+ota0 = files.get("ota_0")
+check(ota0 is not None and ota0.extraction_message == "app/ota_0 partition at 0x110000, 0x1000 bytes"
+      and ota0.metadata_obj.value == {"label": "ota_0", "type": 0, "subtype": 0x10, "flashOffset": 0x110000,
+                                      "size": 0x1000},
+      "a file's description and metadata")
+boot = files.get("bootloader")
+check(boot is not None and boot.metadata_obj.value == {"flashOffset": 0x1000, "size": 0x7000},
+      "the bootloader is at 0x1000")
+ota1 = files.get("ota_1")
+check(ota1 is not None and ota1.extraction_result != bn.TransformResult.TransformSuccess
+      and ota1.extraction_message.endswith("not in the dump"), "a partition past the end of the dump is not extracted")
+del session, files, ota0, boot, ota1
+
+# Without the container, the view loads one image of the dump, chosen by
+# the same setting.
+excluded = {"files.container.excludedTransforms": ["EspFlash"]}
+bv = bn.load(dump_path, options=excluded)
+check(whole_dump(bv) and bv.entry_point == esp32_entry, "without the container: the dump's factory app")
+settings = bn.Settings()
+for choice, entry in [("ota_0", 0x40080800), ("bootloader", 0x40080400)]:
+    settings.set_string("files.espressif.partition", choice)
+    bv = bn.load(dump_path, options=excluded)
+    check(whole_dump(bv) and bv.entry_point == entry, f"without the container: files.espressif.partition = {choice}")
+settings.set_string("files.espressif.partition", "nvs")
+bv = bn.load(dump_path, options=excluded)
+check(bv.view_type != "ESP", "without the container, a partition that is not an app is not loaded")
+settings.reset("files.espressif.partition")
+
+# A file of the dump keeps where it came from in its database.
+bv = bn.load(dump_path, options={"files.espressif.partition": "ota_0"})
+db = os.path.join(user_dir, "ota_0.bndb")
+check(bv.create_database(db), "a file of the dump saves to a database")
+bv.file.close()
+bv = bn.load(db)
+md = bv.query_metadata("espressif.flash.entry")
+check(bv.view_type == "ESP" and bv.entry_point == 0x40080800 and md["label"] == "ota_0"
+      and md["flashOffset"] == 0x110000 and md["virtualPath"] == f"EspFlash({dump_path})::ota_0",
+      "reopened, its database keeps where it came from")
+bv.file.close()
+
+# Where a file came from is told by its path and contents: the same app at
+# different offsets in two dumps, a label with the path separator in it,
+# and a dump inside a zip archive.
+def small_dump(parts, images):
+    """A dump from flash 0 of `(type, subtype, offset, size, label)`
+    partitions and `(flash offset, image)` images."""
+    d = bytearray(b"\xff" * 0x30000)
+    t = b"".join(table_entry(*p) for p in parts)
+    d[0x8000:0x8000 + len(t)] = t
+    for offset, image in images:
+        d[offset:offset + len(image)] = image
+    return bytes(d)
+
+
+app = stub_image(0x40080800)
+dump_a = small_dump([(0, 0, 0x10000, 0x1000, "factory")], [(0x10000, app)])
+dump_b = small_dump([(1, 2, 0x9000, 0x6000, "nvs"), (0, 0, 0x20000, 0x1000, "factory"),
+                     (0, 0x10, 0x21000, 0x1000, "ota::0")], [(0x20000, app), (0x21000, app)])
+for name, blob, choice, offset in [("a", dump_a, "factory", 0x10000), ("b", dump_b, "factory", 0x20000),
+                                   ("b", dump_b, "ota::0", 0x21000)]:
+    path = os.path.join(user_dir, f"dump_{name}.bin")
+    with open(path, "wb") as f:
+        f.write(blob)
+    bv = bn.load(path, options={"files.espressif.partition": choice})
+    md = bv.query_metadata("espressif.flash.entry")
+    check(bv.view_type == "ESP" and md.get("label") == choice and md.get("flashOffset") == offset,
+          f"{choice} of dump {name} is at {offset:#x}")
+    bv.file.close()
+zip_path = os.path.join(user_dir, "dump_b.zip")
+with zipfile.ZipFile(zip_path, "w") as z:
+    z.writestr("dump_b.bin", dump_b)
+bv = bn.load(zip_path, options={"files.espressif.partition": "factory"})
+md = bv.query_metadata("espressif.flash.entry") if bv is not None else {}
+check(bv is not None and bv.view_type == "ESP" and bv.file.virtual_path.endswith("EspFlash(dump_b.bin)::factory")
+      and md.get("flashOffset") == 0x20000, "a dump in a zip archive")
+bv.file.close()
+
+# An ESP8266 v2 image in a partition: the flash cache maps its irom0 code
+# from where the partition is in flash.
+v2_body = struct.pack("<II", 0x40100000, 8) + bytes.fromhex("12c1f000") + bytes(4)
+v2_image = (struct.pack("<BBBBI", 0xEA, 4, 0, 0, 0x40100004) + struct.pack("<II", 0, 8) + bytes.fromhex("12c1f000")
+            + bytes(4) + struct.pack("<BBBBI", 0xE9, 1, 0, 0, 0x40100004) + v2_body)
+v2_path = os.path.join(user_dir, "esp8266_v2.bin")
+with open(v2_path, "wb") as f:
+    f.write(small_dump([(0, 0, 0x11000, 0x10000, "factory")], [(0x11000, v2_image)]))
+bv = bn.load(v2_path)
+check(bv.view_type == "ESP" and bv.get_segment_at(0x40211010) is not None and bv.get_segment_at(0x40200010) is None,
+      "an ESP8266 v2 app partition at 0x11000 maps its irom0 code at 0x40211010")
+db = os.path.join(user_dir, "esp8266_v2.bndb")
+bv.create_database(db)
+bv.file.close()
+bv = bn.load(db)
+check(bv.get_segment_at(0x40211010) is not None, "... also once its database is reopened")
+bv.file.close()
+
+# Single images (a partition read with `esptool.py read_flash` or
+# `parttool.py read_partition`, or an image from a build) are not
+# containers: the ESP view opens them on their own, with the core's load
+# settings, whatever files.espressif.partition says.
+esp_flash = bn.Transform["EspFlash"]
+factory_part = bytes(dump[0x10000 - 0x1000:0x110000 - 0x1000])
+standalone = [
+    ("an app image", elf_to_image(esp32_elf, 0), esp32_entry, False),
+    ("a bootloader image", stub_image(0x40080400), 0x40080400, False),
+    ("the factory partition cut out of the dump", factory_part, esp32_entry, False),
+    ("an ESP8266 app image", esp8266_image, None, False),
+    ("an ESP8266 app partition longer than 64 KiB", esp8266_image.ljust(0x30000, b"\xff"), None, False),
+    ("a NONOS flash dump", bytes(nonos), None, True),
+]
+for what, blob, entry, window in standalone:
+    bv = load_bytes(blob, ".bin")
+    raw = bn.BinaryView.new(blob)
+    load_settings = bn.BinaryViewType["ESP"].get_load_settings_for_data(bv.parent_view)
+    check(bv.view_type == "ESP" and not bv.file.is_container_entry and not esp_flash.can_decode(raw)
+          and (entry is None or bv.entry_point == entry) and ("flash" in bv.sections) == window
+          and "espressif.flash.entry" not in bv.metadata
+          and load_settings is not None and load_settings.contains("loader.platform"),
+          f"{what} opens on its own" + (", with the flash cache window" if window else ""))
+    bv.file.close()
+part_path = os.path.join(user_dir, "factory_partition.bin")
+with open(part_path, "wb") as f:
+    f.write(factory_part)
+bv = bn.load(part_path, options={"files.espressif.partition": "ota_1"})
+check(bv.view_type == "ESP" and bv.entry_point == esp32_entry and not bv.file.is_container_entry,
+      "a single partition ignores files.espressif.partition")
+bv.file.close()
+settings.set_string("files.espressif.partition", "ota_1")
+bv = bn.load(part_path)
+check(bv.view_type == "ESP" and bv.entry_point == esp32_entry, "... also set globally")
+bv.file.close()
+settings.reset("files.espressif.partition")
+session = bn.TransformSession(part_path)
+session.process()
+check(not session.root_context.children, "a session has no files for a single partition")
+del session
+
+# A flash dump in a project.
+project = bn.Project.create_project(os.path.join(user_dir, "project"), "flash dumps")
+project_file = project.create_file_from_path(dump_path, None, "partitions.bin")
+bv = bn.load(project_file)
+check(bv is not None and bv.view_type == "ESP" and bv.entry_point == esp32_entry and bv.file.display_name == "factory",
+      "a dump in a project opens its factory app")
+bv.file.close()
+project.close()
 
 print("ESP32 revision-specific ROM symbols:")
 elf = os.path.join(DATA, "esp32.elf")

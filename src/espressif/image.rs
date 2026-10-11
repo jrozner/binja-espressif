@@ -16,9 +16,12 @@
 //! * **ESP8266 v2 images** (magic `0xEA`, NONOS OTA `user1.bin`, Arduino):
 //!   the `irom0` segment comes first, followed by a v1 image of the RAM
 //!   segments. The `irom0` data is mapped at `0x40200000 + flash offset`.
-//! * **Flash dumps**: only one image of the partition table at 0x8000 is
-//!   loaded: the factory (or first OTA) application, or the app partition or
-//!   bootloader selected by the view's `loader.esp.partition` load setting. ESP8266
+//! * **Flash dumps**: dumps with a partition table at 0x8000 are split into
+//!   their bootloader, partition table and partitions by the `EspFlash`
+//!   container transform (see [`crate::espressif::container`]). Where the
+//!   view is given the whole dump instead, only one image of it is loaded:
+//!   the factory (or first OTA) application, or the app partition or
+//!   bootloader the `files.espressif.partition` setting selects. ESP8266
 //!   dumps without a partition table (NONOS SDK) are additionally mapped as
 //!   a whole at the flash cache window `0x40200000`, where `irom0` lives.
 
@@ -569,6 +572,27 @@ fn parse_esp8266_v1(data: &[u8], start: usize, count: usize, entry: u32) -> Opti
     })
 }
 
+/// Where the flash cache maps the `irom0` segment of an ESP8266 v2 image
+/// written at `flash_offset`: 1 MB windows of flash at 0x40200000, and the
+/// segment's data starts 0x10 bytes into the image.
+fn esp8266_v2_irom_addr(flash_offset: u32) -> u32 {
+    ESP8266_FLASH_MAP + (flash_offset.wrapping_add(0x10) & 0xF_FFFF)
+}
+
+impl Image {
+    /// Places the image at `flash_offset`, where it is known (a file
+    /// extracted from a flash dump), in place of where its position in the
+    /// file says or [`esp8266_v2_flash_offset`] guesses. Only an ESP8266 v2
+    /// image's `irom0` segment depends on it.
+    pub fn set_flash_offset(&mut self, flash_offset: u32) {
+        if self.format == Format::Esp8266V2
+            && let Some(irom) = self.segments.first_mut()
+        {
+            irom.addr = esp8266_v2_irom_addr(flash_offset.wrapping_add(self.start as u32));
+        }
+    }
+}
+
 fn parse_esp8266_v2(data: &[u8], start: usize, entry: u32) -> Option<Image> {
     // The irom0 segment: its header's address field is not meaningful.
     let irom_size = read_u32(data, start + 12)?;
@@ -584,8 +608,8 @@ fn parse_esp8266_v2(data: &[u8], start: usize, entry: u32) -> Option<Image> {
     }
     // The flash cache maps 1 MB windows of flash at 0x40200000; images are
     // flashed at the start of a window plus 0x1000 (OTA) or at 0.
-    let irom_addr = ESP8266_FLASH_MAP
-        + ((esp8266_v2_flash_offset(data, start, irom_offset, irom_size) + 0x10) & 0xF_FFFF);
+    let irom_addr =
+        esp8266_v2_irom_addr(esp8266_v2_flash_offset(data, start, irom_offset, irom_size));
     segments.insert(
         0,
         Segment {
@@ -650,31 +674,61 @@ pub const PARTITION_TABLE_OFFSET: usize = 0x8000;
 /// firmware distributions produce them).
 pub const DUMP_BASES: [usize; 2] = [0, 0x1000];
 
+/// The size of the partition table: at most 95 entries and an MD5 entry,
+/// in a 4 KiB flash sector of its own.
+pub const PARTITION_TABLE_SIZE: usize = 0xC00;
+
 /// Reads the partition table of a dump that starts at flash offset `base`.
-pub fn partitions(data: &[u8], base: usize) -> Vec<Partition> {
+///
+/// The table must look like one `gen_esp32part.py` writes, so that other
+/// files with the magic at that offset are not taken for flash dumps: at
+/// least one entry, each of a known type (or a custom one, 0x40 and up), at
+/// a 4 KiB-aligned offset after the table, of a non-zero size, and with a
+/// printable label; and after the entries, the MD5 entry, erased flash or
+/// the end of the data.
+pub fn partitions(data: &[u8], base: usize) -> Option<Vec<Partition>> {
+    parse_partition_table(data.get(PARTITION_TABLE_OFFSET.checked_sub(base)?..)?)
+}
+
+/// Parses the partition table at the start of `table` (see [`partitions`]).
+pub fn parse_partition_table(table: &[u8]) -> Option<Vec<Partition>> {
     let mut out = Vec::new();
-    let table = PARTITION_TABLE_OFFSET - base;
-    for off in (table..table + 0xC00).step_by(32) {
-        let Some(entry) = data.get(off..off + 32) else {
-            break;
-        };
+    for entry in table
+        .as_chunks::<32>()
+        .0
+        .iter()
+        .take(PARTITION_TABLE_SIZE / 32)
+    {
         if entry[0] != 0xAA || entry[1] != 0x50 {
+            let md5 = entry[..2] == [0xEB, 0xEB] && entry[2..16].iter().all(|&b| b == 0xFF);
+            if !md5 && entry.iter().any(|&b| b != 0xFF) {
+                return None;
+            }
             break;
         }
-        let label = entry[12..28]
-            .iter()
-            .take_while(|&&b| b != 0)
-            .map(|&b| b as char)
-            .collect();
-        out.push(Partition {
+        let p = Partition {
             kind: entry[2],
             subtype: entry[3],
-            offset: read_u32(entry, 4).unwrap(),
-            size: read_u32(entry, 8).unwrap(),
-            label,
-        });
+            offset: read_u32(entry, 4)?,
+            size: read_u32(entry, 8)?,
+            label: entry[12..28]
+                .iter()
+                .take_while(|&&b| b != 0)
+                .map(|&b| b as char)
+                .collect(),
+        };
+        let known_type = matches!(p.kind, 0..=3 | 0x40..=0xFE);
+        let placed = (p.offset as usize).is_multiple_of(0x1000)
+            && p.offset as usize >= PARTITION_TABLE_OFFSET + 0x1000
+            && p.size != 0
+            && p.offset.checked_add(p.size - 1).is_some();
+        let label = !p.label.is_empty() && p.label.chars().all(|c| (' '..='~').contains(&c));
+        if !(known_type && placed && label) {
+            return None;
+        }
+        out.push(p);
     }
-    out
+    (!out.is_empty()).then_some(out)
 }
 
 /// What was found in a file.
@@ -707,8 +761,7 @@ pub enum Selection<'a> {
 pub fn partition_table(data: &[u8]) -> Option<(usize, Vec<Partition>)> {
     DUMP_BASES
         .iter()
-        .map(|&base| (base, partitions(data, base)))
-        .find(|(_, parts)| !parts.is_empty())
+        .find_map(|&base| Some((base, partitions(data, base)?)))
 }
 
 /// The app partitions of a dump: factory (0x00) first, then ota_0..ota_15
@@ -751,6 +804,31 @@ fn load_bootloader(data: &[u8], base: usize) -> Option<Firmware> {
         })
 }
 
+/// Is `data`, which starts with the ESP8266 `image`, a NONOS SDK flash dump,
+/// whose `irom0` code (flashed separately, at 0x10000 or 0x40000) is only
+/// reached through the flash cache window? Its image is a plain v1 image
+/// that maps no flash itself, and something is written past it, at 0x10000
+/// or later. An app on its own (an RTOS SDK app partition read out of
+/// flash, however long, padded with erased flash) is not.
+fn is_nonos_dump(data: &[u8], image: &Image) -> bool {
+    let maps_flash = image
+        .segments
+        .iter()
+        .any(|s| region_of(Chip::Esp8266, s.addr).is_some_and(|r| r.kind == K::Irom));
+    let end = image
+        .segments
+        .iter()
+        .map(|s| s.offset + s.size as usize)
+        .max()
+        .unwrap_or(0);
+    image.chip == Chip::Esp8266
+        && image.chip_id.is_none()
+        && !maps_flash
+        && data
+            .get(end.max(0x10000)..)
+            .is_some_and(|rest| rest.iter().any(|&b| b != 0xFF))
+}
+
 /// Finds the image to load in a file: the selected image of a flash dump,
 /// or by default either an image at offset 0, or the factory/OTA app of a
 /// flash dump.
@@ -788,7 +866,7 @@ pub fn find_firmware(data: &[u8], selection: Selection) -> Option<Firmware> {
         });
     }
     if let Some(image) = parse_image(data, 0) {
-        let map_flash_window = image.chip == Chip::Esp8266 && data.len() > 0x10000;
+        let map_flash_window = is_nonos_dump(data, &image);
         return Some(Firmware {
             image,
             map_flash_window,
@@ -1197,6 +1275,16 @@ mod tests {
                 size: 8
             }
         );
+        // Written at a known flash offset (a partition of a dump): in the
+        // flash window that offset is in.
+        let mut at = i.clone();
+        at.set_flash_offset(0x11_0000);
+        assert_eq!(at.segments[0].addr, 0x4021_0010);
+        // Other images do not depend on it.
+        let mut v1 = parse_image(&d[16 + 8..], 0).unwrap();
+        let before = v1.clone();
+        v1.set_flash_offset(0x10000);
+        assert_eq!(v1, before);
     }
 
     #[test]
@@ -1287,5 +1375,145 @@ mod tests {
         let f = find_firmware(&d, Selection::Bootloader).unwrap();
         assert_eq!((f.image.start, f.image.entry), (0, 0x4037_5008));
         assert_eq!(f.partition, None);
+    }
+
+    #[test]
+    fn esp8266_flash_window() {
+        let app = image(
+            0xE9,
+            None,
+            0x4010_0004,
+            &[
+                (0x4010_0000, &[0x12, 0xc1, 0xf0, 0]),
+                (0x3FFE_8000, &[0; 16]),
+            ],
+        );
+        let window = |d: &[u8]| {
+            find_firmware(d, Selection::Default)
+                .unwrap()
+                .map_flash_window
+        };
+        // NONOS: irom0text.bin flashed at 0x10000 (or 0x40000).
+        let mut nonos = app.clone();
+        nonos.resize(0x20000, 0xFF);
+        nonos[0x10000..0x10004].copy_from_slice(&[0x12, 0xc1, 0xf0, 0]);
+        assert!(window(&nonos));
+        let mut at_40000 = app.clone();
+        at_40000.resize(0x50000, 0xFF);
+        at_40000[0x40000] = 0;
+        assert!(window(&at_40000));
+        // An app read out of its partition, padded with erased flash.
+        let mut padded = app.clone();
+        padded.resize(0x30000, 0xFF);
+        assert!(!window(&padded));
+        assert!(!window(&app));
+        // An image that maps its flash itself (RTOS SDK v3).
+        let irom = image(
+            0xE9,
+            None,
+            0x4010_0004,
+            &[
+                (0x4010_0000, &[0x12, 0xc1, 0xf0, 0]),
+                (0x4021_0010, &[0; 16]),
+            ],
+        );
+        let mut rtos = irom.clone();
+        rtos.resize(0x20000, 0);
+        assert!(!window(&rtos));
+    }
+
+    fn table_entry(kind: u8, subtype: u8, offset: u32, size: u32, label: &[u8]) -> Vec<u8> {
+        let mut e = vec![0xAA, 0x50, kind, subtype];
+        e.extend(offset.to_le_bytes());
+        e.extend(size.to_le_bytes());
+        let mut name = [0u8; 16];
+        name[..label.len()].copy_from_slice(label);
+        e.extend(name);
+        e.extend([0; 4]);
+        e
+    }
+
+    /// A partition table sector holding these entries, then `after`.
+    fn table(entries: &[Vec<u8>], after: &[u8]) -> Vec<u8> {
+        let mut t: Vec<u8> = entries.concat();
+        t.extend(after);
+        t.resize(0x1000, 0xFF);
+        t
+    }
+
+    #[test]
+    fn partition_tables() {
+        let nvs = table_entry(1, 2, 0x9000, 0x6000, b"nvs");
+        let factory = table_entry(0, 0, 0x10000, 0x100000, b"factory");
+        let parts = parse_partition_table(&table(&[nvs.clone(), factory.clone()], &[])).unwrap();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(
+            parts[1],
+            Partition {
+                kind: 0,
+                subtype: 0,
+                offset: 0x10000,
+                size: 0x100000,
+                label: "factory".into()
+            }
+        );
+        // The MD5 entry gen_esp32part.py writes after the entries.
+        let mut md5 = vec![0xEB, 0xEB];
+        md5.extend([0xFF; 14]);
+        md5.extend([0x5A; 16]);
+        let t = table(&[nvs.clone(), factory.clone()], &md5);
+        assert_eq!(parse_partition_table(&t).map(|p| p.len()), Some(2));
+        // The table may be all the data there is.
+        assert_eq!(parse_partition_table(&nvs).map(|p| p.len()), Some(1));
+        // Custom types, and labels with spaces.
+        let custom = table_entry(0x40, 0x01, 0x20000, 0x1000, b"my data");
+        assert!(parse_partition_table(&table(&[custom], &[])).is_some());
+    }
+
+    #[test]
+    fn not_partition_tables() {
+        let ok = table_entry(1, 2, 0x9000, 0x6000, b"nvs");
+        let bad = [
+            table_entry(1, 2, 0x9800, 0x6000, b"nvs"), // not 4 KiB-aligned
+            table_entry(1, 2, 0x8000, 0x1000, b"nvs"), // the table's own sector
+            table_entry(1, 2, 0x1000, 0x1000, b"nvs"), // before the table
+            table_entry(1, 2, 0x9000, 0, b"nvs"),      // empty
+            table_entry(1, 2, 0xFFFF_F000, 0x2000, b"nvs"), // past 4 GiB
+            table_entry(0x10, 0, 0x9000, 0x6000, b"nvs"), // reserved type
+            table_entry(0xFF, 0, 0x9000, 0x6000, b"nvs"), // erased type
+            table_entry(1, 2, 0x9000, 0x6000, b""),    // no label
+            table_entry(1, 2, 0x9000, 0x6000, b"nv\x01s"), // unprintable label
+        ];
+        for entry in bad {
+            assert_eq!(
+                parse_partition_table(&table(&[ok.clone(), entry], &[])),
+                None
+            );
+        }
+        // Something other than an entry, the MD5 entry or erased flash after
+        // the entries.
+        assert_eq!(
+            parse_partition_table(&table(std::slice::from_ref(&ok), &[0; 32])),
+            None
+        );
+        // No entries at all.
+        assert_eq!(parse_partition_table(&table(&[], &[])), None);
+        // Only the magic, as in a file that happens to have it there.
+        let mut d = vec![0u8; 0x9000];
+        d[PARTITION_TABLE_OFFSET..PARTITION_TABLE_OFFSET + 2].copy_from_slice(&[0xAA, 0x50]);
+        assert_eq!(partition_table(&d), None);
+    }
+
+    #[test]
+    fn partition_table_of_a_dump() {
+        for base in DUMP_BASES {
+            let mut d = vec![0xFF; 0x9000 - base];
+            let t = table(&[table_entry(0, 0, 0x10000, 0x1000, b"factory")], &[]);
+            d[PARTITION_TABLE_OFFSET - base..].copy_from_slice(&t);
+            let (found, parts) = partition_table(&d).unwrap();
+            assert_eq!((found, parts[0].label.as_str()), (base, "factory"));
+        }
+        // An app image is not a dump.
+        assert_eq!(partition_table(&s3_app(0x4037_5000)), None);
     }
 }
