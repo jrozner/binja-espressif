@@ -747,6 +747,56 @@ bv.update_analysis_and_wait()
 stub = bv.get_function_at(0x40080014)
 check(stub is not None and stub.calling_convention.name == "call0", "a ret.n at the very end of a segment is call0 too")
 
+print("Patching:")
+
+
+def first_insn(bv, pred):
+    """The address and text of the first instruction whose text satisfies `pred`."""
+    for f in sorted(bv.functions, key=lambda f: f.start):
+        for tokens, addr in f.instructions:
+            text = "".join(str(t) for t in tokens)
+            if pred(text.split()[0]):
+                return addr, text
+    return None, None
+
+
+def patched(bv, addr, patch, length):
+    """The disassembly after `patch`ing `addr`, restoring the bytes after."""
+    orig = bv.read(addr, length)
+    ok = patch(addr)
+    text = bv.get_disassembly(addr)
+    bv.write(addr, orig)
+    return ok, text.split()[0] if text else None
+
+
+bv = bn.load(esp32_elf)
+check(not bv.arch.can_assemble, "assembling is not offered")
+addr, text = first_insn(bv, lambda m: m in ("beqz", "bnez", "blti", "bgei", "bbci", "bbsi", "beq", "bne"))
+check(addr is not None, f"a wide branch to patch: {text}")
+if addr is not None:
+    check(bv.is_invert_branch_patch_available(addr) and bv.is_always_branch_patch_available(addr)
+          and bv.is_never_branch_patch_available(addr), f"{text}: every branch patch offered")
+    ok, mnemonic = patched(bv, addr, bv.invert_branch, 3)
+    check(ok and mnemonic.startswith("b") and mnemonic != text.split()[0], f"{text}: inverted to {mnemonic}")
+    check(patched(bv, addr, bv.always_branch, 3) == (True, "j"), f"{text}: always branch is j")
+    check(patched(bv, addr, bv.never_branch, 3) == (True, "nop"), f"{text}: never branch is nop")
+addr, text = first_insn(bv, lambda m: m in ("beqz.n", "bnez.n"))
+if addr is not None:
+    check(not bv.is_always_branch_patch_available(addr), f"{text}: no always branch for a narrow branch")
+    ok, mnemonic = patched(bv, addr, bv.invert_branch, 2)
+    check(ok and {mnemonic, text.split()[0]} == {"beqz.n", "bnez.n"}, f"{text}: inverted to {mnemonic}")
+    check(patched(bv, addr, bv.never_branch, 2) == (True, "nop.n"), f"{text}: never branch is nop.n")
+addr, text = first_insn(bv, lambda m: m in ("call8", "callx8"))
+check(addr is not None and bv.is_skip_and_return_value_patch_available(addr), f"{text}: skip and return offered")
+if addr is not None:
+    orig = bv.read(addr, 3)
+    check(bv.skip_and_return_value(addr, 42) and bv.get_disassembly(addr).split() == ["movi", "a10,", "42"],
+          f"{text}: skip and return 42 is movi a10, 42")
+    bv.write(addr, orig)
+addr, text = first_insn(bv, lambda m: m == "entry")
+check(addr is not None and not bv.is_invert_branch_patch_available(addr)
+      and not bv.is_never_branch_patch_available(addr), "entry is not a branch to patch")
+
 print()
 if failures:
     print(f"{len(failures)} failure(s)")

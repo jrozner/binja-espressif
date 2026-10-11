@@ -9,6 +9,7 @@ pub mod flags;
 pub mod intrinsics;
 pub mod lift;
 pub mod loops;
+pub mod patch;
 pub mod registers;
 pub mod tokens;
 
