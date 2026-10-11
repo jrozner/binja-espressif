@@ -163,14 +163,22 @@ impl CallingConvention for XtensaCC {
         params: &[FunctionParameter],
         permitted_registers: Option<&[RegisterId]>,
     ) -> Vec<ValueLocation> {
-        // Registers the caller does not set (when the core asks for the
-        // registers a call site actually uses) end the register arguments.
-        let regs: Vec<RegisterId> = self
-            .regs
-            .args
+        let regs = &self.regs.args;
+        // When the core asks for the registers a call site actually sets,
+        // the register arguments end after the last of them. Registers
+        // before it may be unset: those an 8-byte argument skipped to start
+        // at an even one.
+        let nregs = match permitted_registers {
+            Some(permitted) => regs
+                .iter()
+                .rposition(|r| permitted.contains(r))
+                .map_or(0, |i| i + 1),
+            None => regs.len(),
+        };
+        // A parameter passed by reference is a pointer to the value.
+        let indirect: Vec<bool> = params
             .iter()
-            .copied()
-            .take_while(|r| permitted_registers.is_none_or(|p| p.contains(r)))
+            .map(|p| p.location == ValueLocationSource::PassByReference)
             .collect();
         let args: Vec<XtensaArg> = params
             .iter()
@@ -200,15 +208,21 @@ impl CallingConvention for XtensaCC {
                         stack_end,
                     }
                 }
+                ValueLocationSource::PassByReference => XtensaArg::Value {
+                    size: WORD as u64,
+                    align: WORD as u64,
+                },
+                // Xtensa passes everything else by value anyway.
                 _ => XtensaArg::Value {
                     size: p.ty.contents.width(),
                     align: p.ty.contents.alignment() as u64,
                 },
             })
             .collect();
-        xtensa_locations(&args, regs.len())
+        xtensa_locations(&args, nregs)
             .into_iter()
-            .map(|loc| match loc {
+            .zip(indirect)
+            .map(|(loc, indirect)| match loc {
                 XtensaLoc::Fixed(loc) => loc,
                 XtensaLoc::Regs(first, count) => ValueLocation {
                     components: (0..count)
@@ -218,7 +232,7 @@ impl CallingConvention for XtensaCC {
                             size: (count > 1).then_some(WORD as u64),
                         })
                         .collect(),
-                    indirect: false,
+                    indirect,
                     returned_pointer: None,
                 },
                 XtensaLoc::Stack(offset) => ValueLocation {
@@ -227,7 +241,7 @@ impl CallingConvention for XtensaCC {
                         offset: 0,
                         size: None,
                     }],
-                    indirect: false,
+                    indirect,
                     returned_pointer: None,
                 },
             })
@@ -294,7 +308,9 @@ fn xtensa_locations(args: &[XtensaArg], nregs: usize) -> Vec<XtensaLoc> {
                     unreachable!()
                 };
                 for &r in regs_used {
-                    used[r] = true;
+                    if let Some(u) = used.get_mut(r) {
+                        *u = true;
+                    }
                 }
                 stack = stack.max(*stack_end);
                 return XtensaLoc::Fixed(loc.clone());

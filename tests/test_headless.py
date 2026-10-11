@@ -282,10 +282,10 @@ check(ilp32.float_arg_regs == [] and ilp32.int_arg_regs == [f"a{n}" for n in ran
       "ilp32 passes everything in a0..a7")
 
 
-def layout(cc, params, ret=None):
+def layout(cc, params, ret=None, permitted=None):
     """Each parameter's (or the return value's) location as a list of
     'a0'-style register names and 'sp+N' stack offsets, with '*' for a
-    pointer to the value."""
+    pointer to the value. `permitted` names the registers a call site sets."""
     def describe(loc):
         out = []
         for c in loc.components:
@@ -295,7 +295,8 @@ def layout(cc, params, ret=None):
         return ("*" if getattr(loc, "indirect", False) else "") + ",".join(out)
     result = cc.get_call_layout(None, ret or bn.Type.void(),
                                 [t if isinstance(t, bn.FunctionParameter) else bn.FunctionParameter(t, f"p{i}")
-                                 for i, t in enumerate(params)])
+                                 for i, t in enumerate(params)],
+                                permitted_regs=permitted and [cc.arch.get_reg_index(r) for r in permitted])
     return describe(result.return_value) if ret else [describe(p) for p in result.parameters]
 
 
@@ -346,6 +347,14 @@ for cc_name, regs in (("windowed", [f"a{n}" for n in range(10, 16)]), ("call0", 
         check(got == expected, f"{cc_name} f({label}): {got}")
     got = layout(cc, [], U64)
     check(got == f"{r[0]},{r[1]}", f"{cc_name} returns uint64_t in {got}")
+    # A call site that sets only the registers it uses leaves the register
+    # an 8-byte argument skips unset.
+    got = layout(cc, [I32, U64], permitted=[r[0], r[2], r[3]])
+    check(got == [r[0], f"{r[2]},{r[3]}"], f"{cc_name} f(int, uint64_t) at a call site setting {r[0]}, "
+                                           f"{r[2]}, {r[3]}: {got}")
+    got = layout(cc, [bn.FunctionParameter(TRIPLE, "p", source=bn.ValueLocationSource.PassByReferenceLocationSource),
+                      I32])
+    check(got == [f"*{r[0]}", r[1]], f"{cc_name} f(12-byte struct passed by reference, int): {got}")
 
 
 # Parameters with a location the user gave them: the ones after them skip
