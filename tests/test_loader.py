@@ -38,6 +38,9 @@ def asset_entry(name, data=LIB):
     return {"name": name, "sha256": sha(data), "size": len(data)}
 
 
+SOURCE = "git+https://github.com/Vector35/binaryninja-api.git?rev={0}#{0}".format("f" * 40)
+
+
 def manifest_text(assets, version="0.2.0", build=True):
     return json.dumps({
         "schema": 1,
@@ -141,6 +144,20 @@ class TestManifest(unittest.TestCase):
         data["build"]["commit"] = "abc"
         with self.assertRaises(core.ManifestError):
             core.parse_manifest(json.dumps(data))
+
+    def test_build_api(self):
+        # Optional: manifests from before it was recorded have no api.
+        data = json.loads(manifest_text([asset_entry("binja_xtensa-abi189-linux-x86_64.so")]))
+        self.assertNotIn("api", core.parse_manifest(json.dumps(data)).build)
+        for api in core.API_CHANNELS:
+            data["build"].update(api=api, api_source=SOURCE)
+            m = core.parse_manifest(json.dumps(data))
+            self.assertEqual((m.build["api"], m.build["api_source"]), (api, SOURCE))
+            self.assertEqual(core.parse_manifest(core.manifest_json(m)).build, m.build)
+        for bad in [{"api": "nightly"}, {"api": 1}, {"api": "dev", "api_source": 1}]:
+            data["build"] = {"commit": "a" * 40, "run_id": 1234, **bad}
+            with self.assertRaises(core.ManifestError, msg=bad):
+                core.parse_manifest(json.dumps(data))
 
 
 class TestSelection(unittest.TestCase):
@@ -772,11 +789,12 @@ class TestReleaseTooling(TempDirTest):
                 f.write(data)
         out = subprocess.run(
             [sys.executable, os.path.join(ROOT, "scripts", "release_manifest.py"), "generate", dist,
-             "--version", "1.2.3", "--repository", "jrozner/binja-xtensa", "--commit", "b" * 40, "--run-id", "42"],
+             "--version", "1.2.3", "--repository", "jrozner/binja-xtensa", "--commit", "b" * 40, "--run-id", "42",
+             "--api", "dev", "--api-source", SOURCE],
             check=True, stdout=subprocess.PIPE).stdout
         m = core.parse_manifest(out)
         self.assertEqual(m.version, "1.2.3")
-        self.assertEqual(m.build, {"commit": "b" * 40, "run_id": 42})
+        self.assertEqual(m.build, {"commit": "b" * 40, "run_id": 42, "api": "dev", "api_source": SOURCE})
         self.assertEqual({a.name: a.sha256 for a in m.assets}, {
             "binja_xtensa-abi187-linux-x86_64.so": sha(b"linux"),
             "binja_xtensa-abi187-windows-x86_64.dll": sha(b"windows")})
@@ -804,13 +822,30 @@ class TestReleaseTooling(TempDirTest):
             f.write(b"extra")
         self.assertNotEqual(verify(), 0)
 
+    def test_generate_api(self):
+        dist = os.path.join(self.dir, "dist")
+        os.mkdir(dist)
+        with open(os.path.join(dist, "binja_xtensa-abi187-linux-x86_64.so"), "wb") as f:
+            f.write(b"linux")
+
+        def generate(*api):
+            return run_script("release_manifest.py", "generate", dist, "--version", "1.2.3",
+                              "--repository", "jrozner/binja-xtensa", "--commit", "b" * 40, "--run-id", "42", *api)
+
+        r = generate("--api", "stable")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(core.parse_manifest(r.stdout).build, {"commit": "b" * 40, "run_id": 42, "api": "stable"})
+        self.assertNotEqual(generate().returncode, 0)
+        self.assertNotEqual(generate("--api", "nightly").returncode, 0)
+
     def test_generate_rejects_unknown_files(self):
         dist = os.path.join(self.dir, "dist")
         os.mkdir(dist)
         open(os.path.join(dist, "libbinja_xtensa.so"), "wb").close()
         r = subprocess.run(
             [sys.executable, os.path.join(ROOT, "scripts", "release_manifest.py"), "generate", dist,
-             "--version", "1.2.3", "--repository", "jrozner/binja-xtensa", "--commit", "b" * 40, "--run-id", "42"],
+             "--version", "1.2.3", "--repository", "jrozner/binja-xtensa", "--commit", "b" * 40, "--run-id", "42",
+             "--api", "dev"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.assertNotEqual(r.returncode, 0)
 

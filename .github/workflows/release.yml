@@ -5,11 +5,16 @@
 #
 # 1. mode=build, dispatched on a branch (normally main). Builds the
 #    libraries of the dispatched commit for Linux, Windows and macOS
-#    (universal) against the stable binaryninja-api release named in
-#    scripts/use_stable_api.sh, uploads them as workflow artifacts, and
-#    generates the loader's manifest: version, build commit, this run's ID,
+#    (universal) against the binaryninja-api chosen by the api input,
+#    uploads them as workflow artifacts, and generates the loader's
+#    manifest: version, build commit, this run's ID, the API built against,
 #    and each library's name, core ABI, size and SHA-256. The manifest is
 #    shown in the run summary and uploaded as the `manifest` artifact.
+#
+#    api=dev (the default) builds against the dev revision Cargo.toml pins,
+#    for the Binary Ninja dev channel; api=stable builds against the stable
+#    release named in scripts/use_stable_api.sh. The core ABI is in each
+#    asset's name, so the publish run needs no api input.
 #
 # 2. The maintainer commits that manifest as binja_xtensa_loader/manifest.json
 #    on top of the build commit (with plugin.json's version bumped, if it
@@ -60,6 +65,14 @@ on:
         description: "build only: the version being released (default: plugin.json's version), e.g. 0.2.0 or 0.2.0-rc.1"
         required: false
         type: string
+      api:
+        description: "build only: the binaryninja-api to build against. dev: the revision Cargo.toml pins (Binary Ninja dev channel). stable: the release in scripts/use_stable_api.sh."
+        required: false
+        type: choice
+        default: dev
+        options:
+          - dev
+          - stable
       prerelease:
         description: "publish only: publish a pre-release (required for, and only allowed for, a tag like v0.2.0-rc.1); it is not marked latest"
         required: false
@@ -88,6 +101,10 @@ jobs:
             platform: macos-universal
             targets: aarch64-apple-darwin x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
+    # Every platform builds the same API, so whichever job sets it last is
+    # as good as any.
+    outputs:
+      api_source: ${{ steps.package.outputs.api_source }}
     steps:
       # The dispatched commit, pinned by SHA so every job builds the same one.
       - uses: actions/checkout@v7
@@ -114,9 +131,10 @@ jobs:
           fi
           ninja --version
 
-      # Release binaries target the stable Binary Ninja, not the dev API
-      # main is pinned to.
+      # api=dev builds Cargo.toml's pin as it is. The input reaches the
+      # shell only through the environment.
       - name: Use the stable API
+        if: inputs.api == 'stable'
         shell: bash
         run: scripts/use_stable_api.sh
 
@@ -127,8 +145,8 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-${{ github.job }}-${{ matrix.platform }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-${{ github.job }}-${{ matrix.platform }}-
+          key: ${{ runner.os }}-cargo-${{ github.job }}-${{ matrix.platform }}-${{ inputs.api }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-${{ github.job }}-${{ matrix.platform }}-${{ inputs.api }}-
 
       - name: Build
         shell: bash
@@ -138,16 +156,28 @@ jobs:
           done
 
       # The core ABI the plugin declares (CorePluginABIVersion) is
-      # BN_CURRENT_CORE_ABI_VERSION of the stable binaryninjacore.h.
+      # BN_CURRENT_CORE_ABI_VERSION of the binaryninjacore.h built against.
       - name: Package
+        id: package
         shell: bash
+        env:
+          API: ${{ inputs.api }}
         run: |
-          abi=$(cargo metadata --format-version 1 | python3 -c '
+          cargo metadata --format-version 1 | python3 -c '
           import json, os, sys
           meta = json.load(sys.stdin)
           sys_crate = next(p for p in meta["packages"] if p["name"] == "binaryninjacore-sys")
           header = os.path.join(os.path.dirname(sys_crate["manifest_path"]), "..", "..", "binaryninjacore.h")
-          print(next(l.split()[2] for l in open(header) if l.startswith("#define BN_CURRENT_CORE_ABI_VERSION ")))')
+          print(next(l.split()[2] for l in open(header) if l.startswith("#define BN_CURRENT_CORE_ABI_VERSION ")))
+          print(sys_crate["source"])' | tr -d '\r' > api.txt
+          { read -r abi; read -r source; } < api.txt
+          rm api.txt
+          if ! [[ "$abi" =~ ^[0-9]+$ ]] || [ -z "$source" ]; then
+            echo "::error::could not read the core ABI and binaryninja-api source (got '$abi', '$source')"
+            exit 1
+          fi
+          echo "api_source=$source" >> "$GITHUB_OUTPUT"
+          echo "${{ matrix.platform }}: core ABI $abi, binaryninja-api $API ($source)" >> "$GITHUB_STEP_SUMMARY"
           name="binja_xtensa-abi${abi}-${{ matrix.platform }}"
           mkdir -p dist
           case "$RUNNER_OS" in
@@ -191,15 +221,18 @@ jobs:
       - name: Generate the manifest
         env:
           VERSION_INPUT: ${{ inputs.version }}
+          API: ${{ inputs.api }}
+          API_SOURCE: ${{ needs.build.outputs.api_source }}
         run: |
           version=${VERSION_INPUT:-$(python3 -c 'import json; print(json.load(open("plugin.json"))["version"])')}
           scripts/release_manifest.py generate dist \
             --version "$version" --repository "$GITHUB_REPOSITORY" \
-            --commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" > manifest.json
+            --commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
+            --api "$API" --api-source "$API_SOURCE" > manifest.json
           {
             echo "## Loader manifest for v$version"
             echo
-            echo "Built from \`$GITHUB_SHA\`. To release:"
+            echo "Built from \`$GITHUB_SHA\` against the $API binaryninja-api (\`$API_SOURCE\`). To release:"
             echo
             echo "1. On top of \`$GITHUB_SHA\`, save this as \`binja_xtensa_loader/manifest.json\` (or download the \`manifest\` artifact) and set \`plugin.json\`'s version to \`$version\`; change nothing else."
             if [[ "$version" == *-* ]]; then

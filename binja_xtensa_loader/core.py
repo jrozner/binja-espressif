@@ -26,6 +26,12 @@ from typing import Callable, Iterable, List, Optional, Tuple
 
 MANIFEST_SCHEMA = 1
 
+# The binaryninja-api a release was built against (the manifest's optional
+# build.api, recorded by the release workflow; informational, as each
+# asset's name carries its core ABI): the dev revision Cargo.toml pins, or
+# the stable release in scripts/use_stable_api.sh.
+API_CHANNELS = ("dev", "stable")
+
 # Release asset platforms and their library extensions.
 PLATFORM_EXTENSIONS = {
     "linux-x86_64": ".so",
@@ -170,6 +176,11 @@ def parse_manifest(text) -> Manifest:
                  "manifest build.commit is not a full commit hash")
         _require(isinstance(build.get("run_id"), int) and not isinstance(build.get("run_id"), bool),
                  "manifest build.run_id is not an integer")
+        # Optional, and absent from manifests written before it was added.
+        _require(build.get("api") is None or build["api"] in API_CHANNELS,
+                 "manifest build.api {!r} is not one of {}".format(build.get("api"), ", ".join(API_CHANNELS)))
+        _require(build.get("api_source") is None or isinstance(build["api_source"], str),
+                 "manifest build.api_source is not a string")
     _require(not assets or build is not None, "manifest lists assets but no build")
     return Manifest(version=version, repository=repository, assets=assets, build=build)
 

@@ -3,9 +3,10 @@
 
 Used by .github/workflows/release.yml; see "Releasing" in the README.
 
-  generate DIST --version V --repository R --commit C --run-id N
+  generate DIST --version V --repository R --commit C --run-id N --api dev|stable [--api-source S]
       Prints the manifest for the libraries in DIST (the build run's
-      artifacts).
+      artifacts), recording the binaryninja-api they were built against
+      (and, optionally, its Cargo source, revision included).
   check-tag TAG [--prerelease]
       Checks that TAG is v<version>, with a pre-release version
       (0.2.0-rc.1) if and only if --prerelease is given; that plugin.json
@@ -44,7 +45,7 @@ def fail(message):
     sys.exit(1)
 
 
-def generate(dist, version, repository, commit, run_id):
+def generate(dist, version, repository, commit, run_id, api, api_source=None):
     if core.VERSION.match(version) is None:
         fail("version {!r} is not {}".format(version, core.VERSION_FORMAT))
     assets = []
@@ -56,8 +57,11 @@ def generate(dist, version, repository, commit, run_id):
             "name": name, "sha256": core.sha256_file(path), "size": os.path.getsize(path)}))
     if not assets:
         fail("no libraries in " + dist)
+    build = {"commit": commit, "run_id": int(run_id), "api": api}
+    if api_source:
+        build["api_source"] = api_source
     manifest = core.Manifest(version=version, repository=repository, assets=tuple(assets),
-                             build={"commit": commit, "run_id": int(run_id)})
+                             build=build)
     text = core.manifest_json(manifest)
     core.parse_manifest(text)  # the loader must accept what's generated
     sys.stdout.write(text)
@@ -138,6 +142,9 @@ def main():
     p.add_argument("--repository", required=True)
     p.add_argument("--commit", required=True)
     p.add_argument("--run-id", required=True, type=int)
+    p.add_argument("--api", required=True, choices=core.API_CHANNELS,
+                   help="the binaryninja-api built against: Cargo.toml's dev pin, or the stable release")
+    p.add_argument("--api-source", help="the Cargo source of binaryninjacore-sys built against")
     p = sub.add_parser("check-tag")
     p.add_argument("tag")
     p.add_argument("--prerelease", action="store_true", help="the release is published as a pre-release")
@@ -152,7 +159,8 @@ def main():
     args = parser.parse_args()
     try:
         if args.command == "generate":
-            generate(args.dist, args.version, args.repository, args.commit, args.run_id)
+            generate(args.dist, args.version, args.repository, args.commit, args.run_id, args.api,
+                     args.api_source)
         elif args.command == "check-tag":
             check_tag(args.tag, args.prerelease, args.root)
         elif args.command == "check-tree":
