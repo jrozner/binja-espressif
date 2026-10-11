@@ -270,14 +270,16 @@ It provides:
   view's ROM region holds, read its `espressif.rom` metadata with one
   call, `bv.query_metadata("espressif.rom")`:
   `{"status": "mapped", "chip": "esp32", "image": "esp32_rev0_rom.elf",
-  "revision": 0, "source": "cache", "release": "20260528", "sha256": ...}`.
+  "revision": 0, "source": "cache", "release": "20260528", "sha256": ...,
+  "dataAlias": true}`.
   `status` is `mapped`, or for a region of zeros `zeros` (no image found,
   or `espressif.rom.loadImages` off), `downloading` (a download is
   running) or `failed` (this session's last download failed or timed out;
   the log says why); the image's fields come only with `mapped`. `source`
   is `elfDirectory`, `esp-idf` or `cache`, and `release` the esp-rom-elfs
-  version of the latter two. It is saved in databases, so it names no
-  absolute path. A view without it has no ROM region (the ESP8266, or a
+  version of the latter two; `dataAlias` says whether the ROM's data bus
+  alias (`espressif.rom.data`) is mapped too. It is saved in databases,
+  so it names no absolute path. A view without it has no ROM region (the ESP8266, or a
   file that maps the ROM itself). `espressif.rom.image`, the ROM ELF
   file's name (`KeyError` with zeros), is kept too. A database keeps the
   ROM region it was saved with; to map the image into one saved with

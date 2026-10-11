@@ -1007,8 +1007,9 @@ def check_rom_status(bv, chip, label, image=None, status=None, **fields):
     meta = rom_status(bv)
     want = {"status": status or ("mapped" if image else "zeros"), "chip": chip, **fields}
     if image:
-        want.update(image=image, revision=int(re.search(r"_rev(\d+)_", image).group(1)))
-    keys = {"status", "chip"} | ({"image", "revision", "source", "release", "sha256"} if image else set())
+        want.update(image=image, revision=int(re.search(r"_rev(\d+)_", image).group(1)),
+                    dataAlias=any(r.name == ROM_DATA_REGION for r in bv.memory_map.regions))
+    keys = {"status", "chip"} | ({"image", "revision", "source", "release", "sha256", "dataAlias"} if image else set())
     ok = (isinstance(meta, dict) and all(meta.get(k) == v for k, v in want.items())
           and set(meta) <= keys and set(meta) >= keys - {"release"}
           and not any(isinstance(v, str) and os.sep in v for v in meta.values()))
@@ -1874,7 +1875,8 @@ def rom_image_checks(tarball):
     bv = bn.load(db)
     bv.update_analysis_and_wait()
     meta = rom_status(bv)
-    check(meta == {"status": "mapped", "chip": "esp32", "image": "esp32_rev0_rom.elf", "revision": 0},
+    check(meta == {"status": "mapped", "chip": "esp32", "image": "esp32_rev0_rom.elf", "revision": 0,
+                   "dataAlias": True},
           f"an older database's espressif.rom says what espressif.rom.image does ({meta})")
     bv.file.close()
     settings.set_string("espressif.rom.elfDirectory", elfs)

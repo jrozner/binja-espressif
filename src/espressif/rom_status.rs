@@ -10,7 +10,8 @@
 //!   "revision": 3,                         // its revision, major * 100 + minor
 //!   "source":   "elfDirectory" | "esp-idf" | "cache",
 //!   "release":  "20260528",                // the esp-rom-elfs version, except from elfDirectory
-//!   "sha256":   "…"                        // the ROM ELF file's SHA-256
+//!   "sha256":   "…",                       // the ROM ELF file's SHA-256
+//!   "dataAlias": true                      // the ROM's data alias is mapped (espressif.rom.data)
 //! }
 //! ```
 //!
@@ -19,8 +20,13 @@
 //!   An image downloaded or configured later is mapped when the view is
 //!   next analyzed (or, for a database, by the download command).
 //! * `downloading`: zeros, while a download of the ROM images runs.
-//! * `failed`: zeros, and this session's last download failed (the log
-//!   says why).
+//! * `failed`: zeros, and this session's last download failed or timed
+//!   out (the log says why).
+//!
+//! `dataAlias` says whether the image's read-only data is mapped where the
+//! data bus sees it, as the `espressif.rom.data` region (see
+//! [`rom_types::add_rom_data_region`]): not where the file maps that range
+//! itself.
 //!
 //! A view without the key has no ROM code region: its chip has no ROM
 //! types (the ESP8266), or the file maps the ROM itself. The older
@@ -121,6 +127,7 @@ impl Source {
 pub enum Value {
     Str(String),
     Num(u64),
+    Bool(bool),
 }
 
 /// The metadata of a view's ROM code region.
@@ -141,6 +148,7 @@ pub struct Image {
     pub source: Option<Source>,
     pub release: Option<String>,
     pub sha256: Option<String>,
+    pub data_alias: Option<bool>,
 }
 
 impl RomStatus {
@@ -157,6 +165,7 @@ impl RomStatus {
                 ("source", image.source.map(|s| Value::Str(s.name().into()))),
                 ("release", image.release.clone().map(Value::Str)),
                 ("sha256", image.sha256.clone().map(Value::Str)),
+                ("dataAlias", image.data_alias.map(Value::Bool)),
             ];
             out.extend(optional.into_iter().filter_map(|(k, v)| v.map(|v| (k, v))));
         }
@@ -171,6 +180,7 @@ fn same(stored: &HashMap<String, Ref<Metadata>>, fields: &[(&'static str, Value)
             stored.get(*k).is_some_and(|m| match v {
                 Value::Str(s) => String::try_from(m.as_ref()).is_ok_and(|m| m == *s),
                 Value::Num(n) => u64::try_from(m.as_ref()) == Ok(*n),
+                Value::Bool(b) => bool::try_from(m.as_ref()) == Ok(*b),
             })
         })
 }
@@ -203,11 +213,19 @@ pub fn record(view: &BinaryView, status: &RomStatus) {
             let v: Ref<Metadata> = match v {
                 Value::Str(s) => s.into(),
                 Value::Num(n) => n.into(),
+                Value::Bool(b) => b.into(),
             };
             (k, v)
         })
         .collect();
     view.store_metadata(METADATA, value, MetadataStoreFlags::PERSISTENT);
+}
+
+/// Is the ROM's data alias mapped?
+fn data_alias(view: &BinaryView) -> bool {
+    view.memory_map()
+        .get_region(rom_types::DATA_REGION)
+        .is_some()
 }
 
 /// Records that the view's ROM code region holds the image `found`.
@@ -226,6 +244,7 @@ pub fn record_mapped(view: &BinaryView, chip: Chip, found: &Found) {
         source: Some(source),
         release,
         sha256: Some(found.sha256.clone()),
+        data_alias: Some(data_alias(view)),
     };
     record(
         view,
@@ -272,6 +291,7 @@ pub fn backfill(view: &BinaryView, chip: Chip) {
         source: None,
         release: None,
         sha256: None,
+        data_alias: Some(data_alias(view)),
     };
     record(
         view,
@@ -352,13 +372,21 @@ mod tests {
                 source: Some(Source::EspIdf),
                 release: Some("20240305".into()),
                 sha256: Some("ab".into()),
+                data_alias: Some(true),
             }),
         };
         let keys: Vec<&str> = mapped.fields().iter().map(|(k, _)| *k).collect();
         assert_eq!(
             keys,
             [
-                "status", "chip", "image", "revision", "source", "release", "sha256"
+                "status",
+                "chip",
+                "image",
+                "revision",
+                "source",
+                "release",
+                "sha256",
+                "dataAlias"
             ]
         );
         assert!(mapped.fields().contains(&("revision", Value::Num(300))));
@@ -375,6 +403,7 @@ mod tests {
                 source: None,
                 release: None,
                 sha256: None,
+                data_alias: None,
             }),
             ..mapped
         };
