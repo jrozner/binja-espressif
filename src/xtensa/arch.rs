@@ -5,11 +5,11 @@ use std::collections::HashMap;
 use binaryninja::Endianness;
 use binaryninja::architecture::{
     Architecture, BranchKind, CoreArchitecture, CustomArchitectureHandle, FlagClassId, FlagGroupId,
-    FlagId, FlagWriteId, InstructionInfo, IntrinsicId, RegisterId, UnusedRegisterStack,
+    FlagId, FlagWriteId, InstructionInfo, IntrinsicId, LinearSweepAnalysisCapability, RegisterId,
+    UnusedRegisterStack,
 };
 use binaryninja::disassembly::InstructionTextToken;
 use binaryninja::low_level_il::LowLevelILMutableFunction;
-use binaryninjacore_sys::BNLinearSweepAnalysisCapability as LinearSweepAnalysisCapability;
 use xtensa_isa::{ControlFlow, Features, Instruction, Isa};
 
 use crate::xtensa::flags::{Flag, FlagClass, FlagGroup, FlagWrite};
