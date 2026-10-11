@@ -86,7 +86,6 @@ def check_tree(build_commit, tag):
     if unexpected:
         fail("the tag's tree differs from the build commit's in more than the release files: "
              + ", ".join(unexpected))
-    # Submodules are compared by the diff above (as gitlinks).
     before = json.loads(git("show", "{}:{}".format(build_commit, PLUGIN_JSON)))
     after = json.loads(git("show", "{}:{}".format(tag + "^{commit}", PLUGIN_JSON)))
     before.pop("version", None)

@@ -5,10 +5,11 @@
 //! `analysis.svd.autoLoadFile` setting of the view. This plugin registers a
 //! step right before it that, for ESP views and ELF files on a chip
 //! platform, points that setting at
-//! Espressif's SVD for the chip, bundled with the plugin. The files come
-//! from the `svd` git submodule (https://github.com/espressif/svd,
-//! Apache-2.0), are gzip-compressed by build.rs and embedded, and are written
-//! to a cache in the user directory on first use (see `cache`), because the
+//! Espressif's SVD for the chip, bundled with the plugin. The files are
+//! vendored in `svd/` (from https://github.com/espressif/svd and, for the
+//! ESP32-C5, https://github.com/espressif/esp-bist; Apache-2.0; see
+//! svd/README.md), are gzip-compressed by build.rs and embedded, and are
+//! written to a cache in the user directory on first use (see `cache`), because the
 //! loader takes a path.
 //!
 //! An SVD the user chose is left alone, and `espressif.svd.autoLoad` turns the
@@ -32,7 +33,7 @@ const SVD_FILE: &str = "analysis.svd.autoLoadFile";
 /// This plugin's switch.
 pub const AUTO_LOAD: &str = "espressif.svd.autoLoad";
 
-// Compressed from the `svd` submodule by build.rs.
+// Compressed from svd/ by build.rs.
 pub(super) static ESP32: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32.svd.gz"));
 pub(super) static ESP32S2: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32s2.svd.gz"));
 pub(super) static ESP32S3: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32s3.svd.gz"));
@@ -40,6 +41,7 @@ pub(super) static ESP32C2: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp
 pub(super) static ESP32C3: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32c3.svd.gz"));
 pub(super) static ESP32C6: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32c6.svd.gz"));
 pub(super) static ESP32H2: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32h2.svd.gz"));
+pub(super) static ESP32C5: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32c5.svd.gz"));
 
 pub fn register_settings() {
     let settings = Settings::global();

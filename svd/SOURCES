@@ -1,0 +1,14 @@
+# Where each file in this directory comes from; scripts/fetch_svds.sh
+# downloads them from https://raw.githubusercontent.com/<repo>/<commit>/<path>
+# and checks the SHA-256.
+#
+# file         repo                 commit                                    path                        sha256
+esp32.svd      espressif/svd        be20aa12560889d6125d144cdb48cf615ac17628  svd/esp32.svd               f80fb973c19896eb904c00efcead9242f0027deb0a297b7b427d6982172dfcac
+esp32s2.svd    espressif/svd        be20aa12560889d6125d144cdb48cf615ac17628  svd/esp32s2.svd             082b2ee12c2bf955ee330eb51a72b525962ea90d2174d0fa01d02d1cdd83a546
+esp32s3.svd    espressif/svd        be20aa12560889d6125d144cdb48cf615ac17628  svd/esp32s3.svd             d7629249eba2ad660a960530d124966e9274c8228341380dd4102f251e879e17
+esp32c2.svd    espressif/svd        be20aa12560889d6125d144cdb48cf615ac17628  svd/esp32c2.svd             966777659ac55db6ce5aff5b27198228ece570128fb3e5a8f4e0c56707f7c623
+esp32c3.svd    espressif/svd        be20aa12560889d6125d144cdb48cf615ac17628  svd/esp32c3.svd             9ef33dbff56d807996fd8edfa4aa4ad008b5a861c241d36280caa0dedbbca41a
+esp32c6.svd    espressif/svd        be20aa12560889d6125d144cdb48cf615ac17628  svd/esp32c6.svd             519b374c472483b170d6e5b479e48c07675c18af5bf2613c61eff888dc0fc8cd
+esp32h2.svd    espressif/svd        be20aa12560889d6125d144cdb48cf615ac17628  svd/esp32h2.svd             78b63a839a7968e178a61495a024857cb93f12c8b80c74fd70470c3e8671080a
+esp32c5.svd    espressif/esp-bist   539234dfae1c4ed8c568b660537c5a60b036b830  src/soc/esp32c5/esp32c5.svd 4d861ca315943cc57f3cc73195ca872fdf60d9612fe91299b73ec01ec07fef8a
+LICENSE        espressif/svd        be20aa12560889d6125d144cdb48cf615ac17628  LICENSE                     258d0cdc26654510786f1bf1313d95e4039d220cd8ac6cdbdd973f8cb6ce831b
