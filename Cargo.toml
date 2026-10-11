@@ -19,7 +19,7 @@ core = ["binaryninja/core", "binaryninjacore-sys/core"]
 [dependencies]
 binaryninja = { git = "https://github.com/Vector35/binaryninja-api.git", rev = "e144e59e578aa49fe3b332e970093ba44b3362b0", default-features = false }
 binaryninjacore-sys = { git = "https://github.com/Vector35/binaryninja-api.git", rev = "e144e59e578aa49fe3b332e970093ba44b3362b0", default-features = false }
-xtensa-isa = { package = "xtensa", git = "https://github.com/jrozner/xtensa.git", rev = "8a4d748d31e20ff669a1fa883a39c1e8473b21b8" }
+xtensa-isa = { package = "xtensa", git = "https://github.com/jrozner/xtensa.git", branch = "main" }
 tracing = "0.1"
 serde_json = "1"
 flate2 = "1"
