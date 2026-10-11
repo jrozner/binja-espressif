@@ -924,6 +924,41 @@ bv.update_analysis_and_wait()
 stub = bv.get_function_at(0x40080014)
 check(stub is not None and stub.calling_convention.name == "call0", "a ret.n at the very end of a segment is call0 too")
 
+print("call0 code on a windowed core:")
+# tests/data/call0.c built with -mabi=call0 for the ESP32: its functions get
+# the call0 convention before their parameters and results are inferred, and
+# callers see the results of call0 and callx0 calls.
+call0_elf = os.path.join(DATA, "esp32-call0.elf")
+call0_symbols = elf_symbols(call0_elf)
+for label, bv in [("ELF", bn.load(call0_elf)), ("image", load_bytes(elf_to_image(call0_elf, 0), ".bin"))]:
+    check(bv.platform is not None and bv.platform.name == "esp32", f"{label}: platform {bv.platform}")
+    for name, nparams in [("add3", 3), ("pair", 2), ("twice", 1)]:
+        f = bv.get_function_at(call0_symbols[name])
+        check(f is not None and f.calling_convention.name == "call0", f"{label}: {name} uses call0")
+        # Parameters outside the convention's registers would show as `@ a2`.
+        check(f is not None and len(f.parameter_vars) == nparams and "@" not in str(f.type),
+              f"{label}: {name} has {nparams} parameters in the call0 argument registers ({f.type if f else None})")
+        check(f is not None and [str(r) for r in f.return_regs] == ["a2"], f"{label}: {name} returns in a2")
+    add3 = bv.get_function_at(call0_symbols["add3"])
+    check(add3 is not None and "return arg2 * arg3 + arg1" in hlil_text(add3), f"{label}: add3 returns its result")
+    twice = bv.get_function_at(call0_symbols["twice"])
+    callee = "add3" if label == "ELF" else f"sub_{call0_symbols['add3']:x}"
+    check(twice is not None and f"return {callee}(arg1, arg1, 1) + 1" in hlil_text(twice),
+          f"{label}: twice uses the result of add3, called with l32r/callx0")
+    start = bv.get_function_at(call0_symbols["start"])
+    text = hlil_text(start) if start else ""
+    check(start is not None and len(start.parameter_vars) == 0, f"{label}: start has no parameters ({start.type if start else None})")
+    check(f"= {callee}(1, 2, 3)" in text, f"{label}: start uses the result of add3, called with l32r/callx0")
+    names = {"twice": "twice", "pair": "pair", "op": "op"} if label == "ELF" else {
+        n: f"{'sub' if n != 'op' else 'data'}_{call0_symbols[n]:x}" for n in ("twice", "pair", "op")}
+    # The result of twice is passed to pair and, kept in a12 across the call
+    # through the op pointer (a callx0 with an unknown target), added to its
+    # result.
+    t = next((line.split(" = ")[0].split()[-1] for line in text.splitlines() if f"= {names['twice']}(" in line), None)
+    check(t is not None and f"{names['pair']}({t}, 5)" in text, f"{label}: start passes the result of twice to pair")
+    check(t is not None and f"{names['op']}(4, 5, 6) + {t}" in text,
+          f"{label}: a callx0 through a pointer takes call0 arguments, returns in a2 and keeps a12")
+
 print("Patching:")
 
 

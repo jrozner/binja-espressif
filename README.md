@@ -39,10 +39,14 @@ It provides:
   user registers (`__rsr_ccount()`, `__wsr_intenable(x)`, `__xsr_vecbase(x)`).
 - **Calling conventions**: `windowed` (the `call8` ABI used for all ESP32
   family code; default there) and `call0` (the ESP8266 ABI, and hand-written
-  code on the others). Functions that do not begin with `entry` on the
-  windowed cores are automatically switched to `call0`, unless you have given
-  the function a type or calling convention yourself (for example a windowed
-  stub with no `entry`, typed `__convention("windowed")`). Both place
+  or `-mabi=call0` code on the others). Functions that do not begin with
+  `entry` on the windowed cores get `call0` before their parameters and
+  return value are inferred, unless you have given the function a type or
+  calling convention yourself (for example a windowed stub with no `entry`,
+  typed `__convention("windowed")`). There, `callx0` sites are typed as
+  `call0` calls (with the callee's type, or variadic for an unknown target),
+  since Binary Ninja otherwise calls through a register with the platform's
+  default convention; a call site type you set is kept. Both place
   arguments as GCC does: in the six argument registers, a value aligned to
   8 bytes (`double`, 64-bit integers) starting at an even one and
   structures included, and on the stack from the first argument that does
