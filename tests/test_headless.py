@@ -1814,6 +1814,16 @@ if sys.argv[2] == "together":
 else:
     for i, p in enumerate(paths):
         run(i, p, out)
+if os.environ.get("SESSION_COMMAND"):
+    # Then the command, on a new view of the first file.
+    bv = bn.load(paths[0])
+    start = time.time()
+    ctx = bn.PluginCommandContext(bv)
+    bn.PluginCommand.get_valid_list(ctx)["Espressif\\Download ROM Images"].execute(ctx)
+    while held(bv) is None and time.time() - start < 20:
+        time.sleep(0.1)
+    out.append({"command": held(bv), "seconds": time.time() - start})
+    bv.file.close()
 print("RESULTS " + json.dumps(out))
 '''
 
@@ -1855,8 +1865,8 @@ def headless_download_checks(archive, release):
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             requests.append(self.path)
-            body, delay = serve["body"], serve["delay"]
-            time.sleep(delay)  # the latency of a real download
+            body, delays = serve["body"], serve["delays"]
+            time.sleep(delays.pop(0) if delays else 0)  # the latency of a real download
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -1890,7 +1900,7 @@ def headless_download_checks(archive, release):
     # Over a second of latency, as from GitHub: an analysis update after the
     # load would come too late. An ESP image (the view's initialization
     # maps the ROM), then an ELF file (the ELF fix-ups do) from the cache.
-    serve.update(body=archive, delay=1.5)
+    serve.update(body=archive, delays=[1.5])
     downloaded("autoDownload", [c3_image, esp32], ["esp32c3_rev0_rom.elf", "esp32_rev0_rom.elf"])
     # Two loads at once: one download, which the other waits for.
     downloaded("autoDownload, two loads at once", [c3, esp32], ["esp32c3_rev0_rom.elf", "esp32_rev0_rom.elf"],
@@ -1899,17 +1909,26 @@ def headless_download_checks(archive, release):
     def zeros(name, env, warning, together=False):
         requests.clear()
         results, log = headless_session(name, url, [c3, esp32], together, env)
+        command = results[2:]
+        results = results[:2]
         check(len(results) == 2 and all(r["loaded"] is None and r["reopened"] is None for r in results)
-              and len(requests) == 1, f"{name}: zeros, and not downloaded again ({results}, {len(requests)} requests)")
+              and len(requests) == 1 + len(command),
+              f"{name}: zeros, and not downloaded again ({results}, {len(requests)} requests)")
         check(all(r["seconds"] < 20 for r in results), f"{name}: the loads end ({[r['seconds'] for r in results]})")
         warned = [line for line in log if warning in line]
         check(len(warned) == 1 and "holds zeros" in warned[0], f"{name}: warned once ({warned})")
+        return command
 
-    serve.update(body=archive[:-1] + bytes([archive[-1] ^ 1]), delay=0)
+    serve.update(body=archive[:-1] + bytes([archive[-1] ^ 1]), delays=[])
     zeros("a corrupted download", {}, "ROM image: the download failed")
-    serve.update(body=archive, delay=8)
-    # Two loads at once wait for it, and give up together.
-    zeros("a download that times out", {"BN_XTENSA_ROM_TEST_TIMEOUT": "2"}, "did not finish in 2 s", together=True)
+    # Two loads at once wait for it, and give up together. The request
+    # stays stuck, and the command then downloads anew instead of waiting
+    # for it.
+    serve.update(body=archive, delays=[15])
+    command = zeros("a download that times out", {"BN_XTENSA_ROM_TEST_TIMEOUT": "2", "SESSION_COMMAND": "1"},
+                    "did not finish in 2 s", together=True)
+    check(command and command[0]["command"] == "esp32c3_rev0_rom.elf" and command[0]["seconds"] < 10,
+          f"after a download that times out and stays stuck, the command downloads ({command})")
     server.shutdown()
 
 

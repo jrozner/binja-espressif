@@ -39,7 +39,7 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, TryLockError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use binaryninja::background_task::BackgroundTask;
@@ -96,9 +96,30 @@ static AUTO_DOWNLOAD_FAILED: AtomicBool = AtomicBool::new(false);
 const RETRY_AFTER: Duration = Duration::from_secs(5 * 60);
 /// Has this session said how to map an image into a database?
 static DATABASE_NOTED: AtomicBool = AtomicBool::new(false);
-/// Held while downloading; holds the number of ROM ELF files the last
-/// download unpacked, if it succeeded.
-static DOWNLOADING: Mutex<Option<usize>> = Mutex::new(None);
+/// The download that is running, and the last one's outcome (see
+/// [`Downloads`]); signalled when one ends.
+static DOWNLOADS: Mutex<Downloads> = Mutex::new(Downloads {
+    running: None,
+    last: None,
+});
+static DOWNLOAD_ENDED: Condvar = Condvar::new();
+
+/// The download that is running, as its cancel flag, and the number of ROM
+/// ELF files the last one unpacked, if it succeeded. A download that was
+/// cancelled no longer counts as running: the provider has no deadline, so
+/// it may never return, and it unpacks nothing if it does (see [`fetch`]).
+struct Downloads {
+    running: Option<Arc<AtomicBool>>,
+    last: Option<usize>,
+}
+
+impl Downloads {
+    fn busy(&self) -> bool {
+        self.running
+            .as_ref()
+            .is_some_and(|c| !c.load(Ordering::SeqCst))
+    }
+}
 /// The automatic download a headless load started, for other loads to wait
 /// for (see [`download_inline`]).
 static INLINE: Mutex<Option<Arc<Inline>>> = Mutex::new(None);
@@ -707,28 +728,34 @@ fn fetch(url: &str, task: &BackgroundTask, cancel: Arc<AtomicBool>) -> Result<Ve
 /// `report` is set.
 ///
 /// If another download is running, this waits for it, and does not
-/// download again if it succeeded: the caller then has its files.
+/// download again if it succeeded: the caller then has its files. One that
+/// was cancelled (a headless load gave up on it) is not waited for.
 pub fn download_release(report: bool) -> Result<usize, String> {
     download_release_cancellable(report, Arc::default())
 }
 
 /// [`download_release`], given up (as a failure) once `cancel` is set.
 fn download_release_cancellable(report: bool, cancel: Arc<AtomicBool>) -> Result<usize, String> {
-    let mut last = match DOWNLOADING.try_lock() {
-        Ok(guard) => guard,
-        Err(TryLockError::Poisoned(e)) => e.into_inner(),
-        Err(TryLockError::WouldBlock) => {
-            tracing::info!("waiting for the ROM image download that is running");
-            let guard = lock(&DOWNLOADING);
-            if let Some(n) = *guard {
-                return Ok(n);
-            }
-            guard
-        }
-    };
-    *last = None;
     let test_url = std::env::var(TEST_URL_ENV).ok();
     let url = download_url(&RELEASE, test_url.as_deref())?;
+    {
+        let mut downloads = lock(&DOWNLOADS);
+        if downloads.busy() {
+            tracing::info!("waiting for the ROM image download that is running");
+            // Woken when it ends, or checked again when it is cancelled.
+            while downloads.busy() {
+                downloads = DOWNLOAD_ENDED
+                    .wait_timeout(downloads, Duration::from_millis(500))
+                    .unwrap_or_else(|e| e.into_inner())
+                    .0;
+            }
+            if let Some(n) = downloads.last {
+                return Ok(n);
+            }
+        }
+        downloads.running = Some(cancel.clone());
+        downloads.last = None;
+    }
     let task = BackgroundTask::new("Espressif: downloading ROM images", true);
     tracing::info!(
         "downloading esp-rom-elfs {} ({}) from {url}",
@@ -736,10 +763,22 @@ fn download_release_cancellable(report: bool, cancel: Arc<AtomicBool>) -> Result
         mb(RELEASE.size)
     );
     let dest = cache_dir();
-    let result = fetch(&url, &task, cancel)
+    let result = fetch(&url, &task, cancel.clone())
         .and_then(|archive| rom_images::unpack(&archive, &RELEASE, &dest));
     task.finish();
-    *last = result.as_ref().ok().copied();
+    {
+        let mut downloads = lock(&DOWNLOADS);
+        // Unless it was cancelled, and another started since.
+        if downloads
+            .running
+            .as_ref()
+            .is_some_and(|c| Arc::ptr_eq(c, &cancel))
+        {
+            downloads.running = None;
+            downloads.last = result.as_ref().ok().copied();
+        }
+    }
+    DOWNLOAD_ENDED.notify_all();
     match &result {
         Ok(n) => {
             set_declined(None);
