@@ -109,8 +109,9 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --no-default-features --all-targets -- -D warnings
 
-  # The Python loader (binja_xtensa_loader/) and the release manifest
-  # tooling; standard library only, no Binary Ninja needed.
+  # The Python loader (binja_xtensa_loader/), the release manifest tooling
+  # and scripts/fetch_rom_elfs.py; standard library only, no Binary Ninja
+  # needed.
   loader:
     runs-on: ubuntu-latest
     steps:
@@ -118,6 +119,9 @@ jobs:
 
       - name: Test
         run: python3 tests/test_loader.py -v
+
+      - name: Test fetch_rom_elfs.py
+        run: python3 tests/test_fetch_rom_elfs.py -v
 
   # main and releases build against the binaryninja-api dev revision pinned
   # in Cargo.toml. This checks that the code still builds and passes against

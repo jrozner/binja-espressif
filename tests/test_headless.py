@@ -996,6 +996,28 @@ def rom_functions(bv):
     return [f for f in bv.functions if bv.memory_map.get_active_memory_region_at(f.start).startswith("espressif.rom")]
 
 
+def rom_status(bv):
+    """The view's espressif.rom metadata, or None."""
+    return bv.query_metadata("espressif.rom") if "espressif.rom" in bv.metadata else None
+
+
+def check_rom_status(bv, chip, label, image=None, status=None, **fields):
+    """espressif.rom says the ROM region holds `image` (else zeros, or
+    `status`), with `fields`, and no absolute path."""
+    meta = rom_status(bv)
+    want = {"status": status or ("mapped" if image else "zeros"), "chip": chip, **fields}
+    if image:
+        want.update(image=image, revision=int(re.search(r"_rev(\d+)_", image).group(1)))
+    keys = {"status", "chip"} | ({"image", "revision", "source", "release", "sha256"} if image else set())
+    ok = (isinstance(meta, dict) and all(meta.get(k) == v for k, v in want.items())
+          and set(meta) <= keys and set(meta) >= keys - {"release"}
+          and not any(isinstance(v, str) and os.sep in v for v in meta.values()))
+    if ok and image:
+        ok = re.fullmatch(r"[0-9a-f]{64}", meta["sha256"]) is not None
+    check(ok, f"{label}: espressif.rom is {want} ({meta})")
+    return meta
+
+
 def check_rom_types(bv, chip, syms, label, image=None):
     """The ROM calls in rom_calls (at its address in `syms`) and their
     callees. With `image`, the ROM ELF file the ROM region holds, else
@@ -1026,6 +1048,7 @@ def check_rom_types(bv, chip, syms, label, image=None):
     held = bv.query_metadata("espressif.rom.image") if "espressif.rom.image" in bv.metadata else None
     check(held == image, f"{label}: the ROM region holds {image or 'zeros'} ({held})")
     check_rom_data(bv, label, image)
+    check_rom_status(bv, chip, label, image)
     code = bv.read(syms["memset"], 4)
     check((code != bytes(4)) == bool(image), f"{label}: ROM memset's code is {'real' if image else 'zeros'} ({code.hex()})")
     if not image:
@@ -1266,7 +1289,7 @@ def logged(text):
 # zeros.
 hint = logged("ROM image is available, so the ROM's code region holds zeros")
 check(len(hint) == 1 and all(s in hint[0] for s in ("espressif.rom.elfDirectory", "espressif.rom.autoDownload",
-                                                     "user settings", "load options", "Espressif\\\\Download ROM Images"))
+                                                     "user settings", "load option", "Espressif\\\\Download ROM Images"))
       and "Plugins >" not in hint[0], f"headless, the hint is a warning, once, with headless remedies ({hint})")
 noted = logged("this database was saved without the")
 check(len(noted) == 1 and "PluginCommand" in noted[0], f"headless, a database with zeros says how to map the image ({noted})")
@@ -1622,6 +1645,11 @@ def pinned_release():
     return {k: re.search(rf'{k}: "([^"]+)"', body).group(1) for k in ("tag", "url", "sha256")}
 
 
+def sha256_of(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
 def wait_for(cond, seconds=60):
     end = time.time() + seconds
     while time.time() < end:
@@ -1784,14 +1812,70 @@ def rom_image_checks(tarball):
     other = os.path.join(user_dir, "rom-elfs-renamed")
     os.makedirs(other)
     shutil.copy(os.path.join(elfs, "esp32_rev300_rom.elf"), os.path.join(other, "esp32_rev0_rom.elf"))
+    # The database keeps the elfDirectory it was loaded with (the user's,
+    # then): this one's is changed, as a database's own setting.
     settings.set_string("espressif.rom.elfDirectory", other)
     bv = bn.load(db)
+    kept = settings.get_string("espressif.rom.elfDirectory", bv)
+    check(kept == elfs, f"a database keeps the elfDirectory it was loaded with ({kept!r})")
+    settings.set_string("espressif.rom.elfDirectory", other, bv, bn.SettingsScope.SettingsResourceScope)
     rom = len(rom_functions(bv))
     bn.PluginCommand.get_valid_list(bn.PluginCommandContext(bv))["Espressif\\Download ROM Images"].execute(
         bn.PluginCommandContext(bv))
     time.sleep(3)
     wait_for(lambda: bv.analysis_progress.state == bn.AnalysisState.IdleState)
     check(len(rom_functions(bv)) == rom, f"nor from another ROM image ({len(rom_functions(bv))} of {rom})")
+    bv.file.close()
+
+    # espressif.rom.elfDirectory per file: as a load option, which a
+    # database keeps, over the user's. The file under `other` is the v3.0
+    # ROM named as the v0 one: only its SHA-256 tells them apart.
+    v0 = sha256_of(os.path.join(elfs, "esp32_rev0_rom.elf"))
+    renamed = sha256_of(os.path.join(other, "esp32_rev0_rom.elf"))
+    per_file = {"espressif.rom.elfDirectory": elfs}
+    settings.set_string("espressif.rom.elfDirectory", "")
+    bv = bn.load(elf, options=per_file)
+    check_rom_status(bv, "esp32", "elfDirectory as a load option", "esp32_rev0_rom.elf",
+                     source="elfDirectory", sha256=v0)
+    check(bv.read(0x4000C44C, 4) != bytes(4), "elfDirectory as a load option: the ROM's code is there")
+    db = os.path.join(user_dir, "rom_elf_directory_option.bndb")
+    bv.create_database(db)
+    bv.file.close()
+    bv = bn.load(db)
+    kept = settings.get_string("espressif.rom.elfDirectory", bv)
+    check(kept == elfs, f"a database keeps its elfDirectory ({kept!r})")
+    bv.file.close()
+    settings.set_string("espressif.rom.elfDirectory", other)
+    bv = bn.load(elf)
+    check_rom_status(bv, "esp32", "elfDirectory set globally", "esp32_rev0_rom.elf", source="elfDirectory",
+                     sha256=renamed)
+    bv.file.close()
+    bv = bn.load(elf, options=per_file)
+    check_rom_status(bv, "esp32", "elfDirectory as a load option over the global one", "esp32_rev0_rom.elf",
+                     source="elfDirectory", sha256=v0)
+    bv.file.close()
+    settings.set_string("espressif.rom.elfDirectory", "")
+
+    # From ESP-IDF's tools install: the source and esp-rom-elfs version.
+    idf = os.path.join(user_dir, "idf-tools")
+    os.makedirs(os.path.join(idf, "tools", "esp-rom-elfs"))
+    os.symlink(elfs, os.path.join(idf, "tools", "esp-rom-elfs", "20240305"))
+    os.environ["IDF_TOOLS_PATH"] = idf
+    bv = bn.load(elf)
+    check_rom_status(bv, "esp32", "an ESP-IDF tools install", "esp32_rev0_rom.elf", source="esp-idf",
+                     release="20240305", sha256=v0)
+    # A database saved before espressif.rom existed gets it from
+    # espressif.rom.image.
+    bv.remove_metadata("espressif.rom")
+    db = os.path.join(user_dir, "rom_status_backfill.bndb")
+    bv.create_database(db)
+    bv.file.close()
+    del os.environ["IDF_TOOLS_PATH"]
+    bv = bn.load(db)
+    bv.update_analysis_and_wait()
+    meta = rom_status(bv)
+    check(meta == {"status": "mapped", "chip": "esp32", "image": "esp32_rev0_rom.elf", "revision": 0},
+          f"an older database's espressif.rom says what espressif.rom.image does ({meta})")
     bv.file.close()
     settings.set_string("espressif.rom.elfDirectory", elfs)
 
@@ -1849,6 +1933,7 @@ def rom_image_checks(tarball):
     serve = os.path.join(user_dir, "serve")
     os.makedirs(serve)
     requests = []
+    delay = []
 
     class Handler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
@@ -1856,6 +1941,7 @@ def rom_image_checks(tarball):
 
         def do_GET(self):
             requests.append(self.path)
+            time.sleep(sum(delay))
             super().do_GET()
 
         def log_message(self, *args):
@@ -1872,20 +1958,32 @@ def rom_image_checks(tarball):
     bv = bn.load(c3)
     time.sleep(1)
     check(held(bv) is None and not requests, f"no download without consent ({requests})")
+    check_rom_status(bv, "esp32c3", "no ROM image and no download")
     settings.set_bool("espressif.rom.autoDownload", True)
     bv.update_analysis_and_wait()
     wait_for(lambda: requests)
     time.sleep(2)
     check(len(requests) == 1 and not os.path.exists(cache),
           f"espressif.rom.autoDownload downloads; a corrupted archive is not unpacked ({requests})")
+    wait_for(lambda: (rom_status(bv) or {}).get("status") == "failed")
+    check_rom_status(bv, "esp32c3", "a failed download", status="failed")
+    bv.update_analysis_and_wait()
+    check_rom_status(bv, "esp32c3", "a failed download, reanalyzed", status="failed")
     with open(os.path.join(serve, name), "wb") as f:
         f.write(archive)
     commands = bn.PluginCommand.get_valid_list(bn.PluginCommandContext(bv))
     command = commands.get("Espressif\\Download ROM Images")
     check(command is not None, f"the download command is offered for an ESP32-C3 ELF ({sorted(commands)})")
     if command is not None:
+        # Slowly, to see the download's status.
+        delay.append(3)
         command.execute(bn.PluginCommandContext(bv))
+        check(wait_for(lambda: (rom_status(bv) or {}).get("status") == "downloading", 10),
+              f"espressif.rom says downloading while the command downloads ({rom_status(bv)})")
         wait_for(lambda: held(bv) is not None)
+        delay.clear()
+        check_rom_status(bv, "esp32c3", "after the download command", "esp32c3_rev0_rom.elf", source="cache",
+                         release=release["tag"])
         # As in the UI, which does not wait for analysis: the command
         # starts it, and the ROM's functions are created and analyzed.
         time.sleep(1)
@@ -1902,6 +2000,9 @@ def rom_image_checks(tarball):
     bv.file.close()
     bv = bn.load(os.path.join(DATA, "idf_esp32s3.elf"))
     check(held(bv) == "esp32s3_rev0_rom.elf" and len(requests) == 2, "the download cache serves the next file")
+    check_rom_status(bv, "esp32s3", "from the download cache", "esp32s3_rev0_rom.elf", source="cache",
+                     release=release["tag"],
+                     sha256=sha256_of(os.path.join(cache, release["tag"], "esp32s3_rev0_rom.elf")))
     bv.file.close()
     settings.set_bool("espressif.rom.autoDownload", False)
     server.shutdown()
@@ -1921,6 +2022,8 @@ bn.log_to_file(bn.LogLevel.WarningLog, os.path.join(os.environ["BN_USER_DIRECTOR
 bn.Platform["esp32"]  # loads the plugins, before any thread loads a file
 def held(bv):
     return bv.query_metadata("espressif.rom.image") if "espressif.rom.image" in bv.metadata else None
+def status(bv):
+    return bv.query_metadata("espressif.rom") if "espressif.rom" in bv.metadata else None
 def rom_functions(bv):
     return sum(1 for f in bv.functions
                if (bv.memory_map.get_active_memory_region_at(f.start) or "").startswith("espressif.rom"))
@@ -1928,12 +2031,12 @@ def run(i, path, out):
     start = time.time()
     bv = bn.load(path)
     r = {"file": os.path.basename(path), "seconds": time.time() - start, "loaded": held(bv),
-         "loaded_functions": rom_functions(bv)}
+         "loaded_functions": rom_functions(bv), "loaded_status": status(bv)}
     db = os.path.join(os.environ["BN_USER_DIRECTORY"], f"{i}.bndb")
     bv.create_database(db)
     bv.file.close()
     bv = bn.load(db)
-    r.update(reopened=held(bv), reopened_functions=rom_functions(bv))
+    r.update(reopened=held(bv), reopened_functions=rom_functions(bv), reopened_status=status(bv))
     bv.file.close()
     out[i] = r
 paths = sys.argv[3:]
@@ -2028,6 +2131,11 @@ def headless_download_checks(archive, release):
             check(r["reopened"] == image and r["reopened_functions"] == r["loaded_functions"],
                   f"{name}: {r['file']}'s database, saved at once, keeps it ({r['reopened']}, "
                   f"{r['reopened_functions']} ROM functions)")
+            for when in ("loaded", "reopened"):
+                st = r[f"{when}_status"] or {}
+                check(st.get("status") == "mapped" and st.get("image") == image and st.get("source") == "cache"
+                      and st.get("release") == release["tag"],
+                      f"{name}: {r['file']} {when}: espressif.rom says mapped from the cache ({st})")
         check(not [line for line in log if "ROM image" in line], f"{name}: no ROM image warnings ({log[:3]})")
 
     # Over a second of latency, as from GitHub: an analysis update after the
@@ -2048,6 +2156,8 @@ def headless_download_checks(archive, release):
               and len(requests) == 1 + len(command),
               f"{name}: zeros, and not downloaded again ({results}, {len(requests)} requests)")
         check(all(r["seconds"] < 20 for r in results), f"{name}: the loads end ({[r['seconds'] for r in results]})")
+        statuses = [(r[f"{when}_status"] or {}).get("status") for r in results for when in ("loaded", "reopened")]
+        check(statuses == ["failed"] * 4, f"{name}: espressif.rom says failed ({statuses})")
         warned = [line for line in log if warning in line]
         check(len(warned) == 1 and "holds zeros" in warned[0], f"{name}: warned once ({warned})")
         return command

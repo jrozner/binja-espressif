@@ -207,7 +207,11 @@ It provides:
   source, Copyright Espressif Systems, and includes third-party libraries
   listed in [ESP-IDF's copyrights page](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/COPYRIGHT.html#rom-source-code-copyrights).
   The plugin looks for `<chip>_rev<REV>_rom.elf`, in order, in:
-  1. the directory in the `espressif.rom.elfDirectory` setting;
+  1. the directory in the `espressif.rom.elfDirectory` setting: the
+     file's own, then yours. A file gets its own when it is opened: one
+     set with *Open with Options*, or headless as a load option
+     (`bn.load(path, options={"espressif.rom.elfDirectory": dir})`), else
+     a copy of yours; a database saves it, path included;
   2. ESP-IDF's tools install, `$IDF_TOOLS_PATH/tools/esp-rom-elfs/<version>/`
      and `~/.espressif/tools/esp-rom-elfs/<version>/` (newest version
      first);
@@ -259,21 +263,31 @@ It provides:
     again a few minutes later. Without the setting or an image, a warning
     says how to get one.
 
-  **Headless**, `espressif.rom.autoDownload` and
-  `espressif.rom.elfDirectory` must be in the user settings
+  **Headless**, `espressif.rom.autoDownload` must be in the user settings
   (`settings.json` in the user directory, or `binaryninja.Settings()`
-  before loading): they are global, and as load options they are ignored.
-  To check which image a view holds, read its metadata:
-  `bv.query_metadata("espressif.rom.image")` is the ROM ELF file's name
-  (`KeyError` when the region holds zeros). A database keeps the ROM
-  region it was saved with; to map the image into one saved with zeros,
-  run the command on it and save:
+  before loading): it is global, and as a load option it is ignored.
+  `espressif.rom.elfDirectory` can be either (see above). To check what a
+  view's ROM region holds, read its `espressif.rom` metadata with one
+  call, `bv.query_metadata("espressif.rom")`:
+  `{"status": "mapped", "chip": "esp32", "image": "esp32_rev0_rom.elf",
+  "revision": 0, "source": "cache", "release": "20260528", "sha256": ...}`.
+  `status` is `mapped`, or for a region of zeros `zeros` (no image found,
+  or `espressif.rom.loadImages` off), `downloading` (a download is
+  running) or `failed` (this session's last download failed or timed out;
+  the log says why); the image's fields come only with `mapped`. `source`
+  is `elfDirectory`, `esp-idf` or `cache`, and `release` the esp-rom-elfs
+  version of the latter two. It is saved in databases, so it names no
+  absolute path. A view without it has no ROM region (the ESP8266, or a
+  file that maps the ROM itself). `espressif.rom.image`, the ROM ELF
+  file's name (`KeyError` with zeros), is kept too. A database keeps the
+  ROM region it was saved with; to map the image into one saved with
+  zeros, run the command on it and save:
 
   ```python
   ctx = binaryninja.PluginCommandContext(bv)
   binaryninja.PluginCommand.get_valid_list(ctx)["Espressif\\Download ROM Images"].execute(ctx)
   # it runs on a thread of its own: wait until
-  # "espressif.rom.image" in bv.metadata, then
+  # bv.query_metadata("espressif.rom")["status"] == "mapped", then
   bv.update_analysis_and_wait()
   bv.file.save_auto_snapshot()
   ```
@@ -282,6 +296,14 @@ It provides:
   only the ROM ELF files of the chips the plugin supports are unpacked,
   under names made from the chip and revision, never from the archive's
   paths.
+
+  `scripts/fetch_rom_elfs.py` does the same without Binary Ninja (Python
+  standard library only; run it from a checkout, as it reads the pinned
+  release from `rom_images.rs`), to provision a machine ahead of time: it
+  unpacks into the download cache of the user directory
+  (`$BN_USER_DIRECTORY`, else the platform's default), or with `--dir DIR`
+  into a directory for `espressif.rom.elfDirectory`; `--archive FILE` uses
+  an archive downloaded already.
 
   With real code in the ROM, every function the ROM ELF file's symbol
   table names becomes a function and is analyzed (about 2,000 to 2,300
@@ -756,14 +778,18 @@ BN_XTENSA_ROM_TARBALL=$PWD/esp-rom-elfs-20260528.tar.gz tests/test_headless.py
 
 They check the ROM types again with a directory of ROM ELF files (and in
 databases), that the ROM's functions are created and analyzed (or only
-named, with `espressif.rom.createFunctions` off), the revision chosen, a
-view that maps an image found after it was loaded, and the download:
+named, with `espressif.rom.createFunctions` off), the revision chosen,
+`espressif.rom.elfDirectory` as a load option, the `espressif.rom`
+metadata, a view that maps an image found after it was loaded, and the
+download:
 served from a local HTTP server (through the `BN_XTENSA_ROM_TEST_URL`
 override, loopback only), not without consent, not when corrupted, and
 through the command.
 
 `tests/test_loader.py` needs only Python (it stands in for the
-`binaryninja` module where it needs one) and runs in CI.
+`binaryninja` module where it needs one) and runs in CI, as does
+`tests/test_fetch_rom_elfs.py`, which checks `scripts/fetch_rom_elfs.py`
+on small synthetic archives.
 `tests/test_loader_headless.py` installs the loader into a throwaway user
 directory with a manifest listing the locally built library as the release
 asset for the running core's ABI, serves it from a local HTTP server (the

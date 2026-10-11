@@ -57,7 +57,7 @@ use binaryninja::types::{Type, TypeClass, TypeLibrary};
 
 use crate::espressif::image::RegionKind;
 use crate::espressif::rom_images::{Found, RomElf};
-use crate::espressif::{Chip, cache, rom_download};
+use crate::espressif::{Chip, cache, rom_download, rom_status};
 
 static ESP32: &[u8] = include_bytes!("../../data/rom_types/esp32.bntl");
 static ESP32S2: &[u8] = include_bytes!("../../data/rom_types/esp32s2.bntl");
@@ -247,9 +247,14 @@ pub fn add_rom_region(view: &BinaryView, chip: Chip) -> (bool, Option<Found>) {
     if !added {
         return (mapped, None);
     }
-    if let Some(found) = &image {
-        record_image(view, chip, found);
-        add_rom_data_region(view, chip, &found.elf);
+    match &image {
+        Some(found) => {
+            // The data alias first: the image's status says whether it is
+            // mapped.
+            add_rom_data_region(view, chip, &found.elf);
+            record_image(view, chip, found);
+        }
+        None => rom_status::record_unmapped(view, chip),
     }
     (mapped, image)
 }
@@ -265,6 +270,7 @@ fn record_image(view: &BinaryView, chip: Chip, found: &Found) {
         name.as_str(),
         MetadataStoreFlags::PERSISTENT,
     );
+    rom_status::record_mapped(view, chip, found);
     tracing::info!(
         "mapped the {} ROM v{}.{} from {}",
         chip.display_name(),
@@ -272,6 +278,11 @@ fn record_image(view: &BinaryView, chip: Chip, found: &Found) {
         found.revision % 100,
         found.path.display()
     );
+}
+
+/// The name of the ROM image the view's ROM code regions hold, if any.
+pub fn held_image(view: &BinaryView) -> Option<String> {
+    view.get_metadata::<String>(IMAGE_METADATA)
 }
 
 /// Does the view have the chip's ROM code regions, filled with zeros for
@@ -309,8 +320,8 @@ pub fn map_rom_image(view: &BinaryView, chip: Chip, found: &Found) -> bool {
         }
     }
     if ok {
-        record_image(view, chip, found);
         add_rom_data_region(view, chip, &found.elf);
+        record_image(view, chip, found);
         use_image(view, chip, &found.elf);
     }
     ok

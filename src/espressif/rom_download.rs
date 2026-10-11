@@ -54,7 +54,7 @@ use binaryninja::settings::{QueryOptions, Settings};
 use binaryninja::workflow::{Activity, AnalysisContext, Workflow, activity};
 
 use crate::espressif::rom_images::{self, Found, LICENSE, NOTICE, RELEASE, Release, SOURCE};
-use crate::espressif::{Chip, cache, rom_types, view::EspViewType};
+use crate::espressif::{Chip, cache, rom_status, rom_types, view::EspViewType};
 
 /// A directory of ROM ELF files, searched first.
 pub const ELF_DIRECTORY: &str = "espressif.rom.elfDirectory";
@@ -123,6 +123,9 @@ impl Downloads {
 /// The automatic download a headless load started, for other loads to wait
 /// for (see [`download_inline`]).
 static INLINE: Mutex<Option<Arc<Inline>>> = Mutex::new(None);
+/// Did this session's last download fail, or time out? (See
+/// [`rom_status`].)
+static DOWNLOAD_FAILED: AtomicBool = AtomicBool::new(false);
 
 /// Where the automatic download stands: it is tried once per session, and
 /// again a while after it fails (the network may be back).
@@ -216,8 +219,8 @@ pub fn register_settings() {
             "title": "Espressif ROM ELF directory",
             "type": "string",
             "default": "",
-            "description": "A directory of Espressif's ROM ELF files (<chip>_rev<revision>_rom.elf, as in esp-rom-elfs), searched before ESP-IDF's tools install ($IDF_TOOLS_PATH or ~/.espressif/tools/esp-rom-elfs) and the plugin's download cache.",
-            "ignore": ["SettingsProjectScope", "SettingsResourceScope"]
+            "description": "A directory of Espressif's ROM ELF files (<chip>_rev<revision>_rom.elf, as in esp-rom-elfs), searched before ESP-IDF's tools install ($IDF_TOOLS_PATH or ~/.espressif/tools/esp-rom-elfs) and the plugin's download cache. Can be set per file with Open with Options (or as a load option headless), which a database saves.",
+            "ignore": ["SettingsProjectScope"]
         }"#,
     );
     settings.register_setting_json(
@@ -258,9 +261,25 @@ pub fn cache_dir() -> PathBuf {
     cache::dir("rom-elfs").join(RELEASE.tag)
 }
 
-fn search_dirs(view: &BinaryView) -> Vec<PathBuf> {
+/// The view's [`ELF_DIRECTORY`]s, to search in this order: its own (a load
+/// option, or the one its database was saved with), then the user's.
+///
+/// A view gets its own copy of each setting of the resource scope when it
+/// is loaded (the load option's value, else the user's at that time), which
+/// its database saves and which then hides the user's; the user's is
+/// searched too, so that setting it once a file is open, or after a
+/// database was saved, finds an image for it.
+pub fn elf_directories(view: &BinaryView) -> [String; 2] {
     let settings = Settings::global();
-    let user = settings.get_string_with_opts(ELF_DIRECTORY, &mut QueryOptions::new_with_view(view));
+    [
+        settings.get_string_with_opts(ELF_DIRECTORY, &mut QueryOptions::new_with_view(view)),
+        settings.get_string(ELF_DIRECTORY),
+    ]
+}
+
+fn search_dirs(view: &BinaryView) -> Vec<PathBuf> {
+    let user = elf_directories(view);
+    let user = user.each_ref().map(String::as_str);
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from);
@@ -268,6 +287,13 @@ fn search_dirs(view: &BinaryView) -> Vec<PathBuf> {
         .filter(|p| !p.is_empty())
         .map(PathBuf::from);
     rom_images::search_dirs(&user, idf, home, cache_dir(), rom_images::subdirectories)
+}
+
+/// Whether a download of the ROM images is running, and whether this
+/// session's last one failed.
+pub fn download_state() -> (bool, bool) {
+    let downloading = lock(&DOWNLOADS).busy();
+    (downloading, DOWNLOAD_FAILED.load(Ordering::SeqCst))
 }
 
 /// Records the minimum chip revision an ESP image requires, which picks
@@ -337,7 +363,15 @@ pub fn rom_image_for_load(view: &BinaryView, chip: Chip) -> Option<Found> {
         return Some(found);
     }
     let plan = plan_offer(binaryninja::is_ui_enabled(), auto_download(), false);
-    if plan != Offer::DownloadInline || !load_images(view) || !download_inline(chip) {
+    if plan != Offer::DownloadInline || !load_images(view) {
+        return None;
+    }
+    // Seen only where the view has a region of zeros already (reanalysis):
+    // a view being loaded gets its status once its region is added.
+    rom_status::record_status(view, chip, rom_status::Status::Downloading);
+    let downloaded = download_inline(chip);
+    rom_status::record_unmapped(view, chip);
+    if !downloaded {
         return None;
     }
     let found = rom_image(view, chip);
@@ -367,8 +401,10 @@ fn refresh(view: &BinaryView) {
         return;
     };
     if !rom_types::has_zero_filled_region(view, chip) {
+        rom_status::backfill(view, chip);
         return;
     }
+    rom_status::record_unmapped(view, chip);
     if !load_images(view) {
         return;
     }
@@ -497,9 +533,9 @@ pub fn prompt_text(chip: Chip, release: &Release, cache: &std::path::Path) -> St
 }
 
 /// How to get a ROM image, for a view that has none: in the UI, from the
-/// menu or the settings; headless, from the user settings (they are global:
-/// as load options they are ignored), then analyzing the file again, or
-/// from the command, run from a script.
+/// menu or the settings; headless, from the settings (`autoDownload` is
+/// global: as a load option it is ignored), then analyzing the file again,
+/// or from the command, run from a script.
 pub fn explain_text(chip: Chip, ui: bool, declined: bool) -> String {
     let chip = chip.display_name();
     if ui {
@@ -516,11 +552,12 @@ pub fn explain_text(chip: Chip, ui: bool, declined: bool) -> String {
     }
     format!(
         "no {chip} ROM image is available, so the ROM's code region holds zeros (headless, the plugin \
-         never asks to download it). Set '{ELF_DIRECTORY}' to a directory of Espressif's ROM ELF files, \
-         or '{AUTO_DOWNLOAD}' to true to download them from {SOURCE}, in the user settings \
-         (settings.json in the user directory, or binaryninja.Settings() before loading; not as load \
-         options, which these global settings ignore), and analyze the file again. A database keeps \
-         the ROM region it was saved with: to map the image into one, {}.",
+         never asks to download it). Set '{ELF_DIRECTORY}' to a directory of Espressif's ROM ELF files \
+         (in the user settings, or as a load option), or '{AUTO_DOWNLOAD}' to true to download them \
+         from {SOURCE}, in the user settings (settings.json in the user directory, or \
+         binaryninja.Settings() before loading; not as a load option, which this global setting \
+         ignores), and analyze the file again. A database keeps the ROM region it was saved with: to \
+         map the image into one, {}.",
         headless_database_remedy()
     )
 }
@@ -639,7 +676,9 @@ fn offer(view: &BinaryView, chip: Chip) {
         // `AutoDownload`); only its first failure is reported, the retries'
         // are only logged.
         let failed_before = plan == Offer::Download && AUTO_DOWNLOAD_FAILED.load(Ordering::SeqCst);
+        rom_status::record_status(&view, chip, rom_status::Status::Downloading);
         let downloaded = download_release(!failed_before).is_ok();
+        rom_status::record_unmapped(&view, chip);
         if plan == Offer::Download && !downloaded {
             failed();
         }
@@ -776,6 +815,7 @@ fn download_release_cancellable(report: bool, cancel: Arc<AtomicBool>) -> Result
         {
             downloads.running = None;
             downloads.last = result.as_ref().ok().copied();
+            DOWNLOAD_FAILED.store(result.is_err(), Ordering::SeqCst);
         }
     }
     DOWNLOAD_ENDED.notify_all();
@@ -821,6 +861,7 @@ fn download_release_cancellable(report: bool, cancel: Arc<AtomicBool>) -> Result
 /// Records that the automatic download failed (see [`AutoDownload`]).
 fn failed() {
     AUTO_DOWNLOAD_FAILED.store(true, Ordering::SeqCst);
+    DOWNLOAD_FAILED.store(true, Ordering::SeqCst);
     *lock(&AUTO_DOWNLOAD_STATE) = AutoDownload::Failed(Instant::now());
 }
 
@@ -923,6 +964,7 @@ fn map_into(view: &BinaryView, chip: Chip) {
         );
         tracing::warn!("{text}");
         message(text, MessageBoxIcon::WarningIcon);
+        rom_status::record_unmapped(view, chip);
         return;
     };
     let text = if rom_types::holds_image(view, chip, &found.elf) {
@@ -982,7 +1024,14 @@ impl Command for DownloadCommand {
         let view: Ref<BinaryView> = view.to_owned();
         std::thread::spawn(move || {
             if rom_image(&view, chip).is_none() {
-                if download_release(true).is_err() {
+                if rom_types::has_zero_filled_region(&view, chip) {
+                    rom_status::record_status(&view, chip, rom_status::Status::Downloading);
+                }
+                let downloaded = download_release(true);
+                if rom_types::has_zero_filled_region(&view, chip) {
+                    rom_status::record_unmapped(&view, chip);
+                }
+                if downloaded.is_err() {
                     return;
                 }
             } else {
@@ -1064,7 +1113,7 @@ mod tests {
             ELF_DIRECTORY,
             AUTO_DOWNLOAD,
             "user settings",
-            "load options",
+            "load option",
             COMMAND,
             "save",
         ] {

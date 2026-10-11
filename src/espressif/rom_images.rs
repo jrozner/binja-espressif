@@ -102,7 +102,8 @@ pub fn pick_revision(available: &[u16], wanted: Option<u16>) -> Option<u16> {
 
 /// The directories to look for ROM ELF files in, in order:
 ///
-/// 1. `user`, the `espressif.rom.elfDirectory` setting, if set;
+/// 1. `user`, the values of the `espressif.rom.elfDirectory` setting that
+///    are set (the file's own, then the user's);
 /// 2. ESP-IDF's tools install: `<IDF_TOOLS_PATH>/tools/esp-rom-elfs/<version>/`
 ///    and `~/.espressif/tools/esp-rom-elfs/<version>/`, newest version first
 ///    (the versions are dates);
@@ -110,16 +111,18 @@ pub fn pick_revision(available: &[u16], wanted: Option<u16>) -> Option<u16> {
 ///
 /// `versions` lists the subdirectories of a directory.
 pub fn search_dirs(
-    user: &str,
+    user: &[&str],
     idf_tools_path: Option<PathBuf>,
     home: Option<PathBuf>,
     cache: PathBuf,
     versions: impl Fn(&Path) -> Vec<PathBuf>,
 ) -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
-    let user = user.trim();
-    if !user.is_empty() {
-        dirs.push(PathBuf::from(user));
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for user in user.iter().map(|u| u.trim()).filter(|u| !u.is_empty()) {
+        let dir = PathBuf::from(user);
+        if !dirs.contains(&dir) {
+            dirs.push(dir);
+        }
     }
     let tools = [idf_tools_path, home.map(|h| h.join(".espressif"))];
     for root in tools.into_iter().flatten() {
@@ -170,6 +173,8 @@ pub struct Found {
     pub path: PathBuf,
     pub revision: u16,
     pub elf: RomElf,
+    /// The file's SHA-256, in lowercase hexadecimal.
+    pub sha256: String,
 }
 
 /// The ROM image of `chip` for a view that wants revision `wanted` (see
@@ -194,6 +199,7 @@ pub fn find(chip: Chip, wanted: Option<u16>, dirs: &[PathBuf]) -> Option<Found> 
                         path,
                         revision: rev,
                         elf,
+                        sha256: sha256_hex(&data),
                     });
                 }
                 Err(err) => {
@@ -707,7 +713,7 @@ mod tests {
             }
         };
         let dirs = search_dirs(
-            " /my/roms ",
+            &[" /my/roms ", "/global/roms", "/my/roms/"],
             Some("/idf".into()),
             Some("/home/me".into()),
             "/bn/espressif/rom-elfs/20260528".into(),
@@ -715,6 +721,7 @@ mod tests {
         );
         let expected: Vec<PathBuf> = [
             "/my/roms",
+            "/global/roms",
             "/idf/tools/esp-rom-elfs/20230320",
             "/home/me/.espressif/tools/esp-rom-elfs/20240305",
             "/home/me/.espressif/tools/esp-rom-elfs/20230320",
@@ -725,11 +732,11 @@ mod tests {
         .collect();
         assert_eq!(dirs, expected);
         // Nothing set and no ESP-IDF: only the cache.
-        let dirs = search_dirs("", None, None, "/cache".into(), |_| vec![]);
+        let dirs = search_dirs(&["", " "], None, None, "/cache".into(), |_| vec![]);
         assert_eq!(dirs, [PathBuf::from("/cache")]);
         // IDF_TOOLS_PATH set to ~/.espressif: each directory once.
         let dirs = search_dirs(
-            "",
+            &[],
             Some("/home/me/.espressif".into()),
             Some("/home/me".into()),
             "/cache".into(),
