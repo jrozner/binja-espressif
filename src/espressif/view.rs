@@ -16,8 +16,8 @@ use binaryninjacore_sys::{
     BNFreeSettings, BNGetBinaryViewDefaultLoadSettingsForData, BNSettingsSerializeSchema,
 };
 
-use crate::espressif::Chip;
 use crate::espressif::image::{self, Firmware, RegionKind, Segment};
+use crate::espressif::{Chip, rom_types};
 
 /// The load setting that selects the image of a flash dump to load: an app
 /// partition's label, [`BOOTLOADER`], or empty for the default.
@@ -396,19 +396,14 @@ impl EspView {
     ///
     /// Some functions only exist in the ROM of later chip revisions (the
     /// ESP32 v3.0 ROM's Secure Boot v2 API); those are named only when the
-    /// image requires such a revision, since on older chips the same
-    /// addresses hold other code or nothing.
+    /// image requires such a revision (see [`Chip::rom_symbols_for_revision`]).
+    ///
+    /// The functions and variables that have types in the chip's ROM type
+    /// library are then typed (see [`rom_types`]).
     fn define_rom_symbols(&self, view: &BinaryView) {
         let chip = self.chip();
-        let (base, revisions) = chip.rom_symbols();
         let min_rev = self.firmware.image.min_chip_rev;
-        let tables = std::iter::once(base).chain(
-            revisions
-                .iter()
-                .filter(|&&(rev, _)| min_rev >= rev)
-                .map(|&(_, table)| table),
-        );
-        for &(name, addr) in tables.flatten() {
+        for &(name, addr) in chip.rom_symbols_for_revision(min_rev) {
             let kind = if chip.is_rom_function(addr) {
                 SymbolType::ImportedFunction
             } else {
@@ -416,6 +411,7 @@ impl EspView {
             };
             view.define_auto_symbol(&SymbolBuilder::new(kind, name, addr as u64).create());
         }
+        rom_types::apply(view, chip, chip.rom_symbols_for_revision(min_rev).copied());
     }
 
     fn define_app_desc(&self, view: &BinaryView, platform: &Platform) {

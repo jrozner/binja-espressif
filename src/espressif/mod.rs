@@ -3,9 +3,11 @@
 //! firmware. Each chip's code is analyzed with the architecture of its CPU
 //! core, looked up by name.
 
+pub mod cache;
 pub mod elf;
 pub mod image;
 pub mod rom_symbols;
+pub mod rom_types;
 pub mod svd;
 pub mod view;
 
@@ -311,6 +313,46 @@ impl Chip {
             Chip::Esp32C6 => (r::ESP32C6, r::ESP32C6_REVISIONS),
             Chip::Esp32H2 => (r::ESP32H2, r::ESP32H2_REVISIONS),
             Chip::Esp32C5 => (r::ESP32C5, r::ESP32C5_REVISIONS),
+        }
+    }
+
+    /// The mask ROM symbols of an image that requires chip revision
+    /// `min_rev` (major * 100 + minor) or later: those of every revision,
+    /// then those of the revisions up to `min_rev`. Some functions only
+    /// exist in the ROM of later revisions (the ESP32 v3.0 ROM's Secure Boot
+    /// v2 API); on older chips the same addresses hold other code or
+    /// nothing.
+    pub fn rom_symbols_for_revision(
+        self,
+        min_rev: u16,
+    ) -> impl Iterator<Item = &'static (&'static str, u32)> {
+        let (base, revisions) = self.rom_symbols();
+        std::iter::once(base)
+            .chain(
+                revisions
+                    .iter()
+                    .filter(move |&&(rev, _)| min_rev >= rev)
+                    .map(|&(_, table)| table),
+            )
+            .flatten()
+    }
+
+    /// The chip whose platform is named `name`.
+    pub fn from_platform_name(name: &str) -> Option<Chip> {
+        Chip::ALL.into_iter().find(|c| c.platform_name() == name)
+    }
+
+    /// The address ranges of the mask ROM's code: those of
+    /// [`Chip::rom_code`], or else the memory map's ROM region.
+    pub fn rom_code_ranges(self) -> Vec<(u32, u32)> {
+        match self.rom_code() {
+            Some(code) => code.to_vec(),
+            None => self
+                .regions()
+                .iter()
+                .filter(|r| r.kind == RegionKind::Rom)
+                .map(|r| (r.start, r.end))
+                .collect(),
         }
     }
 
@@ -657,11 +699,14 @@ fn add_calling_convention(platform: &str, arch: &str, cc: &str) {
     }
 }
 
-/// Registers the chip platforms, the ESP firmware view, the SVD settings
+/// Registers the chip platforms, the mask ROM type libraries (and the
+/// recognizer for the ROM's functions), the ESP firmware view, the SVD settings
 /// and activity, the ELF fix-ups, and the recognizers for Xtensa and RISC-V
 /// ELF files. The architectures must already be registered.
 pub fn register() {
     register_platforms();
+    rom_types::register_libraries();
+    rom_types::register_recognizer();
     svd::register_settings();
     svd::register_activity();
     elf::register_activity();
@@ -733,6 +778,42 @@ mod tests {
         assert_eq!(xtensa_info_abi(b"USE_ABSOLUTE_LITERALS=0\n"), None);
         assert_eq!(xtensa_info_abi(b"ABI=x\n"), None);
         assert_eq!(xtensa_info_abi(b""), None);
+    }
+
+    #[test]
+    fn rom_code_ranges() {
+        // The Xtensa chips' ROM region; the RISC-V chips' ROM code, from
+        // their ROM ELF files, short of the ROM region.
+        assert_eq!(Chip::Esp32.rom_code_ranges(), [(0x4000_0000, 0x4007_0000)]);
+        assert_eq!(
+            Chip::Esp32S3.rom_code_ranges(),
+            [(0x4000_0000, 0x4006_0000)]
+        );
+        assert_eq!(
+            Chip::Esp32C3.rom_code_ranges(),
+            [(0x4000_0000, 0x4005_99cc)]
+        );
+        for chip in Chip::ALL {
+            let ranges = chip.rom_code_ranges();
+            assert!(!ranges.is_empty(), "{chip:?}");
+            for (start, end) in ranges {
+                assert!(start < end, "{chip:?}");
+                // Inside the ROM, and holding exactly its functions.
+                let region = image::region_of(chip, start).unwrap();
+                assert_eq!(region.kind, RegionKind::Rom, "{chip:?}");
+                assert!(region.contains(end - 1), "{chip:?}");
+                assert!(chip.is_rom_function(start) && chip.is_rom_function(end - 1));
+                assert!(!chip.is_rom_function(end), "{chip:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn chips_by_platform_name() {
+        for chip in Chip::ALL {
+            assert_eq!(Chip::from_platform_name(chip.platform_name()), Some(chip));
+        }
+        assert_eq!(Chip::from_platform_name("xtensa-esp32"), None);
     }
 
     #[test]

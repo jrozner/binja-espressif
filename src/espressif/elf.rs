@@ -11,7 +11,8 @@
 //! * **Mask ROM symbols.** The ROM functions an application calls are `ABS`
 //!   symbols, but the ROM is not in any segment and the ELF view drops them.
 //!   They are defined at their (unmapped) addresses, as in the ESP view,
-//!   together with the bundled ROM table for names the ELF does not carry.
+//!   together with the bundled ROM table for names the ELF does not carry,
+//!   and typed from the chip's ROM type library (see `rom_types`).
 //! * **The global pointer** of RISC-V code, from `__global_pointer$`.
 //!
 //! These run as an analysis step at the very start of module analysis,
@@ -20,7 +21,8 @@
 //! writable `.flash.rodata`. A database, however, is reopened without that
 //! step running again, while the ELF view recreates its sections as the file
 //! describes them, so the fix-ups also run on finalization. Every change
-//! checks what is already there, so running them twice changes nothing.
+//! checks what is already there, so running them twice changes nothing (the
+//! ROM types, which a database keeps, are left alone there).
 
 use binaryninja::binary_view::{
     BinaryView, BinaryViewBase, BinaryViewEventType, register_binary_view_event,
@@ -30,7 +32,7 @@ use binaryninja::symbol::{SymbolBuilder, SymbolType};
 use binaryninja::workflow::{Activity, AnalysisContext, Workflow, activity};
 
 use crate::espressif::image::{self, RegionKind};
-use crate::espressif::{Chip, Cpu};
+use crate::espressif::{Chip, Cpu, rom_types};
 use crate::riscv;
 
 /// The first step of module analysis, which the fix-ups run before.
@@ -42,7 +44,7 @@ fn chip_of(view: &BinaryView) -> Option<Chip> {
         return None;
     }
     let name = view.default_platform()?.name();
-    Chip::ALL.into_iter().find(|c| c.platform_name() == name)
+    Chip::from_platform_name(&name)
 }
 
 /// Registers the fix-up step at the start of module analysis, and the
@@ -181,11 +183,21 @@ fn define_rom_symbols(view: &BinaryView, chip: Chip, symbols: &[ElfSymbol]) {
         view.define_auto_symbol(&SymbolBuilder::new(kind, name, addr as u64).create());
         defined += 1;
     };
+    // The names to type, by preference: the ROM tables' names, then the
+    // other names the ELF gives ROM addresses (esp_rom API aliases).
+    let mut tabled = Vec::new();
+    let mut aliases = Vec::new();
     for s in symbols.iter().filter(|s| s.absolute && !s.name.is_empty()) {
         let named_in_table = every_revision.contains(&(s.name.as_str(), s.value));
         let in_rom_table = table.iter().any(|&(_, addr)| addr == s.value);
         if named_in_table || in_rom_table || is_rom(chip, s.value) {
             define(&s.name, s.value);
+            let list = if named_in_table {
+                &mut tabled
+            } else {
+                &mut aliases
+            };
+            list.push((s.name.as_str(), s.value));
         }
     }
     for &(name, addr) in table {
@@ -194,6 +206,12 @@ fn define_rom_symbols(view: &BinaryView, chip: Chip, symbols: &[ElfSymbol]) {
         }
     }
     tracing::info!("defined {defined} mask ROM symbols");
+    // Not the table names the ELF defines elsewhere.
+    let table = table.iter().copied().filter(|&(name, addr)| {
+        view.symbol_by_raw_name(name)
+            .is_some_and(|s| s.address() == addr as u64)
+    });
+    rom_types::apply(view, chip, tabled.into_iter().chain(table).chain(aliases));
 }
 
 fn is_rom(chip: Chip, addr: u32) -> bool {

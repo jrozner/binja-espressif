@@ -8,8 +8,8 @@
 //! Espressif's SVD for the chip, bundled with the plugin. The files come
 //! from the `svd` git submodule (https://github.com/espressif/svd,
 //! Apache-2.0), are gzip-compressed by build.rs and embedded, and are written
-//! to a cache in the user directory on first use, because the loader takes a
-//! path.
+//! to a cache in the user directory on first use (see `cache`), because the
+//! loader takes a path.
 //!
 //! An SVD the user chose is left alone, and `espressif.svd.autoLoad` turns the
 //! behaviour off. This has to happen in an analysis step rather than when the
@@ -24,7 +24,7 @@ use binaryninja::binary_view::{BinaryView, CustomBinaryViewType};
 use binaryninja::settings::{QueryOptions, Settings, SettingsScope};
 use binaryninja::workflow::{Activity, AnalysisContext, Workflow, activity};
 
-use crate::espressif::Chip;
+use crate::espressif::{Chip, cache};
 
 /// The SVD loader's analysis step and setting.
 const SVD_LOADER: &str = "analysis.svd.loader";
@@ -57,44 +57,24 @@ pub fn register_settings() {
 }
 
 fn cache_dir() -> PathBuf {
-    binaryninja::user_directory().join("espressif").join("svd")
-}
-
-/// FNV-1a, to version the cached files by content.
-fn fnv1a(data: &[u8]) -> u64 {
-    data.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| {
-        (h ^ b as u64).wrapping_mul(0x0100_0000_01b3)
-    })
+    cache::dir("svd")
 }
 
 /// Writes the chip's SVD file to the cache (once) and returns its path.
 fn extract(chip: Chip) -> Option<PathBuf> {
     let compressed = chip.bundled_svd()?;
-    let dir = cache_dir();
-    let path = dir.join(format!(
-        "{}-{:016x}.svd",
-        chip.platform_name(),
-        fnv1a(compressed)
-    ));
-    if path.is_file() {
-        return Some(path);
-    }
-    let result = (|| -> std::io::Result<()> {
+    let result = cache::extract("svd", chip.platform_name(), "svd", compressed, || {
         let mut svd = Vec::new();
         flate2::read::GzDecoder::new(compressed).read_to_end(&mut svd)?;
-        std::fs::create_dir_all(&dir)?;
-        // Write and rename, so a concurrent open never sees a partial file.
-        let partial = dir.join(format!(".{}.{}", chip.platform_name(), std::process::id()));
-        std::fs::write(&partial, &svd)?;
-        std::fs::rename(&partial, &path)
-    })();
+        Ok(svd)
+    });
     match result {
-        Ok(()) => Some(path),
+        Ok(path) => Some(path),
         Err(err) => {
             tracing::warn!(
                 "could not write the {} SVD file to {}: {err}",
                 chip.display_name(),
-                dir.display()
+                cache_dir().display()
             );
             None
         }
@@ -121,7 +101,7 @@ pub fn register_activity() {
             return;
         };
         let name = platform.name();
-        if let Some(chip) = Chip::ALL.into_iter().find(|c| c.platform_name() == name) {
+        if let Some(chip) = Chip::from_platform_name(&name) {
             configure(&view, chip);
         }
     });
