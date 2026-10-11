@@ -300,6 +300,28 @@ check(bv.view_type == "ESP" and bv.entry_point == 0x40080800 and md["label"] == 
       "reopened, its database keeps where it came from")
 bv.file.close()
 
+# Single images are not containers: the ESP view opens them as before, with
+# the core's load settings only.
+esp_flash = bn.Transform["EspFlash"]
+standalone = [
+    ("an app image", elf_to_image(esp32_elf, 0), esp32_entry, False),
+    ("a bootloader image", stub_image(0x40080400), 0x40080400, False),
+    ("the factory partition cut out of the dump", bytes(dump[0x10000 - 0x1000:0x110000 - 0x1000]), esp32_entry, False),
+    ("an ESP8266 app image", esp8266_image, None, False),
+    ("an ESP8266 image longer than 64 KiB (NONOS)", bytes(nonos), None, True),
+]
+for what, blob, entry, window in standalone:
+    bv = load_bytes(blob, ".bin")
+    raw = bn.BinaryView.new(blob)
+    load_settings = bn.BinaryViewType["ESP"].get_load_settings_for_data(bv.parent_view)
+    check(bv.view_type == "ESP" and not bv.file.is_container_entry and not esp_flash.can_decode(raw)
+          and (entry is None or bv.entry_point == entry) and ("flash" in bv.sections) == window
+          and "espressif.flash.entry" not in bv.metadata
+          and load_settings is not None and load_settings.contains("loader.platform")
+          and not load_settings.contains("loader.esp.partition"),
+          f"{what} opens on its own, as before")
+    bv.file.close()
+
 # A flash dump in a project.
 project = bn.Project.create_project(os.path.join(user_dir, "project"), "flash dumps")
 project_file = project.create_file_from_path(dump_path, None, "partitions.bin")
