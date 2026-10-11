@@ -494,9 +494,9 @@ for chip in ("esp32c3", "esp32c6"):
           f"{chip}: call_start_cpu0 sets mtvec and calls start")
 
 # User global pointer values saved in a database (here a user gp value and
-# one for tp) are what a reopened view uses. (They are restored after the
-# view sets gp, so adding gp next to other registers' values, which the view
-# does when it finds them, is covered by a unit test instead.)
+# one for tp) are what a reopened view uses. (A reopened view does not set
+# gp, so adding gp next to other registers' values, which the view does when
+# it finds them, is covered by a unit test instead.)
 elf = os.path.join(DATA, "esp32c3.elf")
 bv = load_bytes(elf_to_image(elf, RISCV_CHIPS["esp32c3"]), ".bin")
 bv.set_user_global_pointer_values([("tp", bn.variable.ConstantPointerRegisterValue(0x1000)),
@@ -508,6 +508,35 @@ bv = bn.load(db)
 values = {reg: v.value for reg, v in bv.user_global_pointer_values}
 check(values == {"tp": 0x1000, "gp": 0x1234}, f"saved user global pointer values are kept ({values})")
 bv.file.close()
+
+
+def check_gp_set_once(path, gp, label):
+    """gp is set when `path` is first loaded, but not again once the user
+    has changed or cleared it, when the database is reopened (the core does
+    not save an empty list of user global pointer values, nor tell it from
+    values never set)."""
+    for user_values, what in (([], "cleared"), ([("gp", bn.variable.ConstantPointerRegisterValue(0x1234))], "changed")):
+        bv = bn.load(path)
+        values = bv.user_global_pointer_values
+        check(len(values) == 1 and values[0][1].value == gp, f"{label}: gp {gp:#x} set on first load")
+        bv.set_user_global_pointer_values(user_values)
+        db = os.path.join(user_dir, f"gp_{what}_{os.path.basename(path)}.bndb")
+        bv.create_database(db)
+        bv.file.close()
+        for reopen in ("reopened", "reopened again"):
+            bv = bn.load(db)
+            bv.update_analysis_and_wait()
+            values = [(reg, v.value) for reg, v in bv.user_global_pointer_values]
+            check(values == [(r, v.value) for r, v in user_values],
+                  f"{label}: gp the user {what} stays {what} when {reopen} ({values})")
+            bv.file.save_auto_snapshot()
+            bv.file.close()
+
+
+image = os.path.join(user_dir, "gp_cleared.bin")
+with open(image, "wb") as f:
+    f.write(elf_to_image(elf, RISCV_CHIPS["esp32c3"]))
+check_gp_set_once(image, elf_symbols(elf)["__global_pointer$"], "esp32c3 image")
 
 print("RISC-V ELF files:")
 
@@ -629,6 +658,9 @@ for chip, case in IDF_ELFS.items():
     check_idf_elf(bv, chip, case, syms, f"idf_{chip}.bndb")
     check(len(bv.sections) == sections, f"idf_{chip}.bndb: no duplicate sections")
     bv.file.close()
+
+elf = os.path.join(DATA, "idf_esp32c3.elf")
+check_gp_set_once(elf, elf_symbols(elf)["__global_pointer$"], "idf_esp32c3.elf")
 
 
 def c5_psram_elf():

@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use binaryninja::architecture::{ArchitectureExt, CoreArchitecture, Register, RegisterId};
-use binaryninja::binary_view::BinaryView;
+use binaryninja::binary_view::{BinaryView, MetadataStoreFlags};
 use binaryninja::calling_convention::{
     CallingConvention, CoreCallingConvention, register_calling_convention,
 };
@@ -20,7 +20,6 @@ use binaryninjacore_sys::{
     BNFreeRegisterValueWithConfidenceAndRegisterList, BNGetUserGlobalPointerValues,
     BNRegisterValue, BNRegisterValueType, BNRegisterValueWithConfidence,
     BNRegisterValueWithConfidenceAndRegister, BNSetUserGlobalPointerValues,
-    BNUserGlobalPointerValuesSet,
 };
 
 /// The name of Binary Ninja's architecture for these cores.
@@ -264,17 +263,18 @@ pub fn global_pointer(addr: u32, code: &[u8]) -> Option<u32> {
     None
 }
 
+/// The view metadata key recording that [`set_global_pointer`] has run on a
+/// view (saved with the database too).
+const GLOBAL_POINTER_SET: &str = "espressif.global_pointer_set";
+
 /// The user global pointer values `existing` with `entry` added, or `None`
-/// if they are to be left alone: when `existing` already has a value for
-/// `entry`'s register, or when the user explicitly set them to an empty
-/// list (`is_set` with no values), which the core tells apart from values
-/// never set. Values for other registers are kept as they are.
+/// if they are to be left alone because `existing` already has a value for
+/// `entry`'s register. Values for other registers are kept as they are.
 fn with_global_pointer(
     existing: &[BNRegisterValueWithConfidenceAndRegister],
-    is_set: bool,
     entry: BNRegisterValueWithConfidenceAndRegister,
 ) -> Option<Vec<BNRegisterValueWithConfidenceAndRegister>> {
-    if (is_set && existing.is_empty()) || existing.iter().any(|v| v.reg == entry.reg) {
+    if existing.iter().any(|v| v.reg == entry.reg) {
         return None;
     }
     let mut values = existing.to_vec();
@@ -283,15 +283,26 @@ fn with_global_pointer(
 }
 
 /// Gives the analysis of `view` the value of `gp` the startup code sets,
-/// unless `gp` has one already (set by the user, or saved in a database) or
-/// the user cleared the values. User values for other registers are kept.
+/// when the file is first loaded and `gp` has no value yet; user values for
+/// other registers are kept.
 ///
 /// Binary Ninja infers `gp` itself from the function that sets it, but only
 /// once that function has been analyzed, after the functions that use `gp`;
 /// their accesses stay unresolved until they are reanalyzed. The core only
 /// lets the user's values be set, so it is set as one; the Rust API has no
 /// wrapper for it, nor for the view's handle, so the core is called directly.
+///
+/// It is set at most once, so that a value the user changes or clears
+/// afterwards stays as they left it. The core does not tell values the user
+/// cleared from values never set (setting an empty list unsets them), so
+/// that it ran is recorded in the view's metadata instead. A database is
+/// left alone altogether: its views are created, and this runs, before its
+/// metadata and global pointer values are restored, and those then replace
+/// any values set here, except an empty list, which is not restored.
 pub fn set_global_pointer(view: &BinaryView, value: u32) {
+    if view.file().is_database_backed() || view.query_metadata(GLOBAL_POINTER_SET).is_some() {
+        return;
+    }
     let Some(arch) = CoreArchitecture::by_name(ARCH_NAME) else {
         return;
     };
@@ -313,14 +324,12 @@ pub fn set_global_pointer(view: &BinaryView, value: u32) {
     // The core sets the whole list at once, so the existing values (owned by
     // us until freed) are copied into the new list.
     let values = unsafe {
-        let is_set = BNUserGlobalPointerValuesSet(view.handle);
         let mut count = 0;
         let existing = BNGetUserGlobalPointerValues(view.handle, &mut count);
         if existing.is_null() {
-            with_global_pointer(&[], is_set, entry)
+            with_global_pointer(&[], entry)
         } else {
-            let values =
-                with_global_pointer(std::slice::from_raw_parts(existing, count), is_set, entry);
+            let values = with_global_pointer(std::slice::from_raw_parts(existing, count), entry);
             BNFreeRegisterValueWithConfidenceAndRegisterList(existing);
             values
         }
@@ -328,6 +337,7 @@ pub fn set_global_pointer(view: &BinaryView, value: u32) {
     if let Some(values) = values {
         unsafe { BNSetUserGlobalPointerValues(view.handle, values.as_ptr(), values.len()) };
     }
+    view.store_metadata(GLOBAL_POINTER_SET, true, MetadataStoreFlags::PERSISTENT);
 }
 
 /// Is `code` an `addi sp, sp, -n` (32-bit) or `c.addi16sp sp, -n`?
@@ -914,24 +924,20 @@ mod tests {
         };
         let (gp, tp) = (3, 4);
         let new = pointer_value(gp, 0x3FC8_8400);
-        // No values set: gp is added.
+        // No values: gp is added. (Values the user cleared look the same to
+        // the core; set_global_pointer leaves them alone by not running
+        // twice on a view.)
         assert_eq!(
-            summary(&with_global_pointer(&[], false, new).unwrap()),
+            summary(&with_global_pointer(&[], new).unwrap()),
             [(gp, 0x3FC8_8400)]
         );
-        // Explicitly set to no values: left empty.
-        assert!(with_global_pointer(&[], true, new).is_none());
         // A value for another register: gp is added, the other value kept.
-        let values = with_global_pointer(&[pointer_value(tp, 0x1000)], true, new).unwrap();
+        let values = with_global_pointer(&[pointer_value(tp, 0x1000)], new).unwrap();
         assert_eq!(summary(&values), [(tp, 0x1000), (gp, 0x3FC8_8400)]);
         // A value for gp itself is never replaced.
         assert!(
-            with_global_pointer(
-                &[pointer_value(tp, 0x1000), pointer_value(gp, 0x1234)],
-                true,
-                new
-            )
-            .is_none()
+            with_global_pointer(&[pointer_value(tp, 0x1000), pointer_value(gp, 0x1234)], new)
+                .is_none()
         );
     }
 
