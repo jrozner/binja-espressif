@@ -163,7 +163,13 @@ pub fn add_rom_region(view: &BinaryView, chip: Chip) -> bool {
         }
         let range = start as u64..end as u64;
         let overlaps = |r: std::ops::Range<u64>| r.start < range.end && range.start < r.end;
-        if view.segments().iter().any(|s| overlaps(s.address_range())) {
+        // A memory region can supply bytes without a segment, so both are
+        // checked; the plugin's own ROM regions are not in the way.
+        let in_map = map
+            .regions()
+            .into_iter()
+            .any(|r| r.enabled && !is_rom_region_name(&r.name) && overlaps(r.start..r.end()));
+        if in_map || view.segments().iter().any(|s| overlaps(s.address_range())) {
             // Something else maps (some of) the ROM: a ROM dump, say. Zeros
             // must not hide it.
             tracing::info!(
