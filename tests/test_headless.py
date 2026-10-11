@@ -1624,6 +1624,21 @@ def rom_image_checks(tarball):
     check_rom_image_functions(bv, "a database saved with createFunctions off, after the command",
                               "esp32_rev0_rom.elf", 0x4000C44C)
     bv.file.close()
+    # But not from another image than the one it holds: here the v3.0 ROM
+    # under the v0 ROM's file name.
+    other = os.path.join(user_dir, "rom-elfs-renamed")
+    os.makedirs(other)
+    shutil.copy(os.path.join(elfs, "esp32_rev300_rom.elf"), os.path.join(other, "esp32_rev0_rom.elf"))
+    settings.set_string("espressif.rom.elfDirectory", other)
+    bv = bn.load(db)
+    rom = len(rom_functions(bv))
+    bn.PluginCommand.get_valid_list(bn.PluginCommandContext(bv))["Espressif\\Download ROM Images"].execute(
+        bn.PluginCommandContext(bv))
+    time.sleep(3)
+    wait_for(lambda: bv.analysis_progress.state == bn.AnalysisState.IdleState)
+    check(len(rom_functions(bv)) == rom, f"nor from another ROM image ({len(rom_functions(bv))} of {rom})")
+    bv.file.close()
+    settings.set_string("espressif.rom.elfDirectory", elfs)
 
     # The image's revision: the minimum an image requires, the lowest for an
     # ELF file, or the setting's.

@@ -635,19 +635,19 @@ fn map_into(view: &BinaryView, chip: Chip) {
         message(text, MessageBoxIcon::WarningIcon);
         return;
     };
-    let held = rom_types::held_image(view);
-    let same = held.as_deref() == found.path.file_name().and_then(|n| n.to_str());
-    let text = if same && create_functions(view) {
-        // A view (a database, say) that holds this image but not all its
-        // functions: one saved by a version that only named them, or with
-        // `CREATE_FUNCTIONS` off then.
+    let text = if rom_types::holds_image(view, chip, &found.elf) && create_functions(view) {
+        // A view (a database, say) that holds this image's bytes but not
+        // all its functions: one saved by a version that only named them,
+        // or with `CREATE_FUNCTIONS` off then. Only the bytes say it is
+        // this image: another file of the same name may differ.
         let created = rom_types::create_image_functions(view, &found.elf);
         if created > 0 {
             view.update_analysis();
         }
         format!(
-            "This view has the {} ROM image; created {created} more of its functions.",
-            chip.display_name()
+            "This view has the {} ROM image of {}; created {created} more of its functions.",
+            chip.display_name(),
+            found.path.display()
         )
     } else if !rom_types::has_zero_filled_region(view, chip) {
         format!(

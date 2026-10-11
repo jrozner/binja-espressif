@@ -388,10 +388,15 @@ pub fn create_image_functions(view: &BinaryView, elf: &RomElf) -> usize {
         .count()
 }
 
-/// The name of the ROM ELF file whose image the view's ROM code regions
-/// hold, if they hold one.
-pub fn held_image(view: &BinaryView) -> Option<String> {
-    view.get_metadata::<String>(IMAGE_METADATA)
+/// Do the view's ROM code regions hold the ROM image `elf`, byte for byte?
+pub fn holds_image(view: &BinaryView, chip: Chip, elf: &RomElf) -> bool {
+    if view.query_metadata(IMAGE_METADATA).is_none() {
+        return false;
+    }
+    chip.rom_code_ranges().into_iter().all(|(start, end)| {
+        let len = (end - start) as usize;
+        view.read_vec(start as u64, len) == elf.contents(start, len)
+    })
 }
 
 /// The name of the typed ROM function at the start of `func`: a ROM symbol
