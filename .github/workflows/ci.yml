@@ -8,22 +8,29 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# Without the `core` feature, binaryninjacore-sys builds a stub core library
+# with CMake and Ninja (both on the runner image) in place of a Binary Ninja
+# install.
 jobs:
   build-and-test:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        run: rustup update stable --no-self-update && rustup default stable
 
-      # Without the `core` feature, binaryninjacore-sys builds a stub core
-      # library with CMake and Ninja in place of a Binary Ninja install.
-      - name: Install build tools
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
-
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-${{ github.job }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-${{ github.job }}-
 
       - name: Build
         run: cargo build --no-default-features --all-targets
@@ -34,20 +41,26 @@ jobs:
         run: cargo test --no-default-features --lib
 
   lint:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        run: |
+          rustup update stable --no-self-update && rustup default stable
+          rustup component add clippy rustfmt
+
+      - uses: actions/cache@v6
         with:
-          components: clippy, rustfmt
-
-      - name: Install build tools
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
-
-      - uses: Swatinem/rust-cache@v2
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-${{ github.job }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-${{ github.job }}-
 
       - name: Rustfmt
         run: cargo fmt --check
