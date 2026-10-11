@@ -73,8 +73,10 @@ It provides:
   - flash dumps, starting at flash offset 0 or 0x1000 (as `esptool merge_bin`
     and most firmware distributions produce for the ESP32/ESP32-S2), through
     the `EspFlash` container transform (see **Flash dumps** below). ESP8266
-    NONOS dumps (no partition table) are mapped as a whole through the
-    0x40200000 flash cache window so `irom0` code is present.
+    NONOS dumps (no partition table: a v1 image at 0 that maps no flash
+    itself, with data written past it from 0x10000) are mapped as a whole
+    through the 0x40200000 flash cache window so `irom0` code is present.
+    An ESP8266 app on its own, however long, is not.
 
   The view maps every segment into the chip's memory map with appropriate
   permissions and section semantics, adds unbacked segments for `.bss`,
@@ -124,7 +126,10 @@ It provides:
   opens them in a `Mapped` view with its default architecture). The
   view of a file records where it came from (its virtual path, partition
   label, type, subtype, flash offset and size) in its
-  `espressif.flash.entry` metadata, which a database keeps.
+  `espressif.flash.entry` metadata, which a database keeps. A single
+  partition, as `esptool.py read_flash` or `parttool.py read_partition`
+  reads it, or an image from a build, has no partition table: it is not a
+  container, and opens directly with the `ESP` view.
 
   With the container off (`files.container.mode` set to `Disabled`, or
   `files.container.excludedTransforms` containing `EspFlash`), the `ESP`

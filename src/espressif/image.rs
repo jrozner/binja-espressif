@@ -783,6 +783,31 @@ fn load_bootloader(data: &[u8], base: usize) -> Option<Firmware> {
         })
 }
 
+/// Is `data`, which starts with the ESP8266 `image`, a NONOS SDK flash dump,
+/// whose `irom0` code (flashed separately, at 0x10000 or 0x40000) is only
+/// reached through the flash cache window? Its image is a plain v1 image
+/// that maps no flash itself, and something is written past it, at 0x10000
+/// or later. An app on its own (an RTOS SDK app partition read out of
+/// flash, however long, padded with erased flash) is not.
+fn is_nonos_dump(data: &[u8], image: &Image) -> bool {
+    let maps_flash = image
+        .segments
+        .iter()
+        .any(|s| region_of(Chip::Esp8266, s.addr).is_some_and(|r| r.kind == K::Irom));
+    let end = image
+        .segments
+        .iter()
+        .map(|s| s.offset + s.size as usize)
+        .max()
+        .unwrap_or(0);
+    image.chip == Chip::Esp8266
+        && image.chip_id.is_none()
+        && !maps_flash
+        && data
+            .get(end.max(0x10000)..)
+            .is_some_and(|rest| rest.iter().any(|&b| b != 0xFF))
+}
+
 /// Finds the image to load in a file: the selected image of a flash dump,
 /// or by default either an image at offset 0, or the factory/OTA app of a
 /// flash dump.
@@ -820,7 +845,7 @@ pub fn find_firmware(data: &[u8], selection: Selection) -> Option<Firmware> {
         });
     }
     if let Some(image) = parse_image(data, 0) {
-        let map_flash_window = image.chip == Chip::Esp8266 && data.len() > 0x10000;
+        let map_flash_window = is_nonos_dump(data, &image);
         return Some(Firmware {
             image,
             map_flash_window,
@@ -1319,6 +1344,51 @@ mod tests {
         let f = find_firmware(&d, Selection::Bootloader).unwrap();
         assert_eq!((f.image.start, f.image.entry), (0, 0x4037_5008));
         assert_eq!(f.partition, None);
+    }
+
+    #[test]
+    fn esp8266_flash_window() {
+        let app = image(
+            0xE9,
+            None,
+            0x4010_0004,
+            &[
+                (0x4010_0000, &[0x12, 0xc1, 0xf0, 0]),
+                (0x3FFE_8000, &[0; 16]),
+            ],
+        );
+        let window = |d: &[u8]| {
+            find_firmware(d, Selection::Default)
+                .unwrap()
+                .map_flash_window
+        };
+        // NONOS: irom0text.bin flashed at 0x10000 (or 0x40000).
+        let mut nonos = app.clone();
+        nonos.resize(0x20000, 0xFF);
+        nonos[0x10000..0x10004].copy_from_slice(&[0x12, 0xc1, 0xf0, 0]);
+        assert!(window(&nonos));
+        let mut at_40000 = app.clone();
+        at_40000.resize(0x50000, 0xFF);
+        at_40000[0x40000] = 0;
+        assert!(window(&at_40000));
+        // An app read out of its partition, padded with erased flash.
+        let mut padded = app.clone();
+        padded.resize(0x30000, 0xFF);
+        assert!(!window(&padded));
+        assert!(!window(&app));
+        // An image that maps its flash itself (RTOS SDK v3).
+        let irom = image(
+            0xE9,
+            None,
+            0x4010_0004,
+            &[
+                (0x4010_0000, &[0x12, 0xc1, 0xf0, 0]),
+                (0x4021_0010, &[0; 16]),
+            ],
+        );
+        let mut rtos = irom.clone();
+        rtos.resize(0x20000, 0);
+        assert!(!window(&rtos));
     }
 
     fn table_entry(kind: u8, subtype: u8, offset: u32, size: u32, label: &[u8]) -> Vec<u8> {

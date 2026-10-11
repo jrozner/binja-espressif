@@ -196,8 +196,10 @@ bv.file.close()
 bv = bn.load(db)
 check(bv.view_type == "ESP" and "flash" not in bv.sections, "nor once its database is reopened")
 bv.file.close()
+# NONOS: the app at 0, its irom0text.bin flashed at 0x10000.
 nonos = bytearray(b"\xff" * 0x20000)
 nonos[:len(esp8266_image)] = esp8266_image
+nonos[0x10000:0x10004] = bytes.fromhex("12c1f000")
 bv = load_bytes(bytes(nonos), ".bin")
 check("flash" in bv.sections, "without one (NONOS), the flash cache window is mapped")
 
@@ -300,15 +302,19 @@ check(bv.view_type == "ESP" and bv.entry_point == 0x40080800 and md["label"] == 
       "reopened, its database keeps where it came from")
 bv.file.close()
 
-# Single images are not containers: the ESP view opens them as before, with
-# the core's load settings only.
+# Single images (a partition read with `esptool.py read_flash` or
+# `parttool.py read_partition`, or an image from a build) are not
+# containers: the ESP view opens them on their own, with the core's load
+# settings, whatever files.espressif.partition says.
 esp_flash = bn.Transform["EspFlash"]
+factory_part = bytes(dump[0x10000 - 0x1000:0x110000 - 0x1000])
 standalone = [
     ("an app image", elf_to_image(esp32_elf, 0), esp32_entry, False),
     ("a bootloader image", stub_image(0x40080400), 0x40080400, False),
-    ("the factory partition cut out of the dump", bytes(dump[0x10000 - 0x1000:0x110000 - 0x1000]), esp32_entry, False),
+    ("the factory partition cut out of the dump", factory_part, esp32_entry, False),
     ("an ESP8266 app image", esp8266_image, None, False),
-    ("an ESP8266 image longer than 64 KiB (NONOS)", bytes(nonos), None, True),
+    ("an ESP8266 app partition longer than 64 KiB", esp8266_image.ljust(0x30000, b"\xff"), None, False),
+    ("a NONOS flash dump", bytes(nonos), None, True),
 ]
 for what, blob, entry, window in standalone:
     bv = load_bytes(blob, ".bin")
@@ -317,10 +323,25 @@ for what, blob, entry, window in standalone:
     check(bv.view_type == "ESP" and not bv.file.is_container_entry and not esp_flash.can_decode(raw)
           and (entry is None or bv.entry_point == entry) and ("flash" in bv.sections) == window
           and "espressif.flash.entry" not in bv.metadata
-          and load_settings is not None and load_settings.contains("loader.platform")
-          and not load_settings.contains("loader.esp.partition"),
-          f"{what} opens on its own, as before")
+          and load_settings is not None and load_settings.contains("loader.platform"),
+          f"{what} opens on its own" + (", with the flash cache window" if window else ""))
     bv.file.close()
+part_path = os.path.join(user_dir, "factory_partition.bin")
+with open(part_path, "wb") as f:
+    f.write(factory_part)
+bv = bn.load(part_path, options={"files.espressif.partition": "ota_1"})
+check(bv.view_type == "ESP" and bv.entry_point == esp32_entry and not bv.file.is_container_entry,
+      "a single partition ignores files.espressif.partition")
+bv.file.close()
+settings.set_string("files.espressif.partition", "ota_1")
+bv = bn.load(part_path)
+check(bv.view_type == "ESP" and bv.entry_point == esp32_entry, "... also set globally")
+bv.file.close()
+settings.reset("files.espressif.partition")
+session = bn.TransformSession(part_path)
+session.process()
+check(not session.root_context.children, "a session has no files for a single partition")
+del session
 
 # A flash dump in a project.
 project = bn.Project.create_project(os.path.join(user_dir, "project"), "flash dumps")
