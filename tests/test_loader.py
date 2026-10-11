@@ -436,6 +436,7 @@ class FakeBinaryNinja:
         self.answers = []  # message box answers, in order
         self.messages = []  # (text, buttons) shown
         self.settings = {}
+        self.settings_writable = True
         self.loaded = False
         self.actions = []
         self.logs = []
@@ -502,6 +503,8 @@ class FakeBinaryNinja:
                 return fake.settings[key]
 
             def set_bool(self, key, value):
+                if not fake.settings_writable:
+                    return False
                 fake.settings[key] = value
                 return True
 
@@ -674,6 +677,18 @@ class TestPluginGlue(TempDirTest):
         self.assertIn("now off", self.bn.messages[-1][0])
         self.plugin.startup_check()  # no prompt (answers is empty), no download
         self.assertFalse(os.path.exists(self.installed))
+
+    def test_remove_warns_when_auto_download_stays_on(self):
+        self.bn.settings[self.plugin.AUTO_DOWNLOAD] = True
+        self.plugin.startup_check()
+        self.bn.ui = True
+        self.bn.answers = [self.bn.yes]
+        self.bn.settings_writable = False
+        self.plugin.remove_command()
+        self.assertFalse(os.path.exists(self.installed))
+        self.assertTrue(self.bn.settings[self.plugin.AUTO_DOWNLOAD])
+        self.assertIn("turning it off failed", self.bn.messages[-1][0])
+        self.assertNotIn("now off", self.bn.messages[-1][0])
 
     def test_install_command_refuses_second_copy(self):
         self.bn.ui = True

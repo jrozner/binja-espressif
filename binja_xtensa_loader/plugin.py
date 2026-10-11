@@ -273,7 +273,18 @@ def remove_command() -> None:
             pass
         text = "Removed {}. Restart Binary Ninja to unload it.".format(path)
         if auto_download_enabled():
-            Settings().set_bool(AUTO_DOWNLOAD, False)
+            try:
+                Settings().set_bool(AUTO_DOWNLOAD, False)
+            except Exception:
+                pass
+            # set_bool reports failure by returning False; read the setting
+            # back rather than trust that, since it is what the next start sees.
+            if auto_download_enabled():
+                text += (" The '{}' setting is on and turning it off failed, so the next start downloads the "
+                         "library again: turn it off in Settings first.".format(AUTO_DOWNLOAD))
+                LOG.log_warn(text)
+                _message(text, MessageBoxIcon.WarningIcon)
+                return
             text += " The '{}' setting was on; it is now off, so the library is not downloaded again.".format(
                 AUTO_DOWNLOAD)
         LOG.log_info(text)
