@@ -19,10 +19,13 @@ work=target/oracle
 toolchain=$work/xtensa-esp-elf
 scripts/oracle/fetch-toolchain.sh "$work"
 cargo build --release --example oracle_diff
+# The workspace's target directory, not this crate's.
+oracle_diff=$(cargo metadata --format-version 1 --no-deps |
+    python3 -I -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')/release/examples/oracle_diff
 
 for isa in esp32 esp32s2 esp32s3 esp8266; do
     python3 -I scripts/oracle/sweep.py "$toolchain" "$isa" --fixtures "tests/data/$isa.tsv" \
-        | target/release/examples/oracle_diff "$isa" > "$work/$isa.result" \
+        | "$oracle_diff" "$isa" > "$work/$isa.result" \
         || { cat "$work/$isa.result"; exit 1; }
     cat "$work/$isa.result"
     # Exactly one well-formed digest, or the recorded one is left alone.

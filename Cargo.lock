@@ -616,7 +616,6 @@ checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
 [[package]]
 name = "xtensa"
 version = "0.1.0"
-source = "git+https://github.com/jrozner/xtensa.git?branch=main#e9bbb56ef0904ce32d00e92fdd591c7daa511886"
 
 [[package]]
 name = "zlib-rs"

@@ -13,8 +13,8 @@
 #
 # Usage: scripts/build_idf_elfs.sh [XTENSA_TOOLCHAIN_DIR [RISCV_TOOLCHAIN_DIR]]
 set -euo pipefail
-toolchain=$(realpath "${1:-../xtensa/target/oracle/xtensa-esp-elf}")
-riscv=$(realpath "${2:-../xtensa/target/oracle/riscv32-esp-elf}")
+toolchain=$(realpath "${1:-$(dirname "$0")/../xtensa/target/oracle/xtensa-esp-elf}")
+riscv=$(realpath "${2:-$(dirname "$0")/../xtensa/target/oracle/riscv32-esp-elf}")
 cd "$(dirname "$0")/../tests/data"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
