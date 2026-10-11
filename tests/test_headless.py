@@ -11,8 +11,12 @@ Usage: tests/test_headless.py [path/to/libbinja_xtensa.so]
 
 Runs Binary Ninja from ~/binaryninja (or $BN_INSTALL_DIR) with a temporary
 user directory that contains only this plugin and a link to your license.
+Everything the test writes goes in that directory, which is removed at exit
+unless $BN_XTENSA_KEEP_TMP is set to a non-empty value.
 """
+import atexit
 import os
+import shutil
 import struct
 import sys
 import tempfile
@@ -23,6 +27,20 @@ plugin = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT
 install = os.environ.get("BN_INSTALL_DIR", os.path.expanduser("~/binaryninja"))
 
 user_dir = tempfile.mkdtemp(prefix="bn-xtensa-test-")
+
+
+def remove_user_dir():
+    if os.environ.get("BN_XTENSA_KEEP_TMP"):
+        print(f"keeping {user_dir}")
+    else:
+        shutil.rmtree(user_dir, ignore_errors=True)
+
+
+# Registered before importing binaryninja, which registers its shutdown with
+# atexit too: handlers run last-in first-out, so this runs after the core has
+# shut down. It runs on every normal exit: sys.exit, an uncaught exception
+# (including KeyboardInterrupt), or the end of the script.
+atexit.register(remove_user_dir)
 os.makedirs(os.path.join(user_dir, "plugins"))
 os.symlink(plugin, os.path.join(user_dir, "plugins", os.path.basename(plugin)))
 license_file = os.path.expanduser("~/.binaryninja/license.dat")

@@ -212,7 +212,10 @@ without `-mlongcalls`, ESP-IDF style with `-ffunction-sections`, and
 `tests/data/reloc_edge.S`, whose relocations cannot all be applied) and
 lists their relocations with objdump: the test checks every
 `R_XTENSA_SLOT0_OP` and `R_XTENSA_32` Binary Ninja applies against that
-listing.
+listing. The user directory (`bn-xtensa-test-*` in the system temp
+directory) also holds the databases and images the test writes, and is
+removed when the test exits; set `BN_XTENSA_KEEP_TMP=1` to keep it for
+debugging (the test prints its path).
 
 ## License
 
