@@ -889,20 +889,17 @@ def operand_target(bv, addr):
     return values[-1] if values else None
 
 
-def check_object(name, platform):
-    path = os.path.join(OBJ, f"{name}.o")
-    raw, sections, undefined = elf_sections(path)
-    bv = bn.load(path, options={"loader.platform": platform} if platform else {})
-    chip = platform or ("esp8266" if name.startswith("esp8266") else "esp32")
-    check(bv.view_type == "ELF" and bv.platform.name == chip, f"{name}: loads as {bv.platform}")
-
+def relocated_values(bv, name, raw, sections):
+    """The value at each R_XTENSA_32 and the target of each SLOT0_OP
+    relocation objdump lists for an object ({(section, offset): value}), its
+    count of each, and those that differ from what objdump says."""
     def symbol_address(sym):
         if sym in bv.sections:
             return bv.sections[sym].start
         s = bv.get_symbol_by_raw_name(sym)
         return s.address if s else None
 
-    counts, bad = {}, []
+    values, counts, bad = {}, {}, []
     for section, offset, kind, sym, addend in objdump_relocs(os.path.join(OBJ, f"{name}.relocs")):
         if section not in bv.sections:
             continue  # not loaded: .xt.prop, .xt.lit
@@ -916,9 +913,21 @@ def check_object(name, platform):
             got, want = bv.read_int(addr, 4, False), (inplace + target) & 0xFFFFFFFF
         else:
             continue
+        values[(section, offset)] = got
         counts[kind] = counts.get(kind, 0) + 1
         if got != want:
             bad.append(f"{section}+{offset:#x} {kind} {sym}{addend:+#x}: {got and hex(got)} != {want:#x}")
+    return values, counts, bad
+
+
+def check_object(name, platform):
+    path = os.path.join(OBJ, f"{name}.o")
+    raw, sections, undefined = elf_sections(path)
+    bv = bn.load(path, options={"loader.platform": platform} if platform else {})
+    chip = platform or ("esp8266" if name.startswith("esp8266") else "esp32")
+    check(bv.view_type == "ELF" and bv.platform.name == chip, f"{name}: loads as {bv.platform}")
+
+    _, counts, bad = relocated_values(bv, name, raw, sections)
     check(not bad and counts.get("R_XTENSA_SLOT0_OP") and counts.get("R_XTENSA_32"),
           f"{name}: {counts} relocations match objdump" + (f" ({len(bad)} differ: {bad[:3]})" if bad else ""))
 
@@ -951,6 +960,47 @@ for chip in ["esp32", "esp32s2", "esp32s3", "esp8266"]:
 bv = check_object("esp32-idf", None)
 check(".literal.start" in bv.sections and bv.sections[".literal.start"].start < bv.sections[".text.start"].start,
       "esp32-idf: per-function literal sections lie before their code")
+
+# R_XTENSA_32 adds to the word in place, so it must only ever be applied to
+# the file's bytes. Binary Ninja reapplies a section's relocations when it is
+# written to, and on reopening a database and rebasing.
+path = os.path.join(OBJ, "esp32.o")
+raw, sections, _ = elf_sections(path)
+bv = bn.load(path)
+values, _, _ = relocated_values(bv, "esp32", raw, sections)
+
+
+def unchanged(bv, delta=0):
+    """Whether the relocations are where objdump says, `delta` from where
+    they were on loading, or what differs."""
+    now, _, bad = relocated_values(bv, "esp32", raw, sections)
+    moved = {k: (v + delta) & 0xFFFFFFFF for k, v in values.items()}
+    return not bad and now == moved, f" ({bad[:3]})" if bad else ""
+
+
+literal = bv.sections[".literal"]
+edit = next(a for a in range(literal.end - 1, literal.start, -1) if not bv.range_contains_relocation(a, 1))
+byte = bv.read(edit, 1)
+with bv.undoable_transaction():
+    bv.write(edit, bytes([byte[0] ^ 0xff]))
+edited, why = unchanged(bv)
+bv.undo()
+undone, why2 = unchanged(bv)
+check(edited and undone and bv.read(edit, 1) == byte,
+      "esp32: relocations unchanged by an edit next to them and its undo" + why + why2)
+db = os.path.join(user_dir, "esp32-obj.bndb")
+check(bv.create_database(db), "esp32: saved to a database")
+bv.file.close()
+bv = bn.load(db)
+ok, why = unchanged(bv)
+check(ok, "esp32: relocations unchanged on reopening the database" + why)
+delta = 0x100000
+rebased = bv.rebase(bv.start + delta)
+ok, why = unchanged(rebased, delta) if rebased else (False, " (not rebased)")
+check(ok, "esp32: relocations move with a rebase" + why)
+for v in (rebased, bv):
+    if v:
+        v.file.close()
 
 # reloc_edge.S: relocations needing an encoding the instruction lacks are left
 # as assembled, the control cases relocated.
