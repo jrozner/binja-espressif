@@ -2,7 +2,9 @@
 
 A Binary Ninja architecture plugin for the Xtensa cores in Espressif's
 **ESP8266**, **ESP32**, **ESP32-S2** and **ESP32-S3**, written in Rust against
-the `dev` branch of the [binaryninja-api](https://github.com/Vector35/binaryninja-api).
+the [binaryninja-api](https://github.com/Vector35/binaryninja-api): `main`
+builds against its `dev` branch, releases against the latest stable release
+(6.0).
 Decoding is done by the [`xtensa`](https://github.com/jrozner/xtensa)
 disassembler crate, which is verified against GNU objdump.
 
@@ -185,9 +187,25 @@ cp target/release/libbinja_xtensa.so ~/.binaryninja/plugins/   # .dylib / .dll e
 To pick up newer SVD files, `git submodule update --remote svd` and rebuild;
 `build.rs` compresses the files of the supported chips into the plugin.
 
-To move to a newer API revision, update the `rev` of `binaryninja` and
-`binaryninjacore-sys` in `Cargo.toml` and rebuild against a matching Binary
-Ninja build.
+A native plugin loads only in a Binary Ninja whose core ABI matches the API
+it was built against (`BN_MINIMUM_CORE_ABI_VERSION` to
+`BN_CURRENT_CORE_ABI_VERSION` in `binaryninjacore.h`): a build for a 6.0
+stable core (ABI 187) is refused by a 6.1 dev core (ABI 188-189), and the
+other way round. `Cargo.toml` on `main` pins a `dev` revision of the API, so
+a plain `cargo build` is for a dev Binary Ninja. Releases are built against
+the stable tag named in `scripts/use_stable_api.sh`, which rewrites both pins
+in `Cargo.toml` to that tag and updates `Cargo.lock`; run it (and don't
+commit the result) to build for a stable Binary Ninja:
+
+```sh
+scripts/use_stable_api.sh
+cargo build --release
+```
+
+CI builds and tests against both. To move to a newer dev revision, update
+the `rev` of `binaryninja` and `binaryninjacore-sys` in `Cargo.toml`; to
+move to a newer stable release, update `STABLE_TAG` in
+`scripts/use_stable_api.sh`.
 
 ## Testing
 

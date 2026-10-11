@@ -43,8 +43,12 @@ fn main() {
     println!("cargo::rustc-link-lib=dylib=binaryninjacore");
     println!("cargo::rustc-link-search={}", link_path.to_str().unwrap());
 
+    // The rpath lets binaries linked against an installed core (tests,
+    // examples) find it. A stub-core build is a release plugin, loaded by a
+    // Binary Ninja whose core is already in the process, so it gets no rpath
+    // into the build directory.
     #[cfg(target_os = "linux")]
-    {
+    if std::env::var_os("CARGO_FEATURE_CORE").is_some() {
         println!(
             "cargo::rustc-link-arg=-Wl,-rpath,{0},-L{0}",
             link_path.to_string_lossy()
