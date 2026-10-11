@@ -31,6 +31,7 @@ import tarfile
 import tempfile
 import threading
 import time
+import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(ROOT, "tests", "data")
@@ -300,6 +301,61 @@ md = bv.query_metadata("espressif.flash.entry")
 check(bv.view_type == "ESP" and bv.entry_point == 0x40080800 and md["label"] == "ota_0"
       and md["flashOffset"] == 0x110000 and md["virtualPath"] == f"EspFlash({dump_path})::ota_0",
       "reopened, its database keeps where it came from")
+bv.file.close()
+
+# Where a file came from is told by its path and contents: the same app at
+# different offsets in two dumps, a label with the path separator in it,
+# and a dump inside a zip archive.
+def small_dump(parts, images):
+    """A dump from flash 0 of `(type, subtype, offset, size, label)`
+    partitions and `(flash offset, image)` images."""
+    d = bytearray(b"\xff" * 0x30000)
+    t = b"".join(table_entry(*p) for p in parts)
+    d[0x8000:0x8000 + len(t)] = t
+    for offset, image in images:
+        d[offset:offset + len(image)] = image
+    return bytes(d)
+
+
+app = stub_image(0x40080800)
+dump_a = small_dump([(0, 0, 0x10000, 0x1000, "factory")], [(0x10000, app)])
+dump_b = small_dump([(1, 2, 0x9000, 0x6000, "nvs"), (0, 0, 0x20000, 0x1000, "factory"),
+                     (0, 0x10, 0x21000, 0x1000, "ota::0")], [(0x20000, app), (0x21000, app)])
+for name, blob, choice, offset in [("a", dump_a, "factory", 0x10000), ("b", dump_b, "factory", 0x20000),
+                                   ("b", dump_b, "ota::0", 0x21000)]:
+    path = os.path.join(user_dir, f"dump_{name}.bin")
+    with open(path, "wb") as f:
+        f.write(blob)
+    bv = bn.load(path, options={"files.espressif.partition": choice})
+    md = bv.query_metadata("espressif.flash.entry")
+    check(bv.view_type == "ESP" and md.get("label") == choice and md.get("flashOffset") == offset,
+          f"{choice} of dump {name} is at {offset:#x}")
+    bv.file.close()
+zip_path = os.path.join(user_dir, "dump_b.zip")
+with zipfile.ZipFile(zip_path, "w") as z:
+    z.writestr("dump_b.bin", dump_b)
+bv = bn.load(zip_path, options={"files.espressif.partition": "factory"})
+md = bv.query_metadata("espressif.flash.entry") if bv is not None else {}
+check(bv is not None and bv.view_type == "ESP" and bv.file.virtual_path.endswith("EspFlash(dump_b.bin)::factory")
+      and md.get("flashOffset") == 0x20000, "a dump in a zip archive")
+bv.file.close()
+
+# An ESP8266 v2 image in a partition: the flash cache maps its irom0 code
+# from where the partition is in flash.
+v2_body = struct.pack("<II", 0x40100000, 8) + bytes.fromhex("12c1f000") + bytes(4)
+v2_image = (struct.pack("<BBBBI", 0xEA, 4, 0, 0, 0x40100004) + struct.pack("<II", 0, 8) + bytes.fromhex("12c1f000")
+            + bytes(4) + struct.pack("<BBBBI", 0xE9, 1, 0, 0, 0x40100004) + v2_body)
+v2_path = os.path.join(user_dir, "esp8266_v2.bin")
+with open(v2_path, "wb") as f:
+    f.write(small_dump([(0, 0, 0x11000, 0x10000, "factory")], [(0x11000, v2_image)]))
+bv = bn.load(v2_path)
+check(bv.view_type == "ESP" and bv.get_segment_at(0x40211010) is not None and bv.get_segment_at(0x40200010) is None,
+      "an ESP8266 v2 app partition at 0x11000 maps its irom0 code at 0x40211010")
+db = os.path.join(user_dir, "esp8266_v2.bndb")
+bv.create_database(db)
+bv.file.close()
+bv = bn.load(db)
+check(bv.get_segment_at(0x40211010) is not None, "... also once its database is reopened")
 bv.file.close()
 
 # Single images (a partition read with `esptool.py read_flash` or

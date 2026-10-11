@@ -572,6 +572,27 @@ fn parse_esp8266_v1(data: &[u8], start: usize, count: usize, entry: u32) -> Opti
     })
 }
 
+/// Where the flash cache maps the `irom0` segment of an ESP8266 v2 image
+/// written at `flash_offset`: 1 MB windows of flash at 0x40200000, and the
+/// segment's data starts 0x10 bytes into the image.
+fn esp8266_v2_irom_addr(flash_offset: u32) -> u32 {
+    ESP8266_FLASH_MAP + (flash_offset.wrapping_add(0x10) & 0xF_FFFF)
+}
+
+impl Image {
+    /// Places the image at `flash_offset`, where it is known (a file
+    /// extracted from a flash dump), in place of where its position in the
+    /// file says or [`esp8266_v2_flash_offset`] guesses. Only an ESP8266 v2
+    /// image's `irom0` segment depends on it.
+    pub fn set_flash_offset(&mut self, flash_offset: u32) {
+        if self.format == Format::Esp8266V2
+            && let Some(irom) = self.segments.first_mut()
+        {
+            irom.addr = esp8266_v2_irom_addr(flash_offset.wrapping_add(self.start as u32));
+        }
+    }
+}
+
 fn parse_esp8266_v2(data: &[u8], start: usize, entry: u32) -> Option<Image> {
     // The irom0 segment: its header's address field is not meaningful.
     let irom_size = read_u32(data, start + 12)?;
@@ -587,8 +608,8 @@ fn parse_esp8266_v2(data: &[u8], start: usize, entry: u32) -> Option<Image> {
     }
     // The flash cache maps 1 MB windows of flash at 0x40200000; images are
     // flashed at the start of a window plus 0x1000 (OTA) or at 0.
-    let irom_addr = ESP8266_FLASH_MAP
-        + ((esp8266_v2_flash_offset(data, start, irom_offset, irom_size) + 0x10) & 0xF_FFFF);
+    let irom_addr =
+        esp8266_v2_irom_addr(esp8266_v2_flash_offset(data, start, irom_offset, irom_size));
     segments.insert(
         0,
         Segment {
@@ -1254,6 +1275,16 @@ mod tests {
                 size: 8
             }
         );
+        // Written at a known flash offset (a partition of a dump): in the
+        // flash window that offset is in.
+        let mut at = i.clone();
+        at.set_flash_offset(0x11_0000);
+        assert_eq!(at.segments[0].addr, 0x4021_0010);
+        // Other images do not depend on it.
+        let mut v1 = parse_image(&d[16 + 8..], 0).unwrap();
+        let before = v1.clone();
+        v1.set_flash_offset(0x10000);
+        assert_eq!(v1, before);
     }
 
     #[test]

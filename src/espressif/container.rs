@@ -175,14 +175,20 @@ pub fn entries(data: &[u8]) -> Option<Vec<Entry>> {
         },
     ];
     // Labels are unique in tables gen_esp32part.py writes; a repeated label
-    // (or one named like the bootloader or table) gets its offset added.
+    // (or one named like the bootloader or table) gets its offset added, and
+    // then a number, until the name is unique.
     let mut names: HashSet<String> = out.iter().map(|e| e.name.clone()).collect();
     for p in parts {
         let mut name = p.label.clone();
-        if !names.insert(name.clone()) {
-            name = format!("{}@{:#x}", p.label, p.offset);
-            names.insert(name.clone());
+        let mut n = 1;
+        while names.contains(&name) {
+            name = match n {
+                1 => format!("{}@{:#x}", p.label, p.offset),
+                n => format!("{}@{:#x}.{n}", p.label, p.offset),
+            };
+            n += 1;
         }
+        names.insert(name.clone());
         out.push(Entry {
             name,
             flash_offset: p.offset,
@@ -289,7 +295,7 @@ impl EspFlashTransform {
                 false,
             );
             if result == TransformResult::TransformSuccess {
-                record_extracted(entry, bytes);
+                record_extracted(context, entry, bytes);
             }
             let md = child.metadata();
             for (key, value) in entry.metadata() {
@@ -355,54 +361,79 @@ impl ContextTransform for EspFlashTransform {
     }
 }
 
-/// The files this transform has extracted in this session, by name and
-/// SHA-256 of their contents, so that the view of one can tell where in
-/// flash it came from.
-static EXTRACTED: Mutex<Vec<(String, [u8; 32], Entry)>> = Mutex::new(Vec::new());
+/// A file this transform has extracted in this session.
+struct Extracted {
+    /// How its virtual path ends: Binary Ninja names a file of a container
+    /// `<transform>(<container's name>)::<file's name>`, after the path of
+    /// the container's own container, if any (`Zip(a.zip)::EspFlash(d.bin)::nvs`).
+    path_suffix: String,
+    /// The SHA-256 of its contents.
+    digest: [u8; 32],
+    entry: Entry,
+}
+
+/// The files extracted in this session, so that the view of one can tell
+/// where in flash it came from.
+static EXTRACTED: Mutex<Vec<Extracted>> = Mutex::new(Vec::new());
 
 fn digest(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
 
-fn record_extracted(entry: &Entry, bytes: &[u8]) {
+fn record_extracted(context: &TransformContext, entry: &Entry, bytes: &[u8]) {
     let Ok(mut extracted) = EXTRACTED.lock() else {
         return;
     };
-    let hash = digest(bytes);
+    let path_suffix = format!(
+        "{}({})::{}",
+        EspFlashTransform::NAME,
+        context.name(),
+        entry.name
+    );
+    let digest = digest(bytes);
     if !extracted
         .iter()
-        .any(|(n, d, _)| *n == entry.name && *d == hash)
+        .any(|e| e.path_suffix == path_suffix && e.digest == digest && e.entry == *entry)
     {
-        extracted.push((entry.name.clone(), hash, entry.clone()));
+        extracted.push(Extracted {
+            path_suffix,
+            digest,
+            entry: entry.clone(),
+        });
     }
 }
 
 /// Where the file of `view` (a raw view) came from, if this transform
-/// extracted it from a flash dump: its virtual path and name, and, when it
-/// was extracted in this session, its flash offset and size and its
-/// partition's label, type and subtype.
+/// extracted it from a flash dump: its virtual path and name, its flash
+/// offset and size, and its partition's label, type and subtype. (If files
+/// with the same path and contents were extracted from differing dumps in
+/// this session, only the path and name.)
 ///
-/// The first time, it is worked out from the file's virtual path and
-/// stored in the view's metadata, since a database does not keep the
-/// virtual path; a database's views are created before their metadata is
-/// restored, except for the raw view's.
+/// The first time, it is worked out from the files extracted in this
+/// session and stored in the view's metadata, since a database keeps
+/// neither the virtual path nor the session; a database's views are created
+/// before their metadata is restored, except for the raw view's.
 pub fn entry_metadata(view: &BinaryView) -> Option<Ref<Metadata>> {
     if let Some(md) = view.query_metadata(ENTRY_METADATA) {
         return Some(md);
     }
     let path = view.file().virtual_path()?;
-    let (container, name) = path.rsplit_once("::")?;
-    if !container.starts_with(&format!("{}(", EspFlashTransform::NAME)) {
-        return None;
-    }
     let mut md: HashMap<&str, Ref<Metadata>> = HashMap::new();
-    md.insert("virtualPath", path.as_str().into());
-    md.insert("name", name.into());
-    let bytes = digest(&view.read_vec(0, view.len() as usize));
-    if let Ok(extracted) = EXTRACTED.lock()
-        && let Some((_, _, entry)) = extracted.iter().find(|(n, d, _)| n == name && *d == bytes)
     {
-        md.extend(entry.metadata());
+        let extracted = EXTRACTED.lock().ok()?;
+        let mut digest_of_view = None;
+        let mut matches = extracted.iter().filter(|e| {
+            path.ends_with(&e.path_suffix)
+                && e.digest
+                    == *digest_of_view
+                        .get_or_insert_with(|| digest(&view.read_vec(0, view.len() as usize)))
+        });
+        let first = matches.next()?;
+        md.insert("virtualPath", path.as_str().into());
+        md.insert("name", first.entry.name.as_str().into());
+        if matches.all(|e| e.entry == first.entry) {
+            md.extend(first.entry.metadata());
+        }
     }
     let md: Ref<Metadata> = md.into();
     view.store_metadata(ENTRY_METADATA, md.clone(), MetadataStoreFlags::PERSISTENT);
@@ -578,6 +609,25 @@ mod tests {
                 "bootloader@0x12000"
             ]
         );
+        // A label like a name made for another, and a label repeated at the
+        // same offset: every name is unique.
+        let parts = [
+            (0, 0, 0x10000, 0x1000, "app"),
+            (0, 0x10, 0x11000, 0x1000, "app"),
+            (0, 0x11, 0x12000, 0x1000, "app@0x11000"),
+            (0, 0x12, 0x11000, 0x1000, "app"),
+        ];
+        let d = dump(0, 0x20000, &parts, &[]);
+        let files = entries(&d).unwrap();
+        assert_eq!(
+            names(&files)[2..],
+            ["app", "app@0x11000", "app@0x11000@0x12000", "app@0x11000.2"]
+        );
+        let subtypes: Vec<u8> = files[2..]
+            .iter()
+            .map(|e| e.partition.as_ref().unwrap().subtype)
+            .collect();
+        assert_eq!(subtypes, [0, 0x10, 0x11, 0x12]);
     }
 
     #[test]

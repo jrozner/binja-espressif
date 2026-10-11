@@ -27,7 +27,8 @@ impl CustomBinaryViewType for EspViewType {
     /// the `files.espressif.partition` setting names is loaded.
     fn create_binary_view(&self, data: &BinaryView) -> Result<EspView, ()> {
         let bytes = data.read_vec(0, data.len() as usize);
-        let from_container = container::entry_metadata(data).is_some();
+        let entry = container::entry_metadata(data);
+        let from_container = entry.is_some();
         let choice = if from_container || image::partition_table(&bytes).is_none() {
             String::new()
         } else {
@@ -47,6 +48,14 @@ impl CustomBinaryViewType for EspViewType {
         // An ESP8266 app partition is not a NONOS dump, however long it is.
         if from_container {
             firmware.map_flash_window = false;
+        }
+        // Where in flash the file was, which is where the flash cache maps
+        // an ESP8266 v2 image's code from.
+        if let Some(offset) = entry
+            .and_then(|md| md.get("flashOffset").ok().flatten())
+            .and_then(|offset| offset.get_unsigned_integer())
+        {
+            firmware.image.set_flash_offset(offset as u32);
         }
         Ok(EspView { bytes, firmware })
     }
