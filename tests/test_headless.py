@@ -1878,6 +1878,16 @@ def rom_image_checks(tarball):
     check(meta == {"status": "mapped", "chip": "esp32", "image": "esp32_rev0_rom.elf", "revision": 0,
                    "dataAlias": True},
           f"an older database's espressif.rom says what espressif.rom.image does ({meta})")
+    # Without the data alias (a database saved before it was mapped), then
+    # with it again from the command: dataAlias follows.
+    bv.memory_map.remove_memory_region(ROM_DATA_REGION)
+    bv.update_analysis_and_wait()
+    check(rom_status(bv).get("dataAlias") is False, f"dataAlias follows a removed data alias ({rom_status(bv)})")
+    settings.set_string("espressif.rom.elfDirectory", elfs, bv, bn.SettingsScope.SettingsResourceScope)
+    ctx = bn.PluginCommandContext(bv)
+    bn.PluginCommand.get_valid_list(ctx)["Espressif\\Download ROM Images"].execute(ctx)
+    check(wait_for(lambda: rom_status(bv).get("dataAlias") is True, 20),
+          f"dataAlias follows the command mapping the data alias ({rom_status(bv)})")
     bv.file.close()
     settings.set_string("espressif.rom.elfDirectory", elfs)
 

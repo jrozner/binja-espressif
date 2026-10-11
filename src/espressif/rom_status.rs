@@ -275,6 +275,31 @@ pub fn record_status(view: &BinaryView, chip: Chip, status: Status) {
     );
 }
 
+/// Brings a mapped image's `dataAlias` up to date: the command maps the
+/// alias into a database saved without it, and a script may remove it.
+/// Runs on every analysis update; writes only when it changed.
+pub fn sync_data_alias(view: &BinaryView) {
+    let _writing = WRITING.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(mut stored) = view
+        .query_metadata(METADATA)
+        .and_then(|m| HashMap::<String, Ref<Metadata>>::try_from(m.as_ref()).ok())
+    else {
+        return;
+    };
+    let mapped = stored
+        .get("status")
+        .is_some_and(|s| String::try_from(s.as_ref()).is_ok_and(|s| s == Status::Mapped.name()));
+    let actual = data_alias(view);
+    let recorded = stored
+        .get("dataAlias")
+        .and_then(|d| bool::try_from(d.as_ref()).ok());
+    if !mapped || recorded == Some(actual) {
+        return;
+    }
+    stored.insert("dataAlias".into(), actual.into());
+    view.store_metadata(METADATA, stored, MetadataStoreFlags::PERSISTENT);
+}
+
 /// For a database saved by a version of the plugin that recorded only the
 /// name of the image its region holds: records what the name says.
 pub fn backfill(view: &BinaryView, chip: Chip) {

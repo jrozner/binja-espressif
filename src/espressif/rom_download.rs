@@ -402,6 +402,7 @@ fn refresh(view: &BinaryView) {
     };
     if !rom_types::has_zero_filled_region(view, chip) {
         rom_status::backfill(view, chip);
+        rom_status::sync_data_alias(view);
         return;
     }
     rom_status::record_unmapped(view, chip);
@@ -975,6 +976,7 @@ fn map_into(view: &BinaryView, chip: Chip) {
         // another file of the same name may differ. A file with the same
         // bytes may name more functions: they are named too.
         let data = rom_types::add_rom_data_region(view, chip, &found.elf);
+        rom_status::sync_data_alias(view);
         let created = if create_functions(view) {
             rom_types::name_image_functions(view, &found.elf);
             rom_types::create_image_functions(view, &found.elf)
