@@ -1,5 +1,6 @@
 //! A binary view for Espressif firmware images and flash dumps.
 
+use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use binaryninja::Endianness;
@@ -44,7 +45,12 @@ impl CustomBinaryViewType for EspViewType {
         };
         let Some(mut firmware) = image::find_firmware(&bytes, selection) else {
             if selection != image::Selection::Default {
-                tracing::error!("no loadable image in the selected partition '{choice}'");
+                match image::find_unsupported(&bytes, selection) {
+                    Some(unsupported) => log_unsupported(unsupported),
+                    None => {
+                        tracing::error!("no loadable image in the selected partition '{choice}'")
+                    }
+                }
             }
             return Err(());
         };
@@ -80,16 +86,19 @@ impl CustomBinaryViewType for EspViewType {
         if image::find_firmware(&bytes, image::Selection::Default).is_some() {
             return true;
         }
-        if let Some(unsupported) = image::find_unsupported(&bytes) {
+        if let Some(unsupported) = image::find_unsupported(&bytes, image::Selection::Default) {
             report_unsupported(data, unsupported);
         }
         false
     }
 }
 
-/// The images of unsupported chips reported so far: the session of the file
-/// and the image.
-static REPORTED: Mutex<Vec<(SessionId, image::UnsupportedImage)>> = Mutex::new(Vec::new());
+/// The images of unsupported chips reported last: the session of the file
+/// and the image. Binary Ninja asks whether a view type is valid for a file
+/// while opening it, so only the latest few are kept.
+static REPORTED: Mutex<VecDeque<(SessionId, image::UnsupportedImage)>> =
+    Mutex::new(VecDeque::new());
+const REPORTED_KEPT: usize = 16;
 
 /// Says that the image of a file is for a chip that is not supported, once
 /// per opened file: Binary Ninja asks whether the view is valid for a file
@@ -101,8 +110,15 @@ fn report_unsupported(data: &BinaryView, unsupported: image::UnsupportedImage) {
     if reported.contains(&key) {
         return;
     }
-    reported.push(key);
+    if reported.len() == REPORTED_KEPT {
+        reported.pop_front();
+    }
+    reported.push_back(key);
     drop(reported);
+    log_unsupported(unsupported);
+}
+
+fn log_unsupported(unsupported: image::UnsupportedImage) {
     let message = unsupported.message();
     if image::chip_name_from_id(unsupported.chip_id).is_some() {
         tracing::error!("{message}");

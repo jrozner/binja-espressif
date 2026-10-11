@@ -884,12 +884,16 @@ fn unsupported_image_at(data: &[u8], start: usize) -> Option<UnsupportedImage> {
     let count = header[1] as usize;
     let ext = &header[8..];
     let chip_id = read_u16(ext, 4)?;
+    // The extended header starts with the WP pin (a GPIO number, or 0xEE
+    // for none) and three bytes of SPI pin drive strengths, which esptool
+    // and ESP-IDF leave at 0. Where an ESP8266 v1 image, which has no
+    // extended header, has the load address of its first segment: never
+    // below 0x100.
     let plausible = header[0] == IMAGE_MAGIC
         && (1..=16).contains(&count)
+        && read_u32(ext, 0)? <= 0xFF
         && ext[11..15] == [0; 4]
         && ext[15] <= 1;
-    // An ESP8266 v1 image has no extended header: its first segment is
-    // where the chip_id would be.
     if !plausible || chip_from_id(chip_id).is_some() || parse_image(data, start).is_some() {
         return None;
     }
@@ -898,21 +902,40 @@ fn unsupported_image_at(data: &[u8], start: usize) -> Option<UnsupportedImage> {
 }
 
 /// Finds an image of an unsupported chip where [`find_firmware`] looks for
-/// one by default: in the app partitions of a flash dump, at offset 0 and at
-/// 0x1000. For saying why a file with no loadable image is not loaded.
-pub fn find_unsupported(data: &[u8]) -> Option<UnsupportedImage> {
-    let in_partition = partition_table(data).and_then(|(base, parts)| {
-        app_partitions(&parts).into_iter().find_map(|p| {
-            let start = (p.offset as usize).checked_sub(base)?;
-            let end = start.saturating_add(p.size as usize).min(data.len());
-            unsupported_image_at(data.get(..end)?, start)
-        })
-    });
-    in_partition.or_else(|| {
-        [0, 0x1000]
+/// the `selection`: by default in the app partitions of a flash dump, at
+/// offset 0 and at 0x1000. For saying why a file with no loadable image is
+/// not loaded.
+pub fn find_unsupported(data: &[u8], selection: Selection) -> Option<UnsupportedImage> {
+    let table = partition_table(data);
+    let in_partition = |p: &Partition| {
+        let base = table.as_ref()?.0;
+        let start = (p.offset as usize).checked_sub(base)?;
+        let end = start.saturating_add(p.size as usize).min(data.len());
+        unsupported_image_at(data.get(..end)?, start)
+    };
+    let apps = table
+        .as_ref()
+        .map(|(_, parts)| app_partitions(parts))
+        .unwrap_or_default();
+    match selection {
+        Selection::Default => apps.into_iter().find_map(in_partition).or_else(|| {
+            [0, 0x1000]
+                .into_iter()
+                .find_map(|start| unsupported_image_at(data, start))
+        }),
+        Selection::Partition(label) => apps
             .into_iter()
-            .find_map(|start| unsupported_image_at(data, start))
-    })
+            .find(|p| p.label == label)
+            .and_then(in_partition),
+        Selection::Bootloader => {
+            let base = table.as_ref().map_or(0, |&(base, _)| base);
+            let end = (PARTITION_TABLE_OFFSET - base).min(data.len());
+            [0x1000usize.checked_sub(base), (base == 0).then_some(0)]
+                .into_iter()
+                .flatten()
+                .find_map(|start| unsupported_image_at(&data[..end], start))
+        }
+    }
 }
 
 /// Finds the image to load in a file: the selected image of a flash dump,
@@ -1121,7 +1144,7 @@ mod tests {
         ] {
             let d = image(0xE9, Some(ext(id)), 0x4FF0_0000, seg);
             assert!(find_firmware(&d, Selection::Default).is_none());
-            let found = find_unsupported(&d).unwrap();
+            let found = find_unsupported(&d, Selection::Default).unwrap();
             assert_eq!(
                 found,
                 UnsupportedImage {
@@ -1135,7 +1158,7 @@ mod tests {
         let mut d = vec![0xFF; 0x1000];
         d.extend(image(0xE9, Some(ext(20)), 0x4080_0000, seg));
         assert_eq!(
-            find_unsupported(&d),
+            find_unsupported(&d, Selection::Default),
             Some(UnsupportedImage {
                 start: 0x1000,
                 chip_id: 20
@@ -1143,18 +1166,27 @@ mod tests {
         );
         // Supported chips, ESP8266 images and other data are not reported.
         let d = image(0xE9, Some(ext(13)), 0x4FF0_0000, seg);
-        assert_eq!(find_unsupported(&d), None);
+        assert_eq!(find_unsupported(&d, Selection::Default), None);
         let d = image(0xE9, None, 0x4010_0000, &[(0x4010_0000, &[0; 32])]);
         assert!(parse_image(&d, 0).is_some());
-        assert_eq!(find_unsupported(&d), None);
+        assert_eq!(find_unsupported(&d, Selection::Default), None);
         let mut e = ext(20);
         e[12] = 1;
-        assert_eq!(find_unsupported(&image(0xE9, Some(e), 0, seg)), None);
+        assert_eq!(
+            find_unsupported(&image(0xE9, Some(e), 0, seg), Selection::Default),
+            None
+        );
+        // An ESP8266 v1 image that does not parse (its segment is outside
+        // the memory map) is not taken for an ESP32-family image whose
+        // chip_id is its segment size.
+        let d = image(0xE9, None, 0x4010_0000, &[(0x4100_0000, &[0; 0x1000])]);
+        assert!(parse_image(&d, 0).is_none());
+        assert_eq!(find_unsupported(&d, Selection::Default), None);
         // Segments past the end of the file.
         let mut d = image(0xE9, Some(ext(20)), 0x4080_0000, seg);
         d.truncate(30);
-        assert_eq!(find_unsupported(&d), None);
-        assert_eq!(find_unsupported(&[0xE9; 8]), None);
+        assert_eq!(find_unsupported(&d, Selection::Default), None);
+        assert_eq!(find_unsupported(&[0xE9; 8], Selection::Default), None);
     }
 
     #[test]
@@ -1534,6 +1566,30 @@ mod tests {
         assert_eq!(entry(Selection::Partition("ota_1")), Some(0x4037_5004));
         assert_eq!(entry(Selection::Partition("nvs")), None);
         assert_eq!(entry(Selection::Bootloader), None);
+    }
+
+    #[test]
+    fn unsupported_chip_in_selected_partition() {
+        // A supported factory app, an ESP32-C61 ota_0 app and an ESP32-P4
+        // bootloader.
+        let mut d = dump(&[
+            ("factory", 0x00, 0x10000, 0x1000),
+            ("ota_0", 0x10, 0x11000, 0x1000),
+        ]);
+        let c61 = image(0xE9, Some(ext(20)), 0x4080_0000, &[(0x4080_0000, &[0; 4])]);
+        let p4 = image(0xE9, Some(ext(18)), 0x4FF0_0000, &[(0x4FF0_0000, &[0; 4])]);
+        d[..p4.len()].copy_from_slice(&p4);
+        d.extend(s3_app(0x4037_5000));
+        d.resize(0x11000, 0xFF);
+        d.extend(&c61);
+        let found = |sel| find_unsupported(&d, sel);
+        let at = |start, chip_id| Some(UnsupportedImage { start, chip_id });
+        assert_eq!(found(Selection::Partition("ota_0")), at(0x11000, 20));
+        assert_eq!(found(Selection::Partition("factory")), None);
+        assert_eq!(found(Selection::Partition("nope")), None);
+        assert_eq!(found(Selection::Bootloader), at(0, 18));
+        // By default, the first app partition with such an image.
+        assert_eq!(found(Selection::Default), at(0x11000, 20));
     }
 
     #[test]
