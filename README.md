@@ -42,7 +42,11 @@ It provides:
   code on the others). Functions that do not begin with `entry` on the
   windowed cores are automatically switched to `call0`, unless you have given
   the function a type or calling convention yourself (for example a windowed
-  stub with no `entry`, typed `__convention("windowed")`). On `rv32gc`,
+  stub with no `entry`, typed `__convention("windowed")`). Both place
+  arguments as GCC does: in the six argument registers, a value aligned to
+  8 bytes (`double`, 64-bit integers) starting at an even one and
+  structures included, and on the stack from the first argument that does
+  not fit. On `rv32gc`,
   `ilp32`, the soft-float ABI ESP-IDF builds the RISC-V chips for (the
   architecture's own `default` passes floating point values in `fa0`–`fa7`),
   is the RISC-V chip platforms' default.
@@ -73,7 +77,8 @@ It provides:
   The view maps every segment into the chip's memory map with appropriate
   permissions and section semantics, adds unbacked segments for `.bss`,
   RTC memory and the peripheral register blocks, names the mask ROM's
-  functions and data (from the ESP-IDF and ESP8266 SDK linker scripts) and
+  functions and data (from the ESP-IDF and ESP8266 SDK linker scripts),
+  types them (see **Mask ROM types** below), names
   the ESP8266's peripheral blocks, types the ESP-IDF `esp_app_desc_t`, and,
   on the Xtensa chips, seeds functions from every aligned `entry`
   instruction so that callbacks and tasks reached only through pointers are
@@ -121,8 +126,42 @@ It provides:
   read-only data, so jump tables and constants in them resolve; the mask
   ROM's functions and data are named from the ELF's `ABS` symbols, and from
   the bundled ROM table for names it lacks (the symbols of every chip
-  revision only, as an ELF does not say which revision it needs); and the
-  RISC-V global pointer is taken from `__global_pointer$`.
+  revision only, as an ELF does not say which revision it needs), and
+  typed; and the RISC-V global pointer is taken from `__global_pointer$`.
+- **Mask ROM types**: the ROM functions get their prototypes, and the ROM
+  variables their types, so that calls into the ROM decompile with the
+  right arguments and results (`__udivdi3(a, b)` on two `uint64_t`s rather
+  than four registers, `ets_delay_us(n)`, `memset(&buf, c, n)`) and ROM
+  data shows its fields (`rom_spiflash_legacy_data->chip.chip_size`). Every
+  chip but the ESP8266 has a type library, generated from ESP-IDF v5.4.1's
+  ROM headers (`components/esp_rom`), newlib's headers for the C library
+  functions in the ROM, and the libgcc helpers' standard prototypes
+  (`scripts/rom_types_extra.h`), and embedded in the plugin; it is unpacked
+  to `<user directory>/espressif/rom_types/` at startup. The ROM's code is
+  mapped as a memory region of zeros (`espressif.rom`), where each typed
+  ROM function is defined as an imported function: Binary Ninja applies a
+  callee's type only to a function, and creates functions only where there
+  are bytes. ROM functions with several names (`ets_printf` and
+  `esp_rom_printf`) are typed under the one already shown, and revision-
+  specific ones (the ESP32 v3.0 ROM's Secure Boot v2 API) only for images
+  that require that revision. All of the ROM functions that ESP-IDF's
+  `hello_world` calls are typed (ESP32 and ESP32-C3); of all the names in
+  the ROM tables, from 14% (ESP32-C2) to 66% (ESP32-H2) are, as most of
+  the rest (Bluetooth, Wi-Fi and PHY internals) have no public header:
+
+  | Chip     | Typed ROM functions | Variables | Library |
+  |----------|---------------------|-----------|---------|
+  | ESP32    | 455 of 1736 (26%)   | 11        | 26 KiB  |
+  | ESP32-S2 | 440 of 863 (51%)    | 4         | 26 KiB  |
+  | ESP32-S3 | 465 of 1967 (24%)   | 7         | 30 KiB  |
+  | ESP32-C2 | 365 of 2544 (14%)   | 6         | 25 KiB  |
+  | ESP32-C3 | 388 of 1908 (20%)   | 6         | 27 KiB  |
+  | ESP32-C6 | 376 of 1117 (34%)   | 6         | 26 KiB  |
+  | ESP32-H2 | 363 of 553 (66%)    | 6         | 25 KiB  |
+  | ESP32-C5 | 381 of 1338 (28%)   | 6         | 26 KiB  |
+
+  Databases keep the types; a database saved before this feature existed is
+  not retyped when reopened.
 - **Relocatable objects**: `.o` files, and the members of static libraries
   such as ESP-IDF's binary Wi-Fi, PHY and Bluetooth libraries
   (`libnet80211.a`, `libphy.a`, `libbtdm_app.a`), load with their
@@ -163,6 +202,9 @@ Not supported for now:
   nor `const16`. Binary Ninja's DWARF import rejects the Xtensa relocations
   of an object's debug sections, so objects built with `-g` load without
   their debug information.
+- **ESP8266 ROM types.** Its ROM functions are named but not typed: the
+  ESP-IDF docker image the type libraries are made from has no ESP8266 SDK
+  headers.
 - **Zcb/Zcmp on the ESP32-C5.** ESP-IDF only emits them with
   `CONFIG_COMPILER_ENABLE_RISCV_ZCMP` (off by default). `rv32gc` decodes
   `cm.push`/`cm.pop` as `fsd` and does not decode the Zcb instructions, so
@@ -263,6 +305,34 @@ extension manager's loader is installed too, it sees the library and
 installs nothing. Don't copy a self-built library into the plugin folder
 next to an installed `binja_xtensa-native.so`; remove that first.
 
+### Regenerating the ROM tables and types
+
+`src/espressif/rom_symbols.rs` is generated from the ROM linker scripts by
+`scripts/gen_rom_symbols.py` (see its header for the sources). The ROM type
+libraries in `data/rom_types/` are generated, offline, by
+`scripts/gen_rom_types.py`, which runs headless Binary Ninja with a plugin
+build (for the chip platforms) and parses the headers of the ESP-IDF version
+named in it, copied out of the `espressif/idf` docker image by
+`scripts/fetch_rom_type_headers.sh`:
+
+```sh
+cargo build --release
+scripts/fetch_rom_type_headers.sh /tmp/rom-headers
+scripts/gen_rom_types.py /tmp/rom-headers esp32 esp32s2 esp32s3 esp32c2 esp32c3 esp32c6 esp32h2 esp32c5
+cargo build --release   # embeds the new libraries
+```
+
+Each library records the ESP-IDF version and the list of headers it was
+made from in its metadata (`espressif.idf_version`, `espressif.headers`):
+the chip's `components/esp_rom/<chip>/include/<chip>/rom/*.h`, esp_rom's
+chip-neutral `components/esp_rom/include/*.h`, `xtensa/xtruntime.h` and
+`xtensa/hal.h` (Xtensa) or `riscv/interrupt.h` (RISC-V), newlib's
+`string.h`, `strings.h`, `stdio.h`, `stdlib.h`, `ctype.h`, `time.h`,
+`sys/unistd.h`, `sys/_default_fcntl.h`, `sys/lock.h`, `reent.h`,
+`sys/reent.h`, `setjmp.h`, `locale.h`, `sys/time.h`, `sys/stat.h`,
+`signal.h`, `assert.h`, `envlock.h` and `malloc.h`, and
+`scripts/rom_types_extra.h`.
+
 ## Releasing
 
 The loader trusts only the hashes committed in the source the extension
@@ -335,7 +405,12 @@ without `-mlongcalls`, ESP-IDF style with `-ffunction-sections`, and
 `tests/data/reloc_edge.S`, whose relocations cannot all be applied) and
 lists their relocations with objdump: the test checks every
 `R_XTENSA_SLOT0_OP` and `R_XTENSA_32` Binary Ninja applies against that
-listing. The user directory (`bn-xtensa-test-*` in the system temp
+listing. `tests/data/idf_*.elf`, built from `tests/data/idf_features.c` by
+`scripts/build_idf_elfs.sh`, are laid out like ESP-IDF applications and
+call into the mask ROM: the test checks the ELF fix-ups and the ROM types
+(the arguments of ROM calls and libgcc helpers, a ROM structure's fields,
+and that reopening a database changes nothing) on them and on images made
+from them. The user directory (`bn-xtensa-test-*` in the system temp
 directory) also holds the databases and images the test writes, and is
 removed when the test exits; set `BN_XTENSA_KEEP_TMP=1` to keep it for
 debugging (the test prints its path).
@@ -356,4 +431,10 @@ folder means nothing is installed.
 ## License
 
 MIT, see [LICENSE](LICENSE). The Espressif SVD files embedded in the plugin
-(from the `svd` submodule) are licensed under Apache-2.0 by Espressif.
+(from the `svd` submodule) are licensed under Apache-2.0 by Espressif. The
+mask ROM symbol tables are derived from ESP-IDF's ROM linker scripts
+(Apache-2.0, Espressif) and the ESP8266 RTOS and NONOS SDKs' (Apache-2.0
+and the Espressif MIT License). The ROM type libraries in `data/rom_types/`
+are derived from ESP-IDF v5.4.1's headers (Apache-2.0, Espressif) and from
+newlib's headers as shipped with Espressif's toolchains (BSD-style licenses,
+see newlib's `COPYING.NEWLIB`).
