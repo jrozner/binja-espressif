@@ -524,29 +524,53 @@ install). Windows and macOS use the same steps.
    not the `plugins.json` of Vector35/community-plugins, which current
    versions reject. `scripts/test_extension_repo.py` writes it as static
    files from `plugin.json` at the tag, with the tag's source archive on
-   GitHub as the download, the way the extension server would list it:
+   GitHub as the download, the way the extension server would list it.
+
+   The simplest host is a **public** GitHub repository (or a branch of
+   one), such as
+   [jrozner/binja-extensions-test](https://github.com/jrozner/binja-extensions-test):
+   with `--github OWNER/REPO[:BRANCH]` (branch `main` by default), the
+   files are written for the root of that branch, served by
+   raw.githubusercontent.com:
 
    ```sh
    git fetch --tags
+   git clone https://github.com/jrozner/binja-extensions-test ../binja-extensions-test
+   scripts/test_extension_repo.py v0.1.0-rc.1 --github jrozner/binja-extensions-test -o ../binja-extensions-test
+   git -C ../binja-extensions-test add v2/manifests extensions.json versions.json
+   git -C ../binja-extensions-test commit -m "List binja-xtensa 0.1.0-rc.1"
+   git -C ../binja-extensions-test push
+   ```
+
+   The repository URL is then
+   `https://raw.githubusercontent.com/jrozner/binja-extensions-test/main`. A
+   private repository does not work, as Binary Ninja fetches without
+   credentials. raw.githubusercontent.com caches files for about 5 minutes,
+   so after pushing an update (such as the final release, below), wait that
+   long before Binary Ninja checks for updates.
+
+   To keep it on the test machine instead, generate it with the URL it
+   will be served from and serve the directory locally:
+
+   ```sh
    scripts/test_extension_repo.py v0.1.0-rc.1 --base-url http://127.0.0.1:8000 -o bx-repo
    python3 -m http.server 8000 --bind 127.0.0.1 --directory bx-repo
    ```
 
-   `--base-url` is where the directory is served from. Serving it on the
-   test machine keeps it private; elsewhere, generate it with that host's
-   URL. Binary Ninja fetches `<base URL>/v2/manifests` from it, so it needs
-   a host that serves paths (not a gist).
+   Any host that serves the files at their paths works with `--base-url`
+   (not a gist: Binary Ninja fetches `<base URL>/v2/manifests`).
 
 3. **Start Binary Ninja with a throwaway user folder**, holding only your
    license and the repository URL:
 
    ```sh
    mkdir bn-test && cp ~/.binaryninja/license.dat bn-test/
-   echo '{"extensionManager.unofficialUrls": ["http://127.0.0.1:8000"]}' > bn-test/settings.json
+   echo '{"extensionManager.unofficialUrls": ["https://raw.githubusercontent.com/jrozner/binja-extensions-test/main"]}' > bn-test/settings.json
    BN_USER_DIRECTORY=$PWD/bn-test /path/to/stable/binaryninja/binaryninja
    ```
 
-   The license is in `%APPDATA%\Binary Ninja` on Windows and
+   (With a local server, the URL is `http://127.0.0.1:8000`.) The license
+   is in `%APPDATA%\Binary Ninja` on Windows and
    `~/Library/Application Support/Binary Ninja` on macOS; there, set
    `BN_USER_DIRECTORY` in the environment that starts Binary Ninja. The
    setting is *Unofficial 3rd Party Plugin Repository URLs* in Settings,
@@ -572,8 +596,8 @@ Then check:
   loader.
 
 To try the update to the final release, regenerate the repository for
-`v0.1.0` once it is published: the extension manager offers it as an
-update, and the loader then asks to replace the library if it changed (not
+`v0.1.0` once it is published (and push it, then wait out the cache): the
+extension manager offers it as an update, and the loader then asks to replace the library if it changed (not
 if the final release reuses the pre-release's build). Delete `bn-test` when
 done.
 
