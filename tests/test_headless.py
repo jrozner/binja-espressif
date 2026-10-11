@@ -327,6 +327,26 @@ for label, ret, expected in [("float", F32, "a0"), ("double", F64, "a0,a1"), ("u
     got = layout(ilp32, [], ret)
     check(got == expected, f"ilp32 returns {label} in {got}")
 
+# What Espressif GCC 15.2 does on the ESP32 (xtensa-esp-elf): a value
+# aligned to 8 bytes starts at an even argument register, aggregates go in
+# registers, and an argument that does not fit in the registers left goes on
+# the stack, with all those after it.
+for cc_name, regs in (("windowed", [f"a{n}" for n in range(10, 16)]), ("call0", [f"a{n}" for n in range(2, 8)])):
+    cc = bn.Architecture["xtensa-esp32"].calling_conventions[cc_name]
+    r = regs
+    for label, params, expected in [
+        ("uint64_t", [U64], [f"{r[0]},{r[1]}"]),
+        ("int, uint64_t, int", [I32, U64, I32], [r[0], f"{r[2]},{r[3]}", r[4]]),
+        ("5 ints, double, int", [I32] * 5 + [F64, I32], r[:5] + ["sp+0", "sp+8"]),
+        ("7 ints, double", [I32] * 7 + [F64], r + ["sp+0", "sp+8"]),
+        ("12-byte struct", [TRIPLE], [",".join(r[:3])]),
+        ("int, 12-byte struct, int, int", [I32, TRIPLE, I32, I32], [r[0], ",".join(r[1:4]), r[4], r[5]]),
+    ]:
+        got = layout(cc, params)
+        check(got == expected, f"{cc_name} f({label}): {got}")
+    got = layout(cc, [], U64)
+    check(got == f"{r[0]},{r[1]}", f"{cc_name} returns uint64_t in {got}")
+
 
 # Parameters with a location the user gave them: the ones after them skip
 # its registers and stack. Binary Ninja's own `default` convention does the
