@@ -352,6 +352,11 @@ for cc_name, regs in (("windowed", [f"a{n}" for n in range(10, 16)]), ("call0", 
     got = layout(cc, [I32, U64], permitted=[r[0], r[2], r[3]])
     check(got == [r[0], f"{r[2]},{r[3]}"], f"{cc_name} f(int, uint64_t) at a call site setting {r[0]}, "
                                            f"{r[2]}, {r[3]}: {got}")
+    # An ordinary argument is not read from a register the site does not
+    # set: it and those after it go on the stack.
+    got = layout(cc, [I32] * 3, permitted=[r[0], r[2], r[3]])
+    check(got == [r[0], "sp+0", "sp+4"], f"{cc_name} f(int, int, int) at a call site setting {r[0]}, "
+                                         f"{r[2]}, {r[3]}: {got}")
     got = layout(cc, [bn.FunctionParameter(TRIPLE, "p", source=bn.ValueLocationSource.PassByReferenceLocationSource),
                       I32])
     check(got == [f"*{r[0]}", r[1]], f"{cc_name} f(12-byte struct passed by reference, int): {got}")

@@ -165,16 +165,13 @@ impl CallingConvention for XtensaCC {
     ) -> Vec<ValueLocation> {
         let regs = &self.regs.args;
         // When the core asks for the registers a call site actually sets,
-        // the register arguments end after the last of them. Registers
-        // before it may be unset: those an 8-byte argument skipped to start
-        // at an even one.
-        let nregs = match permitted_registers {
-            Some(permitted) => regs
-                .iter()
-                .rposition(|r| permitted.contains(r))
-                .map_or(0, |i| i + 1),
-            None => regs.len(),
-        };
+        // an argument that needs one it does not set ends the register
+        // arguments. A register an 8-byte argument skips to start at an even
+        // one need not be set.
+        let permitted: Vec<bool> = regs
+            .iter()
+            .map(|r| permitted_registers.is_none_or(|p| p.contains(r)))
+            .collect();
         // A parameter passed by reference is a pointer to the value.
         let indirect: Vec<bool> = params
             .iter()
@@ -219,7 +216,7 @@ impl CallingConvention for XtensaCC {
                 },
             })
             .collect();
-        xtensa_locations(&args, nregs)
+        xtensa_locations(&args, &permitted)
             .into_iter()
             .zip(indirect)
             .map(|(loc, indirect)| match loc {
@@ -282,17 +279,20 @@ enum XtensaLoc {
     Stack(u64),
 }
 
-/// The Xtensa argument rules (GCC's `xtensa_function_arg`), with `nregs`
-/// argument registers available:
+/// The Xtensa argument rules (GCC's `xtensa_function_arg`), with the
+/// argument registers whose `permitted` entry is set available:
 /// - every argument, aggregates included, takes as many consecutive
 ///   registers as it has words, the next ones free;
 /// - one aligned to more than a word (`double`, 64-bit integers, structures
 ///   holding those) starts at an even register;
 /// - one that does not fit in the registers left goes on the stack, whole,
 ///   and so do all the arguments after it, each aligned to the larger of a
-///   word and its own alignment (at most 16 bytes).
-fn xtensa_locations(args: &[XtensaArg], nregs: usize) -> Vec<XtensaLoc> {
+///   word and its own alignment (at most 16 bytes); so does one that would
+///   take a register that is not available (the register an argument
+///   skips to start at an even one need not be).
+fn xtensa_locations(args: &[XtensaArg], permitted: &[bool]) -> Vec<XtensaLoc> {
     let word = WORD as u64;
+    let nregs = permitted.len();
     let mut used = vec![false; nregs];
     let mut next = 0usize;
     let mut stack = 0u64;
@@ -321,7 +321,7 @@ fn xtensa_locations(args: &[XtensaArg], nregs: usize) -> Vec<XtensaLoc> {
             while first + words <= nregs && used[first..first + words].iter().any(|&u| u) {
                 first += step;
             }
-            if first + words <= nregs {
+            if first + words <= nregs && permitted[first..first + words].iter().all(|&p| p) {
                 used[first..first + words].fill(true);
                 next = first + words;
                 return XtensaLoc::Regs(first, words);
@@ -436,6 +436,9 @@ impl FunctionRecognizer for WindowRecognizer {
 mod tests {
     use super::*;
 
+    /// Every argument register available.
+    const ALL: [bool; ARG_REGS] = [true; ARG_REGS];
+
     fn value(size: u64, align: u64) -> XtensaArg {
         XtensaArg::Value { size, align }
     }
@@ -450,34 +453,54 @@ mod tests {
         let triple = value(12, 4);
         // f(int, long long, int)
         assert_eq!(
-            xtensa_locations(&[int.clone(), long_long.clone(), int.clone()], 6),
+            xtensa_locations(&[int.clone(), long_long.clone(), int.clone()], &ALL),
             [Regs(0, 1), Regs(2, 2), Regs(4, 1)]
         );
         // f(5 ints, double, int): the double does not fit in the last
         // register, so it and everything after it go on the stack.
         let mut args = vec![int.clone(); 5];
         args.extend([long_long.clone(), int.clone()]);
-        let got = xtensa_locations(&args, 6);
+        let got = xtensa_locations(&args, &ALL);
         assert_eq!(got[4..], [Regs(4, 1), Stack(0), Stack(8)]);
         // f(struct {int a, b, c;}), f(int, that struct, int, int)
         assert_eq!(
-            xtensa_locations(std::slice::from_ref(&triple), 6),
+            xtensa_locations(std::slice::from_ref(&triple), &ALL),
             [Regs(0, 3)]
         );
         assert_eq!(
-            xtensa_locations(&[int.clone(), triple, int.clone(), int.clone()], 6),
+            xtensa_locations(&[int.clone(), triple, int.clone(), int.clone()], &ALL),
             [Regs(0, 1), Regs(1, 3), Regs(4, 1), Regs(5, 1)]
         );
         // f(struct {int a[8];}, int): too big for the registers.
         assert_eq!(
-            xtensa_locations(&[value(32, 4), int.clone()], 6),
+            xtensa_locations(&[value(32, 4), int.clone()], &ALL),
             [Stack(0), Stack(32)]
         );
         // f(7 ints, double): the double is 8-aligned on the stack.
         let mut args = vec![int.clone(); 7];
         args.push(long_long);
-        let got = xtensa_locations(&args, 6);
+        let got = xtensa_locations(&args, &ALL);
         assert_eq!(got[5..], [Regs(5, 1), Stack(0), Stack(8)]);
+    }
+
+    /// The registers a call site does not set.
+    #[test]
+    fn arguments_stop_at_unset_registers() {
+        use XtensaLoc::{Regs, Stack};
+        let int = value(4, 4);
+        // f(int, long long) at a site setting the first, third and fourth:
+        // the second is the long long's alignment gap.
+        let permitted = [true, false, true, true, false, false];
+        assert_eq!(
+            xtensa_locations(&[int.clone(), value(8, 8)], &permitted),
+            [Regs(0, 1), Regs(2, 2)]
+        );
+        // f(int, int, int) at the same site: the second int would need the
+        // unset second register, so it and the third go on the stack.
+        assert_eq!(
+            xtensa_locations(&[int.clone(), int.clone(), int.clone()], &permitted),
+            [Regs(0, 1), Stack(0), Stack(4)]
+        );
     }
 
     #[test]
@@ -493,7 +516,7 @@ mod tests {
             regs_used: vec![0],
             stack_end: 8,
         };
-        let got = xtensa_locations(&[fixed, value(4, 4), value(8, 8)], 6);
+        let got = xtensa_locations(&[fixed, value(4, 4), value(8, 8)], &ALL);
         assert_eq!(got, [XtensaLoc::Fixed(loc), Regs(1, 1), Regs(2, 2)]);
         // With the registers taken up to the last, a pair goes on the stack
         // after the fixed slot's end.
@@ -509,6 +532,6 @@ mod tests {
         let mut args = vec![fixed];
         args.extend(vec![value(4, 4); 4]);
         args.push(value(8, 8));
-        assert_eq!(xtensa_locations(&args, 6)[5], Stack(8));
+        assert_eq!(xtensa_locations(&args, &ALL)[5], Stack(8));
     }
 }
