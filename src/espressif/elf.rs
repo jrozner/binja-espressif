@@ -85,10 +85,10 @@ fn apply(view: &BinaryView, chip: Chip) {
     let symbols = elf_symbols(&file);
     make_flash_data_read_only(view, chip);
     define_rom_symbols(view, chip, &symbols);
-    if let Cpu::RiscV(_) = chip.cpu() {
-        if let Some(gp) = symbols.iter().find(|s| s.name == "__global_pointer$") {
-            riscv::set_global_pointer(view, gp.value);
-        }
+    if let Cpu::RiscV(_) = chip.cpu()
+        && let Some(gp) = symbols.iter().find(|s| s.name == "__global_pointer$")
+    {
+        riscv::set_global_pointer(view, gp.value);
     }
 }
 
@@ -254,7 +254,8 @@ pub fn elf_symbols(file: &[u8]) -> Vec<ElfSymbol> {
         for sym in file
             .get(offset..offset.saturating_add(size))
             .unwrap_or(&[])
-            .chunks_exact(16)
+            .as_chunks::<16>()
+            .0
         {
             let name_off = u32::from_le_bytes(sym[0..4].try_into().unwrap()) as usize;
             let name = strings

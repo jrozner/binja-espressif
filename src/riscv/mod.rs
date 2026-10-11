@@ -19,7 +19,8 @@ use binaryninja::variable::{Variable, VariableSourceType};
 use binaryninjacore_sys::{
     BNFreeRegisterValueWithConfidenceAndRegisterList, BNGetUserGlobalPointerValues,
     BNRegisterValue, BNRegisterValueType, BNRegisterValueWithConfidence,
-    BNRegisterValueWithConfidenceAndRegister, BNSetUserGlobalPointerValues, BNUserGlobalPointerValuesSet,
+    BNRegisterValueWithConfidenceAndRegister, BNSetUserGlobalPointerValues,
+    BNUserGlobalPointerValuesSet,
 };
 
 /// The name of Binary Ninja's architecture for these cores.
@@ -143,7 +144,7 @@ fn distinct(values: &[u32]) -> Vec<u32> {
 /// have ESP-IDF's shape: a handler shared by most entries, and few others.
 pub fn vector_tables(addr: u32, code: &[u8]) -> Vec<VectorTable> {
     let end = addr as u64 + code.len() as u64;
-    let inside = |t: u32| (addr as u64..end).contains(&(t as u64)) && t % 2 == 0;
+    let inside = |t: u32| (addr as u64..end).contains(&(t as u64)) && t.is_multiple_of(2);
     let mut tables = Vec::new();
 
     // vectors_intc.S: `.balign 0x100`, 32 `j`s; entry 0 (and the other
@@ -315,14 +316,14 @@ pub fn set_global_pointer(view: &BinaryView, value: u32) {
         let is_set = BNUserGlobalPointerValuesSet(view.handle);
         let mut count = 0;
         let existing = BNGetUserGlobalPointerValues(view.handle, &mut count);
-        let values = if existing.is_null() {
+        if existing.is_null() {
             with_global_pointer(&[], is_set, entry)
         } else {
-            let values = with_global_pointer(std::slice::from_raw_parts(existing, count), is_set, entry);
+            let values =
+                with_global_pointer(std::slice::from_raw_parts(existing, count), is_set, entry);
             BNFreeRegisterValueWithConfidenceAndRegisterList(existing);
             values
-        };
-        values
+        }
     };
     if let Some(values) = values {
         unsafe { BNSetUserGlobalPointerValues(view.handle, values.as_ptr(), values.len()) };
@@ -462,9 +463,8 @@ impl CallingConvention for Ilp32 {
                     let mut stack = Vec::new();
                     for c in &loc.components {
                         match c.variable.ty {
-                            VariableSourceType::RegisterVariableSourceType => regs_used.extend(
-                                regs.iter().position(|r| r.0 as i64 == c.variable.storage),
-                            ),
+                            VariableSourceType::RegisterVariableSourceType => regs_used
+                                .extend(regs.iter().position(|r| r.0 as i64 == c.variable.storage)),
                             VariableSourceType::StackVariableSourceType => {
                                 stack.push((c.variable.storage, c.size))
                             }
@@ -489,10 +489,7 @@ impl CallingConvention for Ilp32 {
             .into_iter()
             .map(|loc| match loc {
                 Ilp32Loc::Fixed(loc) => loc,
-                Ilp32Loc::Parts {
-                    parts,
-                    indirect,
-                } => {
+                Ilp32Loc::Parts { parts, indirect } => {
                     let whole = parts.len() == 1;
                     let components = parts
                         .into_iter()
@@ -565,7 +562,10 @@ enum Ilp32Loc {
     Fixed(ValueLocation),
     /// A word per part, from the low address up; one part for a value in a
     /// single register or (whole) on the stack.
-    Parts { parts: Vec<Ilp32Part>, indirect: bool },
+    Parts {
+        parts: Vec<Ilp32Part>,
+        indirect: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -629,7 +629,11 @@ fn ilp32_locations(args: &[Ilp32Arg], nregs: usize) -> Vec<Ilp32Loc> {
                 return Ilp32Loc::Fixed(loc.clone());
             };
             let indirect = by_reference || (!by_value && size > 2 * word);
-            let (size, align) = if indirect { (word, word) } else { (size.max(1), align) };
+            let (size, align) = if indirect {
+                (word, word)
+            } else {
+                (size.max(1), align)
+            };
             let words = size.div_ceil(word) as usize;
             if words <= 2
                 && let Some(first) = take(&mut used, &mut next_reg)
@@ -727,8 +731,14 @@ mod tests {
         let float = value(4, 4);
         let double = value(8, 8);
         // f(float), f(double), f(int, double), f(int, float, int)
-        assert_eq!(ilp32_locations(&[float.clone()], 8), [parts(&[Reg(0)])]);
-        assert_eq!(ilp32_locations(&[double.clone()], 8), [parts(&[Reg(0), Reg(1)])]);
+        assert_eq!(
+            ilp32_locations(std::slice::from_ref(&float), 8),
+            [parts(&[Reg(0)])]
+        );
+        assert_eq!(
+            ilp32_locations(std::slice::from_ref(&double), 8),
+            [parts(&[Reg(0), Reg(1)])]
+        );
         assert_eq!(
             ilp32_locations(&[int.clone(), double.clone()], 8),
             [parts(&[Reg(0)]), parts(&[Reg(1), Reg(2)])]
@@ -753,7 +763,10 @@ mod tests {
         assert_eq!(locs[8], parts(&[Stack(0)]));
         assert_eq!(locs[9], parts(&[Stack(8)]));
         // An 8-byte structure in a pair; a 12-byte one by reference.
-        assert_eq!(ilp32_locations(&[value(8, 4)], 8), [parts(&[Reg(0), Reg(1)])]);
+        assert_eq!(
+            ilp32_locations(&[value(8, 4)], 8),
+            [parts(&[Reg(0), Reg(1)])]
+        );
         assert_eq!(
             ilp32_locations(&[value(12, 4), int.clone()], 8),
             [
@@ -790,23 +803,41 @@ mod tests {
     fn ilp32_fixed_locations() {
         use Ilp32Part::{Reg, Stack};
         let int = value(4, 4);
-        let auto = |locs: Vec<Ilp32Loc>| locs.into_iter().filter(|l| !matches!(l, Ilp32Loc::Fixed(_))).collect::<Vec<_>>();
+        let auto = |locs: Vec<Ilp32Loc>| {
+            locs.into_iter()
+                .filter(|l| !matches!(l, Ilp32Loc::Fixed(_)))
+                .collect::<Vec<_>>()
+        };
         // f(a0 fixed, int): the int in a1.
-        assert_eq!(auto(ilp32_locations(&[fixed(&[0], 0), int.clone()], 8)), [parts(&[Reg(1)])]);
+        assert_eq!(
+            auto(ilp32_locations(&[fixed(&[0], 0), int.clone()], 8)),
+            [parts(&[Reg(1)])]
+        );
         // f(a3 fixed, int x4): a0, a1, a2, then a4.
         let mut args = vec![fixed(&[3], 0)];
         args.extend(vec![int.clone(); 4]);
         assert_eq!(
             auto(ilp32_locations(&args, 8)),
-            [parts(&[Reg(0)]), parts(&[Reg(1)]), parts(&[Reg(2)]), parts(&[Reg(4)])]
+            [
+                parts(&[Reg(0)]),
+                parts(&[Reg(1)]),
+                parts(&[Reg(2)]),
+                parts(&[Reg(4)])
+            ]
         );
         // Only arguments after a fixed one avoid it: f(int, a0 fixed, int).
         assert_eq!(
-            auto(ilp32_locations(&[int.clone(), fixed(&[0], 0), int.clone()], 8)),
+            auto(ilp32_locations(
+                &[int.clone(), fixed(&[0], 0), int.clone()],
+                8
+            )),
             [parts(&[Reg(0)]), parts(&[Reg(1)])]
         );
         // A double's pair skips a fixed register: f(a1 fixed, double) in a0, a2.
-        assert_eq!(auto(ilp32_locations(&[fixed(&[1], 0), value(8, 8)], 8)), [parts(&[Reg(0), Reg(2)])]);
+        assert_eq!(
+            auto(ilp32_locations(&[fixed(&[1], 0), value(8, 8)], 8)),
+            [parts(&[Reg(0), Reg(2)])]
+        );
         // A fixed stack slot (or a register outside a0..a7, which is not
         // counted) leaves the registers alone; stack arguments start after
         // the slot's end: f(sp+4 fixed, int x9) has its ninth int at sp+8.
@@ -845,12 +876,18 @@ mod tests {
         let mut args = vec![fixed(&[], fixed_stack_end(&[(6, None)], false, 2))];
         args.extend(vec![int; 7]);
         args.push(value(8, 8));
-        assert_eq!(ilp32_locations(&args, 8)[8], parts(&[Ilp32Part::Reg(7), Stack(8)]));
+        assert_eq!(
+            ilp32_locations(&args, 8)[8],
+            parts(&[Ilp32Part::Reg(7), Stack(8)])
+        );
         // Even after an unaligned end the split word stays word-aligned.
         let mut args = vec![fixed(&[], 6)];
         args.extend(vec![value(4, 4); 7]);
         args.push(value(8, 8));
-        assert_eq!(ilp32_locations(&args, 8)[8], parts(&[Ilp32Part::Reg(7), Stack(8)]));
+        assert_eq!(
+            ilp32_locations(&args, 8)[8],
+            parts(&[Ilp32Part::Reg(7), Stack(8)])
+        );
     }
 
     fn pointer_value(reg: u32, value: i64) -> BNRegisterValueWithConfidenceAndRegister {
@@ -871,19 +908,31 @@ mod tests {
     #[test]
     fn global_pointer_joins_other_user_values() {
         let summary = |vs: &[BNRegisterValueWithConfidenceAndRegister]| {
-            vs.iter().map(|v| (v.reg, v.value.value.value)).collect::<Vec<_>>()
+            vs.iter()
+                .map(|v| (v.reg, v.value.value.value))
+                .collect::<Vec<_>>()
         };
         let (gp, tp) = (3, 4);
         let new = pointer_value(gp, 0x3FC8_8400);
         // No values set: gp is added.
-        assert_eq!(summary(&with_global_pointer(&[], false, new).unwrap()), [(gp, 0x3FC8_8400)]);
+        assert_eq!(
+            summary(&with_global_pointer(&[], false, new).unwrap()),
+            [(gp, 0x3FC8_8400)]
+        );
         // Explicitly set to no values: left empty.
         assert!(with_global_pointer(&[], true, new).is_none());
         // A value for another register: gp is added, the other value kept.
         let values = with_global_pointer(&[pointer_value(tp, 0x1000)], true, new).unwrap();
         assert_eq!(summary(&values), [(tp, 0x1000), (gp, 0x3FC8_8400)]);
         // A value for gp itself is never replaced.
-        assert!(with_global_pointer(&[pointer_value(tp, 0x1000), pointer_value(gp, 0x1234)], true, new).is_none());
+        assert!(
+            with_global_pointer(
+                &[pointer_value(tp, 0x1000), pointer_value(gp, 0x1234)],
+                true,
+                new
+            )
+            .is_none()
+        );
     }
 
     #[test]
