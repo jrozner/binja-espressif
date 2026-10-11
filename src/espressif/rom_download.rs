@@ -19,10 +19,12 @@
 //!   next reanalyzed or reopened. There is nothing to reload.
 //! * The command *Plugins > Espressif > Download ROM Images* downloads on
 //!   request (that request is the consent) and maps the image into its view.
+//!   If a download is already running, it waits for that one instead.
 //! * Headless, nothing is asked: the download happens only with the
 //!   `espressif.rom.autoDownload` setting on (which also skips the question
 //!   in the UI), and the views are left alone: a script reanalyzes or
-//!   reopens them.
+//!   reopens them. An automatic download that fails is tried again by an
+//!   analysis a few minutes later.
 //!
 //! The download never blocks loading a view: it runs on a thread of its
 //! own, and the view loads with zeros meanwhile. It goes through Binary
@@ -31,8 +33,9 @@
 //! SHA-256 match the pinned ones.
 
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, MutexGuard, TryLockError};
+use std::time::{Duration, Instant};
 
 use binaryninja::background_task::BackgroundTask;
 use binaryninja::binary_view::{BinaryView, CustomBinaryViewType, MetadataStoreFlags};
@@ -69,14 +72,48 @@ const COMMAND: &str = "Espressif\\Download ROM Images";
 const MAX_DOWNLOAD: usize = 64 << 20;
 
 /// What this session has done about missing ROM images, each at most once:
-/// asked, explained how to get them, downloaded them by itself.
+/// asked, explained how to get them. (Downloading them by itself is
+/// [`AUTO_DOWNLOAD_STATE`].)
 static ASKED: AtomicBool = AtomicBool::new(false);
 static EXPLAINED: AtomicBool = AtomicBool::new(false);
-static AUTO_DOWNLOADED: AtomicBool = AtomicBool::new(false);
+/// The automatic download of this session.
+static AUTO_DOWNLOAD_STATE: Mutex<AutoDownload> = Mutex::new(AutoDownload::NotTried);
+/// Has an automatic download failed this session?
+static AUTO_DOWNLOAD_FAILED: AtomicBool = AtomicBool::new(false);
+/// How long after a failed automatic download another may start.
+const RETRY_AFTER: Duration = Duration::from_secs(5 * 60);
 /// Has this session said how to map an image into a database?
 static DATABASE_NOTED: AtomicBool = AtomicBool::new(false);
-/// Held while downloading.
-static DOWNLOADING: Mutex<()> = Mutex::new(());
+/// Held while downloading; holds the number of ROM ELF files the last
+/// download unpacked, if it succeeded.
+static DOWNLOADING: Mutex<Option<usize>> = Mutex::new(None);
+
+/// Where the automatic download stands: it is tried once per session, and
+/// again a while after it fails (the network may be back).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutoDownload {
+    NotTried,
+    /// Running, or done.
+    Started,
+    /// Failed at this instant.
+    Failed(Instant),
+}
+
+impl AutoDownload {
+    /// May an automatic download start `now`?
+    pub fn may_start(self, now: Instant) -> bool {
+        match self {
+            AutoDownload::NotTried => true,
+            AutoDownload::Started => false,
+            AutoDownload::Failed(at) => now.saturating_duration_since(at) >= RETRY_AFTER,
+        }
+    }
+}
+
+/// Locks `mutex`, whether or not a thread panicked holding it.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 pub fn register_settings() {
     let settings = Settings::global();
@@ -369,10 +406,19 @@ pub fn plan_offer(ui: bool, auto: bool, declined: bool) -> Offer {
     }
 }
 
-/// Whether `offer` is to happen now: the first time in the session.
+/// Whether `offer` is to happen now: the first time in the session, or for
+/// a download, also a while after the last one failed (see
+/// [`AutoDownload`]).
 fn once(offer: Offer) -> bool {
     let flag = match offer {
-        Offer::Download => &AUTO_DOWNLOADED,
+        Offer::Download => {
+            let mut state = lock(&AUTO_DOWNLOAD_STATE);
+            let start = state.may_start(Instant::now());
+            if start {
+                *state = AutoDownload::Started;
+            }
+            return start;
+        }
         Offer::Ask => &ASKED,
         Offer::Explain => &EXPLAINED,
     };
@@ -411,9 +457,18 @@ fn offer(view: &BinaryView, chip: Chip) {
             );
             return;
         }
+        // An automatic download that failed is retried later (see
+        // `AutoDownload`); only its first failure is reported, the retries'
+        // are only logged.
+        let failed_before = plan == Offer::Download && AUTO_DOWNLOAD_FAILED.load(Ordering::SeqCst);
+        let downloaded = download_release(!failed_before).is_ok();
+        if plan == Offer::Download && !downloaded {
+            AUTO_DOWNLOAD_FAILED.store(true, Ordering::SeqCst);
+            *lock(&AUTO_DOWNLOAD_STATE) = AutoDownload::Failed(Instant::now());
+        }
         // In the UI, the view that wanted the image maps it now; headless,
         // a script reanalyzes or reopens its views (see `refresh`).
-        if download_release().is_ok() && binaryninja::is_ui_enabled() {
+        if downloaded && binaryninja::is_ui_enabled() {
             map_into(&view, chip);
         }
     });
@@ -491,11 +546,25 @@ fn fetch(url: &str, task: &BackgroundTask) -> Result<Vec<u8>, String> {
 
 /// Downloads the pinned release, verifies it and unpacks its ROM ELF files
 /// into the cache, with a background task to show for it. The caller has
-/// the user's consent.
-pub fn download_release() -> Result<usize, String> {
-    let Ok(_guard) = DOWNLOADING.try_lock() else {
-        return Err("a download is already running".into());
+/// the user's consent. A failure is logged, and also shown in the UI if
+/// `report` is set.
+///
+/// If another download is running, this waits for it, and does not
+/// download again if it succeeded: the caller then has its files.
+pub fn download_release(report: bool) -> Result<usize, String> {
+    let mut last = match DOWNLOADING.try_lock() {
+        Ok(guard) => guard,
+        Err(TryLockError::Poisoned(e)) => e.into_inner(),
+        Err(TryLockError::WouldBlock) => {
+            tracing::info!("waiting for the ROM image download that is running");
+            let guard = lock(&DOWNLOADING);
+            if let Some(n) = *guard {
+                return Ok(n);
+            }
+            guard
+        }
     };
+    *last = None;
     let test_url = std::env::var(TEST_URL_ENV).ok();
     let url = download_url(&RELEASE, test_url.as_deref())?;
     let task = BackgroundTask::new("Espressif: downloading ROM images", true);
@@ -508,6 +577,7 @@ pub fn download_release() -> Result<usize, String> {
     let result =
         fetch(&url, &task).and_then(|archive| rom_images::unpack(&archive, &RELEASE, &dest));
     task.finish();
+    *last = result.as_ref().ok().copied();
     match &result {
         Ok(n) => {
             set_declined(None);
@@ -521,9 +591,14 @@ pub fn download_release() -> Result<usize, String> {
             tracing::info!("{text}");
         }
         Err(err) => {
-            let text = format!("Espressif's ROM images were not downloaded from {url}: {err}");
+            let text = format!(
+                "Espressif's ROM images were not downloaded from {url}: {err}. \
+                 Plugins > Espressif > Download ROM Images tries again."
+            );
             tracing::error!("{text}");
-            message(text, MessageBoxIcon::ErrorIcon);
+            if report {
+                message(text, MessageBoxIcon::ErrorIcon);
+            }
         }
     }
     result
@@ -575,7 +650,7 @@ impl Command for DownloadCommand {
         let view: Ref<BinaryView> = view.to_owned();
         std::thread::spawn(move || {
             if rom_image(&view, chip).is_none() {
-                if download_release().is_err() {
+                if download_release(true).is_err() {
                     return;
                 }
             } else {
@@ -613,6 +688,17 @@ mod tests {
         assert_eq!(plan_offer(true, false, false), Ask);
         assert_eq!(plan_offer(true, false, true), Explain);
         assert_eq!(plan_offer(false, false, false), Explain);
+    }
+
+    #[test]
+    fn automatic_download_retries() {
+        use AutoDownload::*;
+        let now = Instant::now();
+        assert!(NotTried.may_start(now));
+        assert!(!Started.may_start(now));
+        assert!(!Failed(now).may_start(now));
+        assert!(!Failed(now).may_start(now + RETRY_AFTER / 2));
+        assert!(Failed(now).may_start(now + RETRY_AFTER));
     }
 
     #[test]
