@@ -942,8 +942,54 @@ ROM_CALLS = {"ets_delay_us": 1, "memset": 3, "__floatsidf": 1, "__muldf3": 2, "_
 ROM_TYPED_CHIPS = {"esp32": 0, "esp32s3": 9, "esp32c3": 5, "esp32c6": 13}
 
 
+ROM_DATA_REGION = "espressif.rom.data"
+
+
 def rom_regions(bv):
-    return [r for r in bv.memory_map.regions if r.name.startswith("espressif.rom")]
+    """The ROM code regions (not the ROM's data bus alias)."""
+    return [r for r in bv.memory_map.regions if r.name.startswith("espressif.rom") and r.name != ROM_DATA_REGION]
+
+
+def rom_elf_path(image):
+    return next(p for p in (os.path.join(d, image) for d in ROM_ELF_DIRS) if os.path.exists(p))
+
+
+def rom_elf_rodata(image):
+    """The address and bytes of the read-only data a ROM ELF file loads on
+    the data bus (at a virtual address other than its physical one), from
+    the first such byte to the last, or None."""
+    data = open(rom_elf_path(image), "rb").read()
+    phoff, = struct.unpack_from("<I", data, 0x1C)
+    phentsize, phnum = struct.unpack_from("<HH", data, 0x2A)
+    segs = []
+    for i in range(phnum):
+        kind, off, vaddr, paddr, filesz, _, flags, _ = struct.unpack_from("<8I", data, phoff + i * phentsize)
+        if kind == 1 and filesz and vaddr != paddr and not flags & 2 and 0x3FF00000 <= vaddr < 0x3FFB0000:
+            segs.append((vaddr, data[off:off + filesz]))
+    if not segs:
+        return None
+    start = min(a for a, _ in segs)
+    out = bytearray(max(a + len(b) for a, b in segs) - start)
+    for a, b in segs:
+        out[a - start:a - start + len(b)] = b
+    return start, bytes(out)
+
+
+def check_rom_data(bv, label, image=None):
+    """With `image`, the ROM's data bus alias holds the ROM ELF file's
+    .rodata (if the chip has one); without, it is not mapped."""
+    region = next((r for r in bv.memory_map.regions if r.name == ROM_DATA_REGION), None)
+    rodata = rom_elf_rodata(image) if image else None
+    if rodata is None:
+        check(region is None, f"{label}: no ROM data region ({region})")
+        return
+    start, data = rodata
+    check(region is not None and (region.start, region.length) == (start, len(data))
+          and bv.read(start, len(data)) == data,
+          f"{label}: the ROM's data bus alias at {start:#x} holds {image}'s .rodata ({region})")
+    seg = bv.get_segment_at(start)
+    check(seg is not None and seg.readable and not seg.writable and not seg.executable,
+          f"{label}: the ROM's data is read-only data ({seg})")
 
 
 def rom_functions(bv):
@@ -979,6 +1025,7 @@ def check_rom_types(bv, chip, syms, label, image=None):
     check(len(regions) == 1 and regions[0].start == 0x40000000, f"{label}: one ROM code region ({regions})")
     held = bv.query_metadata("espressif.rom.image") if "espressif.rom.image" in bv.metadata else None
     check(held == image, f"{label}: the ROM region holds {image or 'zeros'} ({held})")
+    check_rom_data(bv, label, image)
     code = bv.read(syms["memset"], 4)
     check((code != bytes(4)) == bool(image), f"{label}: ROM memset's code is {'real' if image else 'zeros'} ({code.hex()})")
     if not image:
@@ -1003,8 +1050,7 @@ ROM_ELF_DIRS = []
 def rom_elf_functions(image):
     """address -> name of the functions (STT_FUNC) a ROM ELF file's symbol
     table names, from the file in ROM_ELF_DIRS."""
-    path = next(p for p in (os.path.join(d, image) for d in ROM_ELF_DIRS) if os.path.exists(p))
-    data = open(path, "rb").read()
+    data = open(rom_elf_path(image), "rb").read()
     shoff, = struct.unpack_from("<I", data, 0x20)
     shentsize, shnum = struct.unpack_from("<HH", data, 0x2E)
     sections = [struct.unpack_from("<IIIIIIIIII", data, shoff + i * shentsize) for i in range(shnum)]
@@ -1614,6 +1660,37 @@ def rom_image_checks(tarball):
     named = bv.get_symbol_by_raw_name("_malloc_r")
     check(named is not None and 0x40000000 <= named.address < 0x40070000,
           f"ESP32 ROM functions are named from the ROM ELF file ({named})")
+    # The ROM's data, on the data bus: newlib's character class table, the
+    # pointer to it the ROM's scanf reads, and that read resolved.
+    ctype = bytes([0]) + bytes([0x20] * 9) + bytes([0x28] * 5) + bytes([0x20] * 18) + bytes([0x88])
+    check(bv.read(0x3FF96354, len(ctype)) == ctype, f"ESP32 ROM _ctype_ reads ({bv.read(0x3FF96354, 8).hex()})")
+    check(bv.read(0x3FF96350, 4) == struct.pack("<I", 0x3FF96354), "ESP32 ROM __ctype_ptr__ points to _ctype_")
+    readers = {r.function.name for r in bv.get_code_refs(0x3FF96350)}
+    users = {r.function.name for r in bv.get_code_refs(0x3FF96354)}
+    check("__svfiscanf_r" in readers and "__svfiscanf_r" in users,
+          f"the ROM's scanf references __ctype_ptr__ and, through it, _ctype_ ({sorted(readers)}, {sorted(users)})")
+    var = bv.get_data_var_at(0x3FF991D0)  # exc_cause_table, typed from the ROM type library
+    first = struct.unpack("<I", bv.read(0x3FF991D0, 4))[0]
+    check(var is not None and str(var.type) == "char const* const[0x28]"
+          and bv.get_ascii_string_at(first) is not None,
+          f"a typed ROM variable on the data bus has its value ({var and var.type}, {first:#x})")
+    # A database saved without the ROM's data (by an earlier version) gets
+    # it from the command.
+    bv.memory_map.remove_memory_region(ROM_DATA_REGION)
+    db = os.path.join(user_dir, "rom_data_missing.bndb")
+    bv.create_database(db)
+    bv.file.close()
+    bv = bn.load(db)
+    check(not bv.is_valid_offset(0x3FF96354), "a database saved without the ROM's data keeps it unmapped")
+    bn.PluginCommand.get_valid_list(bn.PluginCommandContext(bv))["Espressif\\Download ROM Images"].execute(
+        bn.PluginCommandContext(bv))
+    wait_for(lambda: bv.is_valid_offset(0x3FF96354))
+    check_rom_data(bv, "a database saved without the ROM's data, after the command", "esp32_rev0_rom.elf")
+    bv.file.close()
+    # The ESP32-S2's.
+    bv = bn.load(os.path.join(DATA, "esp32s2.elf"))
+    check(bv.read(0x3FFAC76C, len(ctype)) == ctype, f"ESP32-S2 ROM _ctype_ reads ({bv.read(0x3FFAC76C, 8).hex()})")
+    check_rom_data(bv, "esp32s2.elf", "esp32s2_rev0_rom.elf")
     bv.file.close()
     # Without creating the ROM's functions: the ones code calls, the others
     # named.

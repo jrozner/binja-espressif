@@ -39,7 +39,7 @@ pub const ESP8266_FLASH_MAP: u32 = 0x4020_0000;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegionKind {
     Rom,
-    /// The mask ROM seen from the data bus (ESP32-S3, C2, C3): its
+    /// The mask ROM seen from the data bus (the Xtensa chips, C2, C3): its
     /// constants.
     RomData,
     Iram,
@@ -110,7 +110,10 @@ const fn r(name: &'static str, start: u32, end: u32, kind: RegionKind) -> Region
 use RegionKind as K;
 
 // From ESP-IDF components/soc/<chip>/include/soc/soc.h and the ESP8266 RTOS
-// SDK's ld scripts.
+// SDK's ld scripts. soc.h leaves out the ROM's data bus alias (`rom_data`):
+// that is where Espressif's ROM ELF files load the ROM's .rodata (their
+// virtual addresses; the physical ones are in the ROM), and what probe-rs's
+// target descriptions call "ROM1, Data bus".
 pub static ESP8266_REGIONS: &[Region] = &[
     r("dport", 0x3FF0_0000, 0x3FF0_1000, K::Peripheral),
     r("dram", 0x3FFE_8000, 0x4000_0000, K::Dram),
@@ -126,6 +129,9 @@ pub static ESP32_REGIONS: &[Region] = &[
     r("extram", 0x3F80_0000, 0x3FC0_0000, K::ExtRam),
     r("peripherals", 0x3FF0_0000, 0x3FF8_0000, K::Peripheral),
     r("rtc_dram", 0x3FF8_0000, 0x3FF8_2000, K::RtcData),
+    // ROM1 (0x4006_0000..0x4007_0000) as the data bus sees it: the ROM's
+    // .rodata.
+    r("rom_data", 0x3FF9_0000, 0x3FFA_0000, K::RomData),
     r("dram", 0x3FFA_E000, 0x4000_0000, K::Dram),
     r("rom", 0x4000_0000, 0x4007_0000, K::Rom),
     r("iram", 0x4007_0000, 0x400C_0000, K::Iram),
@@ -139,6 +145,9 @@ pub static ESP32S2_REGIONS: &[Region] = &[
     r("peripherals", 0x3F40_0000, 0x3F50_0000, K::Peripheral),
     r("extram", 0x3F50_0000, 0x3FF8_0000, K::ExtRam),
     r("rtc_dram", 0x3FF9_E000, 0x3FFA_0000, K::RtcData),
+    // ROM1 (0x4001_0000..0x4002_0000) as the data bus sees it: the ROM's
+    // .rodata.
+    r("rom_data", 0x3FFA_0000, 0x3FFB_0000, K::RomData),
     r("dram", 0x3FFB_0000, 0x4000_0000, K::Dram),
     r("rom", 0x4000_0000, 0x4002_0000, K::Rom),
     r("iram", 0x4002_0000, 0x4007_0000, K::Iram),
@@ -1245,16 +1254,24 @@ mod tests {
         for chip in [Chip::Esp32S3, Chip::Esp32C2, Chip::Esp32C3] {
             assert_eq!(region_of(chip, 0x3FF0_0100).unwrap().kind, K::RomData);
         }
+        // ROM1 on the data bus (ESP-IDF's SOC_MEM_INTERNAL_LOW on the ESP32;
+        // the ROM ELF files load .rodata there).
+        assert_eq!(
+            region_of(Chip::Esp32, 0x3FF9_6000).unwrap().kind,
+            K::RomData
+        );
+        assert_eq!(
+            region_of(Chip::Esp32S2, 0x3FFA_C600).unwrap().kind,
+            K::RomData
+        );
     }
 
     #[test]
     fn rom_symbols_are_in_the_memory_map() {
         // The ROM's functions and data: in the ROM, its data bus alias, or
-        // the RAM the ROM keeps for itself. Not yet the ESP32's and the
-        // S2's, whose maps lack their ROM's data bus alias.
+        // the RAM the ROM keeps for itself.
         let mut missing: Vec<_> = Chip::ALL
             .into_iter()
-            .filter(|&chip| !matches!(chip, Chip::Esp32 | Chip::Esp32S2))
             .flat_map(|chip| {
                 rom_symbol_set(chip)
                     .into_iter()

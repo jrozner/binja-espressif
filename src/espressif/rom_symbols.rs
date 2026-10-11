@@ -2308,21 +2308,6 @@ pub static ESP32_ECO3: &[(&str, u32)] = &[
 pub static ESP32_REVISIONS: &[(u16, &[(&str, u32)])] = &[(300, ESP32_ECO3)];
 // esp32s2: ESP-IDF v5.3
 pub static ESP32S2: &[(&str, u32)] = &[
-    ("xthals_release_minor", 0x00000009),
-    ("_memmap_cacheattr_wb_base", 0x00000110),
-    ("_memmap_cacheattr_wt_base", 0x00000110),
-    ("_memmap_cacheattr_bp_base", 0x00000220),
-    ("xthals_release_major", 0x00002ee0),
-    ("_memmap_cacheattr_wb_allvalid", 0x22222112),
-    ("_memmap_cacheattr_wt_allvalid", 0x22222112),
-    ("_memmap_cacheattr_reset", 0x2222211f),
-    ("_memmap_cacheattr_wb_trapnull", 0x2222211f),
-    ("_memmap_cacheattr_wba_trapnull", 0x2222211f),
-    ("_memmap_cacheattr_wbna_trapnull", 0x2222211f),
-    ("_memmap_cacheattr_wt_trapnull", 0x2222211f),
-    ("_memmap_cacheattr_bp_allvalid", 0x22222222),
-    ("_memmap_cacheattr_bp_trapnull", 0x2222222f),
-    ("xthals_hw_configid1", 0x224787b1),
     ("__default_global_locale", 0x3ffac600),
     ("_rodata_start", 0x3ffac600),
     ("_ctype_", 0x3ffac76c),
@@ -3313,13 +3298,6 @@ pub static ESP32S2: &[(&str, u32)] = &[
     ("_etext", 0x4001bed0),
     ("_rom_store", 0x4001bed0),
     ("_text_end", 0x4001bed0),
-    ("_iram1_text_end", 0x60021100),
-    ("_iram1_text_start", 0x60021100),
-    ("xthals_hw_configid0", 0xc2ecfafe),
-    ("_memmap_cacheattr_unused_mask", 0xfffff00f),
-    ("_memmap_cacheattr_wb_strict", 0xfffff11f),
-    ("_memmap_cacheattr_wt_strict", 0xfffff11f),
-    ("_memmap_cacheattr_bp_strict", 0xfffff22f),
 ];
 /// Symbols that only exist in the ROM of a chip revision, by minimum
 /// revision (major * 100 + minor, as in the image header).
