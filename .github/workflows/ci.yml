@@ -68,6 +68,16 @@ jobs:
       - name: Clippy
         run: cargo clippy --no-default-features --all-targets -- -D warnings
 
+  # The Python loader (binja_xtensa_loader/); standard library only, no
+  # Binary Ninja needed.
+  loader:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Test
+        run: python3 tests/test_loader.py -v
+
   # main builds against the binaryninja-api dev revision pinned in Cargo.toml;
   # releases are built against the stable API. This checks that the code
   # still builds and passes against stable.
