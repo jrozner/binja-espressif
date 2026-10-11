@@ -233,6 +233,9 @@ It provides:
     it when they are next reanalyzed or reopened.
   - **Plugins > Espressif > Download ROM Images** downloads them on
     request and maps the image into the current file, database or not.
+    In a file that has the image already, it creates the ROM functions
+    the file lacks (a database saved with `espressif.rom.createFunctions`
+    off, or by 0.1.0-rc.1, which only named most of them).
   - Headless, it never asks; it downloads only if the
     `espressif.rom.autoDownload` setting is enabled (with it on, the UI
     doesn't ask either). A script then reanalyzes or reopens its views.
@@ -242,21 +245,26 @@ It provides:
   under names made from the chip and revision, never from the archive's
   paths.
 
-  With real code in the ROM, Binary Ninja analyzes the typed ROM
-  functions' bodies, and creates the ROM functions they call (about 80
-  more on the ESP32, 450 to 600 on the RISC-V chips and the ESP32-S3, whose
-  ROM API is a jump table to the implementations), not the whole ROM: the
-  region is not swept. The ROM's other functions are named from the ELF
-  file's symbol table. The typed ROM functions' names, prototypes and
-  purity are made user data then, as the analysis of a body would change
-  them (a jump table entry is named `j_sub_...` after its target, `void *`
-  parameters narrow to `uint8_t *`, `__pure` is inferred), and the
-  functions behind the jump table get the same prototypes. They still
-  clobber the caller-saved registers, the API's contract, whatever their
-  bodies do. A database keeps the ROM region it was saved with: one saved
-  with zeros gets the image only through **Download ROM Images**. The ROM
-  adds a few MB to a database (the ROM image and the analysis of its
-  functions: 2.2 MB to 4.3 MB for an ESP32 test ELF).
+  With real code in the ROM, every function the ROM ELF file's symbol
+  table names becomes a function and is analyzed (about 2,000 to 2,300
+  per chip), so the ROM reads like any other code. The `espressif.rom.createFunctions` setting
+  turns that off: the ROM's other functions are then only named, and
+  analysis creates just the typed ROM functions and the ROM functions they
+  call (about 80 more on the ESP32, 450 to 600 on the RISC-V chips and the
+  ESP32-S3, whose ROM API is a jump table to the implementations), for a
+  smaller database and a faster analysis. The typed ROM functions' names,
+  prototypes and purity are made user data, as the analysis of a body
+  would change them (a jump table entry is named `j_sub_...` after its
+  target, `void *` parameters narrow to `uint8_t *`, `__pure` is
+  inferred), and the functions behind the jump table get the same
+  prototypes. They still clobber the caller-saved registers, the API's
+  contract, whatever their bodies do. A database keeps the ROM region it
+  was saved with: one saved with zeros gets the image only through
+  **Download ROM Images**. The ROM image and the analysis of its
+  functions add to a database: the ESP32 test ELF's is 2.2 MB without an
+  image, 4.3 MB with one and `espressif.rom.createFunctions` off, and
+  12 MB with it on (creating the ROM's functions adds 4 to 8 MB on each
+  chip, and a second or two of analysis).
 - **Relocatable objects**: `.o` files, and the members of static libraries
   such as ESP-IDF's binary Wi-Fi, PHY and Bluetooth libraries
   (`libnet80211.a`, `libphy.a`, `libbtdm_app.a`), load with their
@@ -709,10 +717,12 @@ BN_XTENSA_ROM_TARBALL=$PWD/esp-rom-elfs-20260528.tar.gz tests/test_headless.py
 ```
 
 They check the ROM types again with a directory of ROM ELF files (and in
-databases), the revision chosen, a view that maps an image found after it
-was loaded, and the download: served from a local HTTP server (through the
-`BN_XTENSA_ROM_TEST_URL` override, loopback only), not without consent, not
-when corrupted, and through the command.
+databases), that the ROM's functions are created and analyzed (or only
+named, with `espressif.rom.createFunctions` off), the revision chosen, a
+view that maps an image found after it was loaded, and the download:
+served from a local HTTP server (through the `BN_XTENSA_ROM_TEST_URL`
+override, loopback only), not without consent, not when corrupted, and
+through the command.
 
 `tests/test_loader.py` needs only Python (it stands in for the
 `binaryninja` module where it needs one) and runs in CI.

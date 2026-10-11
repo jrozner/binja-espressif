@@ -993,8 +993,59 @@ def check_rom_types(bv, chip, syms, label, image=None):
     renamed = [f.name for f in rom_functions(bv) if f.name.startswith("j_")
                and any(s.type == bn.SymbolType.ImportedFunctionSymbol for s in bv.get_symbols(f.start, 1))]
     check(not renamed, f"{label}: no typed ROM function is renamed as a thunk ({renamed[:5]})")
-    # Analysis creates the ROM functions that code calls, not thousands.
-    check(len(rom_functions(bv)) < 2000, f"{label}: {len(rom_functions(bv))} functions in the ROM")
+    check_rom_image_functions(bv, label, image, syms["memset"])
+
+
+# The directories the ROM image checks' ROM ELF files are in.
+ROM_ELF_DIRS = []
+
+
+def rom_elf_functions(image):
+    """address -> name of the functions (STT_FUNC) a ROM ELF file's symbol
+    table names, from the file in ROM_ELF_DIRS."""
+    path = next(p for p in (os.path.join(d, image) for d in ROM_ELF_DIRS) if os.path.exists(p))
+    data = open(path, "rb").read()
+    shoff, = struct.unpack_from("<I", data, 0x20)
+    shentsize, shnum = struct.unpack_from("<HH", data, 0x2E)
+    sections = [struct.unpack_from("<IIIIIIIIII", data, shoff + i * shentsize) for i in range(shnum)]
+    out = {}
+    for sh in sections:
+        if sh[1] != 2:  # SHT_SYMTAB
+            continue
+        strtab = sections[sh[6]]
+        for off in range(sh[4], sh[4] + sh[5], 16):
+            name, value, _, info, _, shndx = struct.unpack_from("<IIIBBH", data, off)
+            if info & 0xF == 2 and shndx != 0xFFF1:  # STT_FUNC, not SHN_ABS
+                end = data.index(b"\0", strtab[4] + name)
+                out.setdefault(value, data[strtab[4] + name:end].decode())
+    return out
+
+
+def check_rom_image_functions(bv, label, image, memset, created=True):
+    """Every function the ROM ELF file `image` names in the ROM region is a
+    function of the view, analyzed, with a function symbol, unless
+    espressif.rom.createFunctions is off (`created`): then only some are,
+    and the others are only named."""
+    named = {a: n for a, n in rom_elf_functions(image).items()
+             if (bv.memory_map.get_active_memory_region_at(a) or "").startswith("espressif.rom")}
+    missing = [n for a, n in named.items() if bv.get_function_at(a) is None]
+    unnamed = [n for a, n in named.items() if bv.get_symbol_at(a) is None]
+    kinds = {bv.get_symbol_at(a).type for a in named if bv.get_symbol_at(a) is not None}
+    check(not unnamed and kinds <= {bn.SymbolType.FunctionSymbol, bn.SymbolType.ImportedFunctionSymbol},
+          f"{label}: the ROM's {len(named)} functions have function symbols ({unnamed[:5]}, {kinds})")
+    if not created:
+        check(missing and len(rom_functions(bv)) < len(named),
+              f"{label}: createFunctions off: {len(rom_functions(bv))} of the ROM's {len(named)} functions")
+        return
+    check(len(named) > 1000 and not missing,
+          f"{label}: the ROM's {len(named)} functions are functions ({len(missing)} not: {missing[:5]})")
+    # One the application does not call, and one it does: analyzed.
+    uncalled = next((a for a in named if bv.get_symbol_at(a) is not None
+                     and bv.get_symbol_at(a).type == bn.SymbolType.FunctionSymbol and not list(bv.get_code_refs(a))), None)
+    for what, addr in (("an uncalled ROM function", uncalled), ("ROM memset", memset)):
+        f = bv.get_function_at(addr) if addr is not None else None
+        check(f is not None and not f.analysis_skipped and len(f.llil) > 0 and len(f.mlil) > 0,
+              f"{label}: {what} ({f and f.name}) is analyzed")
 
 
 def check_rom_types_saved(chip, chip_id, image=None):
@@ -1536,6 +1587,8 @@ def rom_image_checks(tarball):
         else:
             tar.extractall(elfs)
 
+    ROM_ELF_DIRS.extend([elfs, os.path.join(user_dir, "espressif", "rom-elfs", release["tag"])])
+
     # A directory of ROM ELF files: the ROM region holds the chip's ROM, and
     # the typed ROM functions, their calls and databases are as without.
     settings.set_string("espressif.rom.elfDirectory", elfs)
@@ -1551,6 +1604,51 @@ def rom_image_checks(tarball):
     check(named is not None and 0x40000000 <= named.address < 0x40070000,
           f"ESP32 ROM functions are named from the ROM ELF file ({named})")
     bv.file.close()
+    # Without creating the ROM's functions: the ones code calls, the others
+    # named.
+    settings.set_bool("espressif.rom.createFunctions", False)
+    bv = bn.load(elf)
+    check_rom_image_functions(bv, "idf_esp32.elf", "esp32_rev0_rom.elf", 0x4000C44C, created=False)
+    # One ROM function without its name, as from a ROM ELF file that does
+    # not name it: the command names it from the image.
+    unnamed = next(a for a, n in rom_elf_functions("esp32_rev0_rom.elf").items()
+                   if bv.get_function_at(a) is None and bv.get_symbol_at(a) is not None
+                   and bv.get_symbol_at(a).name == n and bv.get_symbol_at(a).auto)
+    unnamed_name = bv.get_symbol_at(unnamed).name
+    bv.undefine_auto_symbol(bv.get_symbol_at(unnamed))
+    db = os.path.join(user_dir, "rom_functions_off.bndb")
+    bv.create_database(db)
+    bv.file.close()
+    settings.set_bool("espressif.rom.createFunctions", True)
+    # A database saved so gets them from the command, as the image is there.
+    bv = bn.load(db)
+    rom = len(rom_functions(bv))
+    bn.PluginCommand.get_valid_list(bn.PluginCommandContext(bv))["Espressif\\Download ROM Images"].execute(
+        bn.PluginCommandContext(bv))
+    wait_for(lambda: len(rom_functions(bv)) > rom)
+    time.sleep(1)
+    wait_for(lambda: bv.analysis_progress.state == bn.AnalysisState.IdleState)
+    check_rom_image_functions(bv, "a database saved with createFunctions off, after the command",
+                              "esp32_rev0_rom.elf", 0x4000C44C)
+    named = bv.get_symbol_at(unnamed)
+    check(named is not None and named.name == unnamed_name,
+          f"the command names the image's functions the database does not ({named}, {unnamed_name})")
+    bv.file.close()
+    # But not from another image than the one it holds: here the v3.0 ROM
+    # under the v0 ROM's file name.
+    other = os.path.join(user_dir, "rom-elfs-renamed")
+    os.makedirs(other)
+    shutil.copy(os.path.join(elfs, "esp32_rev300_rom.elf"), os.path.join(other, "esp32_rev0_rom.elf"))
+    settings.set_string("espressif.rom.elfDirectory", other)
+    bv = bn.load(db)
+    rom = len(rom_functions(bv))
+    bn.PluginCommand.get_valid_list(bn.PluginCommandContext(bv))["Espressif\\Download ROM Images"].execute(
+        bn.PluginCommandContext(bv))
+    time.sleep(3)
+    wait_for(lambda: bv.analysis_progress.state == bn.AnalysisState.IdleState)
+    check(len(rom_functions(bv)) == rom, f"nor from another ROM image ({len(rom_functions(bv))} of {rom})")
+    bv.file.close()
+    settings.set_string("espressif.rom.elfDirectory", elfs)
 
     # The image's revision: the minimum an image requires, the lowest for an
     # ELF file, or the setting's.
@@ -1643,6 +1741,12 @@ def rom_image_checks(tarball):
     if command is not None:
         command.execute(bn.PluginCommandContext(bv))
         wait_for(lambda: held(bv) is not None)
+        # As in the UI, which does not wait for analysis: the command
+        # starts it, and the ROM's functions are created and analyzed.
+        time.sleep(1)
+        wait_for(lambda: bv.analysis_progress.state == bn.AnalysisState.IdleState)
+        check_rom_image_functions(bv, "idf_esp32c3.elf after the download command, unwaited",
+                                  "esp32c3_rev0_rom.elf", elf_symbols(c3)["memset"])
         bv.update_analysis_and_wait()
         check_rom_types(bv, "esp32c3", elf_symbols(c3), "idf_esp32c3.elf after the download command",
                         "esp32c3_rev0_rom.elf")
