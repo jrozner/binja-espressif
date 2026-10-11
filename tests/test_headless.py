@@ -1665,6 +1665,20 @@ if os.environ.get("BN_XTENSA_ROM_TARBALL"):
 else:
     print("  skipped: set BN_XTENSA_ROM_TARBALL to the esp-rom-elfs archive pinned in src/espressif/rom_images.rs")
 
+# Each chip's ROM type library names its platform (gen_rom_types.py adds
+# it before finalizing), so the platform finds it. A library loaded from a
+# file is finalized: the plugin registers it as it is, as the core refuses
+# (and logs an error for) any change to it.
+for chip in ("esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3", "esp32c6", "esp32h2", "esp32c5"):
+    name = f"espressif-rom-{chip}"
+    platform = bn.Platform[chip]
+    lib = bn.TypeLibrary.from_name(platform.arch, name)
+    check(lib is not None and lib.platform_names == [chip]
+          and [l.name for l in platform.get_type_libraries_by_name(name)] == [name],
+          f"{name} is registered for the {chip} platform ({lib and lib.platform_names})")
+immutable = logged("Attempt to mutate immutable library")
+check(not immutable, f"no type library is changed after it is loaded ({immutable})")
+
 # Images of supported chips are not reported: only the three above and the
 # ESP32-P4 image of the RISC-V checks are.
 check(len(logged(UNSUPPORTED)) == 4, f"no other image is reported unsupported ({logged(UNSUPPORTED)})")

@@ -5,7 +5,8 @@
 //! ESP-IDF's ROM headers and newlib's headers (scripts/gen_rom_types.py,
 //! data/rom_types/<chip>.bntl). The libraries are embedded in the plugin,
 //! written to a cache in the user directory at startup (Binary Ninja loads a
-//! type library only from a file) and registered for the chip platforms.
+//! type library only from a file) and registered; each names its chip's
+//! platform, so the platform finds it.
 //!
 //! A type on a symbol at an unmapped address does not reach the calls to it,
 //! and Binary Ninja creates functions only where there are bytes. So the
@@ -148,7 +149,21 @@ fn library(chip: Chip) -> Option<Ref<TypeLibrary>> {
         tracing::warn!("could not load the ROM type library {}", path.display());
         return None;
     };
-    lib.add_platform(&platform);
+    // gen_rom_types.py names the platform in the library, and a library
+    // loaded from a file is finalized: adding the platform again here only
+    // makes the core log "Attempt to mutate immutable library".
+    if !lib
+        .platform_names()
+        .iter()
+        .any(|p| p == chip.platform_name())
+    {
+        tracing::warn!(
+            "the ROM type library {} is not for the {} platform",
+            path.display(),
+            chip.platform_name()
+        );
+        return None;
+    }
     lib.register();
     Some(lib)
 }
