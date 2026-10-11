@@ -1,0 +1,52 @@
+name: Nightly
+
+# Checks of the decoder (xtensa/) too slow to run on every push, each
+# covering every instruction encoding of every supported chip (over half a
+# billion for the ESP32-S3):
+# - exhaustive: decodes every encoding and compares against the digests that
+#   were verified with objdump (xtensa/tests/exhaustive.rs);
+# - oracle: compares every encoding against objdump itself and checks the
+#   committed fixtures are up to date (xtensa/scripts/oracle/run.sh).
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  exhaustive:
+    name: Exhaustive decode
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup override set stable
+      - run: cargo test -p xtensa --locked --test exhaustive
+
+  oracle:
+    # Compares every instruction encoding against GNU objdump from ESP-IDF's
+    # Xtensa toolchain and checks the committed fixtures are up to date.
+    name: Exhaustive objdump comparison
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup override set stable
+      - uses: actions/cache@v6
+        with:
+          path: xtensa/target/oracle/xtensa-esp-elf
+          key: oracle-toolchain-${{ hashFiles('xtensa/scripts/oracle/fetch-toolchain.sh') }}
+      - run: xtensa/scripts/oracle/run.sh
+      - name: Check fixtures are up to date
+        run: |
+          git add -N xtensa/tests/data
+          git diff --exit-code --stat -- xtensa/tests/data
