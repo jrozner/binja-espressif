@@ -2,7 +2,7 @@
 # Builds tests/data/<chip>.elf from tests/data/corpus.c with Espressif's GCC.
 #
 # The Xtensa toolchain is the one the xtensa disassembler's oracle uses
-# (xtensa-esp-elf esp-15.2.0_20251204; see ../xtensa/scripts/oracle), the
+# (xtensa-esp-elf esp-15.2.0_20251204; see xtensa/scripts/oracle), the
 # RISC-V one is riscv32-esp-elf from the same release
 # (scripts/fetch_riscv_toolchain.sh). The RISC-V ELFs also get
 # tests/data/start_riscv.S: an ESP-IDF style call_start_cpu0 that sets gp, and
@@ -15,8 +15,8 @@
 #
 # Usage: scripts/build_test_elfs.sh [XTENSA_TOOLCHAIN_DIR [RISCV_TOOLCHAIN_DIR]]
 set -euo pipefail
-toolchain=$(realpath "${1:-../xtensa/target/oracle/xtensa-esp-elf}")
-riscv=$(realpath "${2:-../xtensa/target/oracle/riscv32-esp-elf}")
+toolchain=$(realpath "${1:-$(dirname "$0")/../xtensa/target/oracle/xtensa-esp-elf}")
+riscv=$(realpath "${2:-$(dirname "$0")/../xtensa/target/oracle/riscv32-esp-elf}")
 prefix=$toolchain/bin/xtensa-esp-elf-
 cd "$(dirname "$0")/../tests/data"
 work=$(mktemp -d)

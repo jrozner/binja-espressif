@@ -12,7 +12,7 @@ Usage: scripts/gen_exemplars.py [path/to/xtensa] > src/xtensa/exemplars.rs
 import os
 import sys
 
-root = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "..", "..", "xtensa")
+root = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "..", "xtensa")
 seen = {}
 for chip in ["esp8266", "esp32", "esp32s2", "esp32s3"]:
     with open(os.path.join(root, "tests", "data", f"{chip}.tsv")) as f:

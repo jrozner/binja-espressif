@@ -33,12 +33,57 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-${{ github.job }}-
 
       - name: Build
-        run: cargo build --no-default-features --all-targets
+        run: cargo build --workspace --no-default-features --all-targets
 
       # The lift_sweep integration test needs a licensed Binary Ninja core, so
       # only the unit tests run here.
       - name: Test
-        run: cargo test --no-default-features --lib
+        run: cargo test -p binja-xtensa --no-default-features --lib
+
+  # The decoder (xtensa/) on its own, also on its minimum supported Rust
+  # version (rust-version in xtensa/Cargo.toml). The exhaustive tests take
+  # many CPU-minutes; nightly.yml runs them.
+  decoder:
+    name: decoder (${{ matrix.toolchain }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [stable, beta, "1.87"]
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        env:
+          TOOLCHAIN: ${{ matrix.toolchain }}
+        run: |
+          rustup toolchain install "$TOOLCHAIN" --profile minimal --no-self-update
+          rustup override set "$TOOLCHAIN"
+
+      # Cargo resolves the whole workspace, so this fetches the plugin's
+      # dependencies too (without building them).
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-${{ github.job }}-${{ matrix.toolchain }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-${{ github.job }}-${{ matrix.toolchain }}-
+
+      - name: Test
+        run: |
+          cargo test -p xtensa --locked --all-targets -- --skip exhaustive
+          cargo test -p xtensa --locked --doc
+
+      - name: Docs
+        if: matrix.toolchain == 'stable'
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p xtensa --locked --no-deps
 
   lint:
     runs-on: ubuntu-latest
@@ -63,10 +108,10 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-${{ github.job }}-
 
       - name: Rustfmt
-        run: cargo fmt --check
+        run: cargo fmt --all --check
 
       - name: Clippy
-        run: cargo clippy --no-default-features --all-targets -- -D warnings
+        run: cargo clippy --workspace --no-default-features --all-targets -- -D warnings
 
   # The Python loader (binja_xtensa_loader/) and the release manifest
   # tooling; standard library only, no Binary Ninja needed.
@@ -110,7 +155,7 @@ jobs:
         run: cargo build --no-default-features
 
       - name: Clippy
-        run: cargo clippy --no-default-features --all-targets -- -D warnings
+        run: cargo clippy --workspace --no-default-features --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test --no-default-features --lib
+        run: cargo test -p binja-xtensa --no-default-features --lib

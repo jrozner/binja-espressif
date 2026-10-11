@@ -1,0 +1,4816 @@
+000000	0	3	ill
+000001	4	3	l32r a0, fffc0004
+000002	8	3	l8ui a0, a0, 0
+000005	14	3	call0 18
+000006	18	3	j 1c
+000007	1c	3	bnone a0, a0, 20
+000008	0	2	l32i.n a0, a0, 0
+000009	4	2	s32i.n a0, a0, 0
+00000a	8	2	add.n a0, a0, a0
+00000b	c	2	addi.n a0, a0, -1
+00000c	10	2	movi.n a0, 0
+00000d	14	2	mov.n a0, a0
+000016	38	3	beqz a0, 3c
+000026	58	3	beqi a0, -1, 5c
+000056	b8	3	bnez a0, bc
+000066	d8	3	bnei a0, -1, dc
+000080	100	3	ret
+00008c	110	2	beqz.n a0, 114
+000096	138	3	bltz a0, 13c
+0000a0	140	3	jx a0
+0000a6	158	3	blti a0, -1, 15c
+0000b6	178	3	bltui a0, 0x8000, 17c
+0000c0	180	3	callx0 a0
+0000cc	190	2	bnez.n a0, 194
+0000d6	1b8	3	bgez a0, 1bc
+0000e6	1d8	3	bgei a0, -1, 1dc
+0000f6	1f8	3	bgeui a0, 0x8000, 1fc
+000180	300	3	ret
+0001a0	340	3	jx a1
+0001c0	380	3	callx0 a1
+00022e	458	1	.byte 0x2e
+000280	500	3	ret
+00029d	534	2	mov.n a9, a2
+0002a0	540	3	jx a2
+0003a0	740	3	jx a3
+000418	820	2	l32i.n a1, a4, 0
+000580	b00	3	ret
+000680	d00	3	ret
+0006c0	d80	3	callx0 a6
+00073d	e74	2	mov.n a3, a7
+000780	f00	3	ret
+0008a0	1140	3	jx a8
+0008c0	1180	3	callx0 a8
+00090d	1214	2	mov.n a0, a9
+000980	1300	3	ret
+0009a0	1340	3	jx a9
+0009ad	1354	2	mov.n a10, a9
+0009dc	13b0	2	bnez.n a9, 13c4
+000a80	1500	3	ret
+000aa0	1540	3	jx a10
+000aad	1554	2	mov.n a10, a10
+000ac0	1580	3	callx0 a10
+000ba0	1740	3	jx a11
+000bc0	1780	3	callx0 a11
+000cc0	1980	3	callx0 a12
+000da0	1b40	3	jx a13
+000dbd	1b74	2	mov.n a11, a13
+000dc0	1b80	3	callx0 a13
+000e29	1c44	2	s32i.n a2, a14, 0
+000e80	1d00	3	ret
+000efd	1df4	2	mov.n a15, a14
+000f5d	1eb4	2	mov.n a5, a15
+000f80	1f00	3	ret
+000fa0	1f40	3	jx a15
+000fc0	1f80	3	callx0 a15
+000ffd	1ff4	2	mov.n a15, a15
+001002	2008	3	l16ui a0, a0, 0
+001007	201c	3	beq a0, a0, 2020
+001158	22a0	2	l32i.n a5, a1, 4
+0011aa	2348	2	add.n a1, a1, a10
+00159c	2b30	2	beqz.n a5, 2b45
+00160c	2c10	2	movi.n a6, 1
+00161c	2c30	2	movi.n a6, 17
+001c9e	3938	1	.byte 0x9e
+002000	4000	3	isync
+002002	4008	3	l32i a0, a0, 0
+002007	401c	3	blt a0, a0, 4020
+002010	4020	3	rsync
+002020	4040	3	esync
+002030	4060	3	dsync
+002080	4100	3	excw
+0020c0	4180	3	memw
+0020d0	41a0	3	extw
+0020f0	41e0	3	nop
+002179	42e4	2	s32i.n a7, a1, 8
+00220b	440c	2	addi.n a2, a2, -1
+00247e	48f8	1	.byte 0x7e
+0028da	51a8	2	add.n a2, a8, a13
+002cac	5950	2	beqz.n a12, 5976
+003000	6000	3	rfe
+003007	601c	3	bltu a0, a0, 6020
+003010	6020	3	rfi 0
+0030aa	6148	2	add.n a3, a0, a10
+003200	6400	3	rfde
+003210	6420	3	rfi 2
+003410	6820	3	rfi 4
+003610	6c20	3	rfi 6
+003710	6e20	3	rfi 7
+003810	7020	3	rfi 8
+0038d9	71a4	2	s32i.n a13, a8, 12
+003af8	75e0	2	l32i.n a15, a10, 12
+003b10	7620	3	rfi 11
+003d10	7a20	3	rfi 13
+003f10	7e20	3	rfi 15
+004000	8000	3	break 0, 0
+004002	8008	3	s8i a0, a0, 0
+004007	801c	3	ball a0, a0, 8020
+004120	8240	3	break 1, 2
+0043c0	8780	3	break 3, 12
+004450	88a0	3	break 4, 5
+0045a0	8b40	3	break 5, 10
+004620	8c40	3	break 6, 2
+00463b	8c6c	2	addi.n a4, a6, 3
+004660	8cc0	3	break 6, 6
+004930	9260	3	break 9, 3
+00495b	92ac	2	addi.n a4, a9, 5
+004a00	9400	3	break 10, 0
+004ff0	9fe0	3	break 15, 15
+005000	a000	3	syscall
+005002	a008	3	s16i a0, a0, 0
+005007	a01c	3	bbc a0, a0, a020
+005100	a200	3	simcall
+0054be	a978	1	.byte 0xbe
+0058ec	b1d0	2	bnez.n a8, b1f9
+00598c	b310	2	beqz.n a9, b319
+006000	c000	3	rsil a0, 0
+006002	c008	3	s32i a0, a0, 0
+006007	c01c	3	bbci a0, 0, c020
+006120	c240	3	rsil a2, 1
+006370	c6e0	3	rsil a7, 3
+006380	c700	3	rsil a8, 3
+0063cc	c790	2	bnez.n a3, c79a
+0065bc	cb70	2	beqz.n a5, cbaa
+006704	ce10	3	excw
+006740	ce80	3	rsil a4, 7
+006800	d000	3	rsil a0, 8
+006820	d040	3	rsil a2, 8
+006a28	d440	2	l32i.n a2, a10, 24
+006dcc	db90	2	bnez.n a13, db9a
+006ea0	dd40	3	rsil a10, 14
+006f20	de40	3	rsil a2, 15
+006ff0	dfe0	3	rsil a15, 15
+007000	e000	3	waiti 0
+007300	e600	3	waiti 3
+00731c	e630	2	movi.n a3, 23
+0074dc	e9b0	2	bnez.n a4, e9cb
+007900	f200	3	waiti 9
+007a00	f400	3	waiti 10
+007b00	f600	3	waiti 11
+007c00	f800	3	waiti 12
+007e00	fc00	3	waiti 14
+007f00	fe00	3	waiti 15
+008007	1001c	3	bany a0, a0, 10020
+0081dc	103b0	2	bnez.n a1, 103cc
+0082fb	105ec	2	addi.n a8, a2, 15
+009002	12008	3	l16si a0, a0, 0
+009007	1201c	3	bne a0, a0, 12020
+00903c	12070	2	movi.n a0, 57
+0094ec	129d0	2	bnez.n a4, 129fd
+009679	12ce4	2	s32i.n a7, a6, 36
+00998c	13310	2	beqz.n a9, 1331d
+009b4e	13698	1	.byte 0x4e
+009caa	13948	2	add.n a9, a12, a10
+009cbe	13978	1	.byte 0xbe
+009d3c	13a70	2	movi.n a13, 57
+009dbc	13b70	2	beqz.n a13, 13bad
+00a002	14008	3	movi a0, 0
+00a007	1401c	3	bge a0, a0, 14020
+00a019	14024	2	s32i.n a1, a0, 40
+00a15c	142b0	2	movi.n a1, 90
+00a228	14440	2	l32i.n a2, a2, 40
+00a68c	14d10	2	beqz.n a6, 14d1e
+00ae5a	15ca8	2	add.n a10, a14, a5
+00b007	1601c	3	bgeu a0, a0, 16020
+00b1b3	1636c	3	excw
+00b1c9	16384	2	s32i.n a12, a1, 44
+00b4bb	1696c	2	addi.n a11, a4, 11
+00b8dc	171b0	2	bnez.n a8, 171cf
+00beb5	17d74	3	excw
+00bf5b	17eac	2	addi.n a11, a15, 5
+00c002	18008	3	addi a0, a0, 0
+00c007	1801c	3	bnall a0, a0, 18020
+00c56b	18acc	2	addi.n a12, a5, 6
+00c62c	18c50	2	movi.n a6, 44
+00c678	18ce0	2	l32i.n a7, a6, 48
+00c83f	1907c	1	.byte 0x3f
+00c9ca	19388	2	add.n a12, a9, a12
+00cec8	19d80	2	l32i.n a12, a14, 48
+00d002	1a008	3	addmi a0, a0, 0
+00d007	1a01c	3	bbs a0, a0, 1a020
+00d15a	1a2a8	2	add.n a13, a1, a5
+00d1ff	1a3fc	1	.byte 0xff
+00d24e	1a498	1	.byte 0x4e
+00d27b	1a4ec	2	addi.n a13, a2, 7
+00db19	1b624	2	s32i.n a1, a11, 52
+00e007	1c01c	3	bbsi a0, 0, 1c020
+00e908	1d200	2	l32i.n a0, a9, 56
+00ee0c	1dc10	2	movi.n a14, 14
+00ef9c	1df30	2	beqz.n a15, 1df52
+00f00d	1e014	2	ret.n
+00f02d	1e054	2	break.n 0
+00f03d	1e074	2	nop.n
+00f06d	1e0d4	2	ill.n
+00f163	1e2cc	3	excw
+00f20d	1e414	2	ret.n
+00f40d	1e814	2	ret.n
+00f42d	1e854	2	break.n 4
+00f50d	1ea14	2	ret.n
+00f5e9	1ebc4	2	s32i.n a14, a5, 60
+00f60d	1ec14	2	ret.n
+00f62d	1ec54	2	break.n 6
+00f72d	1ee54	2	break.n 7
+00f82d	1f054	2	break.n 8
+00f90d	1f214	2	ret.n
+00fb0d	1f614	2	ret.n
+00fb2d	1f654	2	break.n 11
+00fd2d	1fa54	2	break.n 13
+00fd3a	1fa68	2	add.n a15, a13, a3
+00fe0d	1fc14	2	ret.n
+00fe2d	1fc54	2	break.n 14
+00ff0d	1fe14	2	ret.n
+00ff2d	1fe54	2	break.n 15
+00ff7c	1fef0	2	movi.n a15, -1
+00ffbc	1ff70	2	beqz.n a15, 1ffb3
+00fff8	1ffe0	2	l32i.n a15, a15, 60
+00fff9	1ffe4	2	s32i.n a15, a15, 60
+00fffa	1ffe8	2	add.n a15, a15, a15
+00fffb	1ffec	2	addi.n a15, a15, 15
+00fffc	1fff0	2	bnez.n a15, 20033
+010000	0	3	slli a0, a0, 32
+0111f5	23f4	3	excw
+0116a4	2d50	3	excw
+012080	4100	3	slli a2, a0, 24
+014d40	9a80	3	slli a4, a13, 28
+0153f4	a7f0	3	excw
+016276	c4f8	3	excw
+019134	12270	3	excw
+019f33	13e6c	3	excw
+01b1a0	16340	3	slli a11, a1, 22
+01b776	16ef8	3	excw
+01f2e0	1e5c0	3	slli a15, a2, 18
+01f742	1ee88	3	excw
+022035	4074	3	excw
+022b03	560c	3	excw
+023f13	7e2c	3	excw
+025734	ae70	3	excw
+029ae3	135cc	3	excw
+02a336	14678	3	excw
+02ce44	19c90	3	excw
+02e112	1c228	3	excw
+02e2d3	1c5ac	3	excw
+02e876	1d0f8	3	excw
+02f630	1ec60	3	excw
+030300	600	3	rsr.sar a0
+030310	620	3	rsr.sar a1
+030340	680	3	rsr.sar a4
+030350	6a0	3	rsr.sar a5
+030360	6c0	3	rsr.sar a6
+030390	720	3	rsr.sar a9
+0303b0	760	3	rsr.sar a11
+0303e0	7c0	3	rsr.sar a14
+0303f0	7e0	3	rsr.sar a15
+030500	a00	3	rsr.litbase a0
+030530	a60	3	rsr.litbase a3
+030540	a80	3	rsr.litbase a4
+030570	ae0	3	rsr.litbase a7
+0305a0	b40	3	rsr.litbase a10
+0305b0	b60	3	rsr.litbase a11
+0305d0	ba0	3	rsr.litbase a13
+0305e0	bc0	3	rsr.litbase a14
+0305f0	be0	3	rsr.litbase a15
+031d63	3acc	3	excw
+032644	4c90	3	excw
+0328a5	5154	3	excw
+033875	70f4	3	excw
+036000	c000	3	rsr.ibreakenable a0
+036010	c020	3	rsr.ibreakenable a1
+036020	c040	3	rsr.ibreakenable a2
+036030	c060	3	rsr.ibreakenable a3
+036050	c0a0	3	rsr.ibreakenable a5
+036080	c100	3	rsr.ibreakenable a8
+036090	c120	3	rsr.ibreakenable a9
+0360e0	c1c0	3	rsr.ibreakenable a14
+0360f0	c1e0	3	rsr.ibreakenable a15
+036800	d000	3	rsr.ddr a0
+036810	d020	3	rsr.ddr a1
+036820	d040	3	rsr.ddr a2
+036830	d060	3	rsr.ddr a3
+036880	d100	3	rsr.ddr a8
+0368b0	d160	3	rsr.ddr a11
+0368c0	d180	3	rsr.ddr a12
+0368e0	d1c0	3	rsr.ddr a14
+0368f0	d1e0	3	rsr.ddr a15
+038000	10000	3	rsr.ibreaka0 a0
+038010	10020	3	rsr.ibreaka0 a1
+038013	1002c	3	excw
+038020	10040	3	rsr.ibreaka0 a2
+038050	100a0	3	rsr.ibreaka0 a5
+038060	100c0	3	rsr.ibreaka0 a6
+038070	100e0	3	rsr.ibreaka0 a7
+0380a3	1014c	3	excw
+0380c0	10180	3	rsr.ibreaka0 a12
+0380e0	101c0	3	rsr.ibreaka0 a14
+0380f0	101e0	3	rsr.ibreaka0 a15
+039000	12000	3	rsr.dbreaka0 a0
+039010	12020	3	rsr.dbreaka0 a1
+039020	12040	3	rsr.dbreaka0 a2
+039030	12060	3	rsr.dbreaka0 a3
+039050	120a0	3	rsr.dbreaka0 a5
+0390a0	12140	3	rsr.dbreaka0 a10
+0390c0	12180	3	rsr.dbreaka0 a12
+0390d0	121a0	3	rsr.dbreaka0 a13
+0390f0	121e0	3	rsr.dbreaka0 a15
+039ea7	13d5c	3	bne a14, a10, 13d63
+03a000	14000	3	rsr.dbreakc0 a0
+03a030	14060	3	rsr.dbreakc0 a3
+03a060	140c0	3	rsr.dbreakc0 a6
+03a070	140e0	3	rsr.dbreakc0 a7
+03a080	14100	3	rsr.dbreakc0 a8
+03a090	14120	3	rsr.dbreakc0 a9
+03a0a0	14140	3	rsr.dbreakc0 a10
+03a0b0	14160	3	rsr.dbreakc0 a11
+03a0e0	141c0	3	rsr.dbreakc0 a14
+03a0f0	141e0	3	rsr.dbreakc0 a15
+03b000	16000	3	rsr.176 a0
+03b010	16020	3	rsr.176 a1
+03b030	16060	3	rsr.176 a3
+03b060	160c0	3	rsr.176 a6
+03b070	160e0	3	rsr.176 a7
+03b080	16100	3	rsr.176 a8
+03b0a0	16140	3	rsr.176 a10
+03b0e0	161c0	3	rsr.176 a14
+03b0f0	161e0	3	rsr.176 a15
+03b100	16200	3	rsr.epc1 a0
+03b120	16240	3	rsr.epc1 a2
+03b140	16280	3	rsr.epc1 a4
+03b160	162c0	3	rsr.epc1 a6
+03b170	162e0	3	rsr.epc1 a7
+03b1b0	16360	3	rsr.epc1 a11
+03b1c0	16380	3	rsr.epc1 a12
+03b1d0	163a0	3	rsr.epc1 a13
+03b1f0	163e0	3	rsr.epc1 a15
+03b200	16400	3	rsr.epc2 a0
+03b220	16440	3	rsr.epc2 a2
+03b224	16450	3	excw
+03b260	164c0	3	rsr.epc2 a6
+03b280	16500	3	rsr.epc2 a8
+03b290	16520	3	rsr.epc2 a9
+03b2a0	16540	3	rsr.epc2 a10
+03b2c0	16580	3	rsr.epc2 a12
+03b2f0	165e0	3	rsr.epc2 a15
+03b300	16600	3	rsr.epc3 a0
+03b340	16680	3	rsr.epc3 a4
+03b350	166a0	3	rsr.epc3 a5
+03b360	166c0	3	rsr.epc3 a6
+03b370	166e0	3	rsr.epc3 a7
+03b390	16720	3	rsr.epc3 a9
+03b3c0	16780	3	rsr.epc3 a12
+03b3e0	167c0	3	rsr.epc3 a14
+03b3f0	167e0	3	rsr.epc3 a15
+03c000	18000	3	rsr.depc a0
+03c030	18060	3	rsr.depc a3
+03c050	180a0	3	rsr.depc a5
+03c060	180c0	3	rsr.depc a6
+03c070	180e0	3	rsr.depc a7
+03c090	18120	3	rsr.depc a9
+03c0c0	18180	3	rsr.depc a12
+03c0d0	181a0	3	rsr.depc a13
+03c0e0	181c0	3	rsr.depc a14
+03c0f0	181e0	3	rsr.depc a15
+03c104	18210	3	excw
+03c200	18400	3	rsr.eps2 a0
+03c210	18420	3	rsr.eps2 a1
+03c220	18440	3	rsr.eps2 a2
+03c230	18460	3	rsr.eps2 a3
+03c240	18480	3	rsr.eps2 a4
+03c250	184a0	3	rsr.eps2 a5
+03c280	18500	3	rsr.eps2 a8
+03c2c0	18580	3	rsr.eps2 a12
+03c2d0	185a0	3	rsr.eps2 a13
+03c2f0	185e0	3	rsr.eps2 a15
+03c300	18600	3	rsr.eps3 a0
+03c330	18660	3	rsr.eps3 a3
+03c340	18680	3	rsr.eps3 a4
+03c350	186a0	3	rsr.eps3 a5
+03c370	186e0	3	rsr.eps3 a7
+03c380	18700	3	rsr.eps3 a8
+03c3b0	18760	3	rsr.eps3 a11
+03c3d0	187a0	3	rsr.eps3 a13
+03c3f0	187e0	3	rsr.eps3 a15
+03d000	1a000	3	rsr.208 a0
+03d030	1a060	3	rsr.208 a3
+03d040	1a080	3	rsr.208 a4
+03d070	1a0e0	3	rsr.208 a7
+03d080	1a100	3	rsr.208 a8
+03d0a0	1a140	3	rsr.208 a10
+03d0c0	1a180	3	rsr.208 a12
+03d0d0	1a1a0	3	rsr.208 a13
+03d0e0	1a1c0	3	rsr.208 a14
+03d0f0	1a1e0	3	rsr.208 a15
+03d100	1a200	3	rsr.excsave1 a0
+03d120	1a240	3	rsr.excsave1 a2
+03d130	1a260	3	rsr.excsave1 a3
+03d140	1a280	3	rsr.excsave1 a4
+03d150	1a2a0	3	rsr.excsave1 a5
+03d180	1a300	3	rsr.excsave1 a8
+03d190	1a320	3	rsr.excsave1 a9
+03d1e0	1a3c0	3	rsr.excsave1 a14
+03d1f0	1a3e0	3	rsr.excsave1 a15
+03d200	1a400	3	rsr.excsave2 a0
+03d230	1a460	3	rsr.excsave2 a3
+03d240	1a480	3	rsr.excsave2 a4
+03d280	1a500	3	rsr.excsave2 a8
+03d290	1a520	3	rsr.excsave2 a9
+03d2a0	1a540	3	rsr.excsave2 a10
+03d2c0	1a580	3	rsr.excsave2 a12
+03d2d0	1a5a0	3	rsr.excsave2 a13
+03d2f0	1a5e0	3	rsr.excsave2 a15
+03d300	1a600	3	rsr.excsave3 a0
+03d310	1a620	3	rsr.excsave3 a1
+03d330	1a660	3	rsr.excsave3 a3
+03d380	1a700	3	rsr.excsave3 a8
+03d390	1a720	3	rsr.excsave3 a9
+03d3c0	1a780	3	rsr.excsave3 a12
+03d3e0	1a7c0	3	rsr.excsave3 a14
+03d3f0	1a7e0	3	rsr.excsave3 a15
+03dae6	1b5d8	3	bgei a10, 64, 1b5df
+03dd25	1ba54	3	excw
+03e200	1c400	3	rsr.interrupt a0
+03e210	1c420	3	rsr.interrupt a1
+03e220	1c440	3	rsr.interrupt a2
+03e240	1c480	3	rsr.interrupt a4
+03e280	1c500	3	rsr.interrupt a8
+03e2a0	1c540	3	rsr.interrupt a10
+03e2b0	1c560	3	rsr.interrupt a11
+03e2f0	1c5e0	3	rsr.interrupt a15
+03e400	1c800	3	rsr.intenable a0
+03e410	1c820	3	rsr.intenable a1
+03e460	1c8c0	3	rsr.intenable a6
+03e470	1c8e0	3	rsr.intenable a7
+03e490	1c920	3	rsr.intenable a9
+03e4c0	1c980	3	rsr.intenable a12
+03e4d0	1c9a0	3	rsr.intenable a13
+03e4e0	1c9c0	3	rsr.intenable a14
+03e4f0	1c9e0	3	rsr.intenable a15
+03e600	1cc00	3	rsr.ps a0
+03e620	1cc40	3	rsr.ps a2
+03e630	1cc60	3	rsr.ps a3
+03e640	1cc80	3	rsr.ps a4
+03e680	1cd00	3	rsr.ps a8
+03e690	1cd20	3	rsr.ps a9
+03e6b0	1cd60	3	rsr.ps a11
+03e6b3	1cd6c	3	excw
+03e6e0	1cdc0	3	rsr.ps a14
+03e6f0	1cde0	3	rsr.ps a15
+03e700	1ce00	3	rsr.vecbase a0
+03e720	1ce40	3	rsr.vecbase a2
+03e730	1ce60	3	rsr.vecbase a3
+03e750	1cea0	3	rsr.vecbase a5
+03e760	1cec0	3	rsr.vecbase a6
+03e7a0	1cf40	3	rsr.vecbase a10
+03e7c0	1cf80	3	rsr.vecbase a12
+03e7d0	1cfa0	3	rsr.vecbase a13
+03e7f0	1cfe0	3	rsr.vecbase a15
+03e800	1d000	3	rsr.exccause a0
+03e810	1d020	3	rsr.exccause a1
+03e870	1d0e0	3	rsr.exccause a7
+03e890	1d120	3	rsr.exccause a9
+03e8a0	1d140	3	rsr.exccause a10
+03e8b0	1d160	3	rsr.exccause a11
+03e8c0	1d180	3	rsr.exccause a12
+03e8d0	1d1a0	3	rsr.exccause a13
+03e8e0	1d1c0	3	rsr.exccause a14
+03e8f0	1d1e0	3	rsr.exccause a15
+03e900	1d200	3	rsr.debugcause a0
+03e910	1d220	3	rsr.debugcause a1
+03e920	1d240	3	rsr.debugcause a2
+03e940	1d280	3	rsr.debugcause a4
+03e950	1d2a0	3	rsr.debugcause a5
+03e960	1d2c0	3	rsr.debugcause a6
+03e980	1d300	3	rsr.debugcause a8
+03e9a0	1d340	3	rsr.debugcause a10
+03e9b0	1d360	3	rsr.debugcause a11
+03e9f0	1d3e0	3	rsr.debugcause a15
+03ea00	1d400	3	rsr.ccount a0
+03ea40	1d480	3	rsr.ccount a4
+03ea60	1d4c0	3	rsr.ccount a6
+03ea70	1d4e0	3	rsr.ccount a7
+03eab0	1d560	3	rsr.ccount a11
+03eac0	1d580	3	rsr.ccount a12
+03ead0	1d5a0	3	rsr.ccount a13
+03eae0	1d5c0	3	rsr.ccount a14
+03eaf0	1d5e0	3	rsr.ccount a15
+03eb00	1d600	3	rsr.prid a0
+03eb20	1d640	3	rsr.prid a2
+03eb50	1d6a0	3	rsr.prid a5
+03eb60	1d6c0	3	rsr.prid a6
+03eb70	1d6e0	3	rsr.prid a7
+03eb90	1d720	3	rsr.prid a9
+03eba0	1d740	3	rsr.prid a10
+03ebd0	1d7a0	3	rsr.prid a13
+03ebe0	1d7c0	3	rsr.prid a14
+03ebf0	1d7e0	3	rsr.prid a15
+03ec00	1d800	3	rsr.icount a0
+03ec10	1d820	3	rsr.icount a1
+03ec20	1d840	3	rsr.icount a2
+03ec40	1d880	3	rsr.icount a4
+03ec50	1d8a0	3	rsr.icount a5
+03ec60	1d8c0	3	rsr.icount a6
+03ec80	1d900	3	rsr.icount a8
+03ec90	1d920	3	rsr.icount a9
+03ecf0	1d9e0	3	rsr.icount a15
+03ed00	1da00	3	rsr.icountlevel a0
+03ed30	1da60	3	rsr.icountlevel a3
+03ed50	1daa0	3	rsr.icountlevel a5
+03ed70	1dae0	3	rsr.icountlevel a7
+03ed80	1db00	3	rsr.icountlevel a8
+03eda0	1db40	3	rsr.icountlevel a10
+03edc0	1db80	3	rsr.icountlevel a12
+03ede0	1dbc0	3	rsr.icountlevel a14
+03edf0	1dbe0	3	rsr.icountlevel a15
+03ee00	1dc00	3	rsr.excvaddr a0
+03ee20	1dc40	3	rsr.excvaddr a2
+03ee40	1dc80	3	rsr.excvaddr a4
+03ee50	1dca0	3	rsr.excvaddr a5
+03ee60	1dcc0	3	rsr.excvaddr a6
+03ee80	1dd00	3	rsr.excvaddr a8
+03eeb0	1dd60	3	rsr.excvaddr a11
+03eef0	1dde0	3	rsr.excvaddr a15
+03f000	1e000	3	rsr.ccompare0 a0
+03f040	1e080	3	rsr.ccompare0 a4
+03f060	1e0c0	3	rsr.ccompare0 a6
+03f070	1e0e0	3	rsr.ccompare0 a7
+03f090	1e120	3	rsr.ccompare0 a9
+03f0c0	1e180	3	rsr.ccompare0 a12
+03f0e0	1e1c0	3	rsr.ccompare0 a14
+03f0f0	1e1e0	3	rsr.ccompare0 a15
+040000	0	3	extui a0, a0, 0, 1
+041f14	3e30	3	excw
+046153	c2ac	3	excw
+047095	e134	3	excw
+0475a2	eb48	3	excw
+047b92	f728	3	excw
+048c37	1187c	3	bany a12, a3, 11884
+04bda3	17b4c	3	excw
+04c357	186bc	3	bnall a3, a5, 186c4
+04daf3	1b5ec	3	excw
+04f313	1e62c	3	excw
+04f783	1ef0c	3	excw
+04fc62	1f8c8	3	excw
+051c65	38d4	3	excw
+051f15	3e34	3	excw
+053082	6108	3	excw
+053413	682c	3	excw
+053773	6eec	3	excw
+054eb5	9d74	3	excw
+055014	a030	3	excw
+0568d3	d1ac	3	excw
+05bea5	17d54	3	excw
+05d8a5	1b154	3	excw
+05ff73	1feec	3	excw
+061704	2e10	3	excw
+061a14	3430	3	excw
+0621d4	43b0	3	excw
+064db4	9b70	3	excw
+065533	aa6c	3	excw
+065a60	b4c0	3	excw
+067493	e92c	3	excw
+068093	1012c	3	excw
+068344	10690	3	excw
+069394	12730	3	excw
+06a704	14e10	3	excw
+06af20	15e40	3	excw
+06cd21	19a44	3	l32r a2, fffdb578
+06d6d0	1ada0	3	excw
+06fa44	1f490	3	excw
+0717e5	2fd4	3	excw
+071b76	36f8	3	excw
+072440	4880	3	excw
+073bb3	776c	3	excw
+074573	8aec	3	excw
+0746a0	8d40	3	excw
+077015	e034	3	excw
+0774f0	e9e0	3	excw
+079912	13228	3	l16si a1, a9, 14
+07a620	14c40	3	excw
+07c806	19018	3	j 1af3c
+07ce03	19c0c	3	excw
+07d894	1b130	3	excw
+07dbf3	1b7ec	3	excw
+07e126	1c258	3	beqi a1, 128, 1c263
+07e230	1c460	3	excw
+07e5e0	1cbc0	3	excw
+07e673	1ccec	3	excw
+07f376	1e6f8	3	excw
+082840	5080	3	excw
+083476	68f8	3	excw
+083875	70f4	3	excw
+084553	8aac	3	excw
+0847e0	8fc0	3	excw
+085160	a2c0	3	excw
+0868a3	d14c	3	excw
+08a215	14434	3	excw
+08bef0	17de0	3	excw
+08c2d4	185b0	3	excw
+08f8a0	1f140	3	excw
+092476	48f8	3	excw
+0929d4	53b0	3	excw
+093890	7120	3	excw
+093db3	7b6c	3	excw
+094656	8cb8	3	bnez a6, 8d50
+094e83	9d0c	3	excw
+096b13	d62c	3	excw
+098dd2	11ba8	3	excw
+09c562	18ac8	3	addi a6, a5, 9
+09e210	1c420	3	excw
+09ee44	1dc90	3	excw
+09f687	1ed1c	3	bbsi a6, 24, 1ed29
+09ff55	1feb4	3	excw
+0a2854	50b0	3	excw
+0a2ca5	5954	3	excw
+0a36c3	6d8c	3	excw
+0a3d35	7a74	3	excw
+0a42c0	8580	3	excw
+0a4e76	9cf8	3	excw
+0a5335	a674	3	excw
+0a5603	ac0c	3	excw
+0a7766	eed8	3	bnei a7, 7, eee6
+0a8d32	11a68	3	excw
+0aaa64	154d0	3	excw
+0aad15	15a34	3	excw
+0aae64	15cd0	3	excw
+0ac9b0	19360	3	excw
+0ad973	1b2ec	3	excw
+0adee7	1bddc	3	bbs a14, a14, 1bdea
+0ae3f5	1c7f4	3	excw
+0ae9a6	1d358	3	blti a9, 128, 1d366
+0aeb24	1d650	3	excw
+0aefa4	1df50	3	excw
+0b0165	2d4	3	excw
+0b02f4	5f0	3	excw
+0b2377	46fc	3	blt a3, a7, 470b
+0b3015	6034	3	excw
+0b4a03	940c	3	excw
+0b54a4	a950	3	excw
+0b54c3	a98c	3	excw
+0b55f4	abf0	3	excw
+0b5830	b060	3	excw
+0b6083	c10c	3	excw
+0b6453	c8ac	3	excw
+0b6cd3	d9ac	3	excw
+0b75d5	ebb4	3	excw
+0b7995	f334	3	excw
+0b9df4	13bf0	3	excw
+0bb095	16134	3	excw
+0bb320	16640	3	excw
+0bba12	17428	3	excw
+0bbf10	17e20	3	excw
+0bdb34	1b670	3	excw
+0c0d65	1ad4	3	excw
+0c1705	2e14	3	call0 ef88
+0c1c87	391c	3	beq a12, a8, 392c
+0c3293	652c	3	excw
+0c43d0	87a0	3	excw
+0c6580	cb00	3	excw
+0c7922	f248	3	excw
+0c9260	124c0	3	excw
+0c9f23	13e4c	3	excw
+0c9fb4	13f70	3	excw
+0ca9c4	15390	3	excw
+0cad90	15b20	3	excw
+0cade0	15bc0	3	excw
+0cae33	15c6c	3	excw
+0cb950	172a0	3	excw
+0cbae3	175cc	3	excw
+0ce434	1c870	3	excw
+0d27a4	4f50	3	excw
+0d2d95	5b34	3	excw
+0d3635	6c74	3	excw
+0d4cb4	9970	3	excw
+0d4ff2	9fe8	3	s8i a15, a15, 13
+0d55f0	abe0	3	excw
+0d69c3	d38c	3	excw
+0d7fe3	ffcc	3	excw
+0d8944	11290	3	excw
+0daab3	1556c	3	excw
+0de1d3	1c3ac	3	excw
+0deb80	1d700	3	excw
+0def73	1deec	3	excw
+0e0224	450	3	excw
+0e14c0	2980	3	excw
+0e3433	686c	3	excw
+0e3e10	7c20	3	excw
+0e4a10	9420	3	excw
+0e50f4	a1f0	3	excw
+0e5e32	bc68	3	s16i a3, a14, 28
+0e6c24	d850	3	excw
+0e7d54	fab0	3	excw
+0e9024	12050	3	excw
+0e9ba3	1374c	3	excw
+0ea6c3	14d8c	3	excw
+0eafd3	15fac	3	excw
+0eb3e2	167c8	3	excw
+0eb622	16c48	3	excw
+0eb883	1710c	3	excw
+0ebbc2	17788	3	excw
+0ec304	18610	3	excw
+0eecb2	1d968	3	excw
+0ef2d2	1e5a8	3	excw
+0f00e3	1cc	3	excw
+0f0240	480	3	excw
+0f0e23	1c4c	3	excw
+0f18a0	3140	3	excw
+0f2964	52d0	3	excw
+0f2f43	5e8c	3	excw
+0f3fa3	7f4c	3	excw
+0f6bb4	d770	3	excw
+0f6d35	da74	3	excw
+0f7694	ed30	3	excw
+0f7d54	fab0	3	excw
+0f9163	122cc	3	excw
+0f9cd4	139b0	3	excw
+0fb015	16034	3	excw
+0fd280	1a500	3	excw
+0fec74	1d8f0	3	excw
+100000	0	3	and a0, a0, a0
+1001c0	380	3	and a0, a1, a12
+1019b0	3360	3	and a1, a9, a11
+102750	4ea0	3	and a2, a7, a5
+104c83	990c	3	excw
+106f76	def8	3	excw
+107070	e0e0	3	and a7, a0, a7
+1071d5	e3b4	3	excw
+1082a5	10554	3	excw
+108624	10c50	3	excw
+109dd0	13ba0	3	and a9, a13, a13
+10c0d0	181a0	3	and a12, a0, a13
+10ce74	19cf0	3	excw
+10d576	1aaf8	3	excw
+10d7d0	1afa0	3	and a13, a7, a13
+10e0e0	1c1c0	3	and a14, a0, a14
+10f0a3	1e14c	3	excw
+10f4a7	1e95c	3	bbsi a4, 26, 1e970
+10f4c3	1e98c	3	excw
+10fff0	1ffe0	3	and a15, a15, a15
+110215	434	3	excw
+1123b0	4760	3	slli a2, a3, 5
+115d44	ba90	3	excw
+1179e2	f3c8	3	excw
+11a077	140fc	3	bge a0, a7, 14111
+11a294	14530	3	excw
+11aee5	15dd4	3	excw
+11bfa0	17f40	3	slli a11, a15, 6
+11d0c0	1a180	3	slli a13, a0, 4
+11dfb2	1bf68	3	addmi a11, a15, 0x1100
+11e430	1c860	3	slli a14, a4, 13
+11fff0	1ffe0	3	slli a15, a15, 1
+120583	b0c	3	excw
+1216c6	2d98	3	j 75f7
+123463	68cc	3	excw
+125650	aca0	3	excw
+125f84	bf10	3	excw
+128230	10460	3	excw
+128ff0	11fe0	3	excw
+12f2a3	1e54c	3	excw
+1301b3	36c	3	excw
+130300	600	3	wsr.sar a0
+130340	680	3	wsr.sar a4
+130350	6a0	3	wsr.sar a5
+130370	6e0	3	wsr.sar a7
+130380	700	3	wsr.sar a8
+1303a0	740	3	wsr.sar a10
+1303b0	760	3	wsr.sar a11
+1303d0	7a0	3	wsr.sar a13
+1303e0	7c0	3	wsr.sar a14
+1303f0	7e0	3	wsr.sar a15
+130500	a00	3	wsr.litbase a0
+130530	a60	3	wsr.litbase a3
+130550	aa0	3	wsr.litbase a5
+130560	ac0	3	wsr.litbase a6
+130570	ae0	3	wsr.litbase a7
+130580	b00	3	wsr.litbase a8
+130590	b20	3	wsr.litbase a9
+1305a0	b40	3	wsr.litbase a10
+1305b0	b60	3	wsr.litbase a11
+1305f0	be0	3	wsr.litbase a15
+130955	12b4	3	excw
+130b26	1658	3	beqi a11, -1, 166f
+131590	2b20	3	excw
+131930	3260	3	excw
+132f83	5f0c	3	excw
+133b83	770c	3	excw
+133be2	77c8	3	excw
+1342f3	85ec	3	excw
+135900	b200	3	wsr.mmid a0
+135930	b260	3	wsr.mmid a3
+135950	b2a0	3	wsr.mmid a5
+135970	b2e0	3	wsr.mmid a7
+135980	b300	3	wsr.mmid a8
+135990	b320	3	wsr.mmid a9
+1359a0	b340	3	wsr.mmid a10
+1359b0	b360	3	wsr.mmid a11
+1359f0	b3e0	3	wsr.mmid a15
+136000	c000	3	wsr.ibreakenable a0
+136010	c020	3	wsr.ibreakenable a1
+136030	c060	3	wsr.ibreakenable a3
+136040	c080	3	wsr.ibreakenable a4
+1360a0	c140	3	wsr.ibreakenable a10
+1360b0	c160	3	wsr.ibreakenable a11
+1360c0	c180	3	wsr.ibreakenable a12
+1360d0	c1a0	3	wsr.ibreakenable a13
+1360e0	c1c0	3	wsr.ibreakenable a14
+1360f0	c1e0	3	wsr.ibreakenable a15
+136330	c660	3	excw
+136800	d000	3	wsr.ddr a0
+136810	d020	3	wsr.ddr a1
+136830	d060	3	wsr.ddr a3
+136850	d0a0	3	wsr.ddr a5
+136880	d100	3	wsr.ddr a8
+136890	d120	3	wsr.ddr a9
+1368a0	d140	3	wsr.ddr a10
+1368f0	d1e0	3	wsr.ddr a15
+137063	e0cc	3	excw
+137fd4	ffb0	3	excw
+138000	10000	3	wsr.ibreaka0 a0
+138020	10040	3	wsr.ibreaka0 a2
+138030	10060	3	wsr.ibreaka0 a3
+138050	100a0	3	wsr.ibreaka0 a5
+138090	10120	3	wsr.ibreaka0 a9
+1380c0	10180	3	wsr.ibreaka0 a12
+1380d0	101a0	3	wsr.ibreaka0 a13
+1380f0	101e0	3	wsr.ibreaka0 a15
+139000	12000	3	wsr.dbreaka0 a0
+139040	12080	3	wsr.dbreaka0 a4
+139044	12090	3	excw
+139050	120a0	3	wsr.dbreaka0 a5
+139060	120c0	3	wsr.dbreaka0 a6
+139070	120e0	3	wsr.dbreaka0 a7
+139090	12120	3	wsr.dbreaka0 a9
+1390c0	12180	3	wsr.dbreaka0 a12
+1390e0	121c0	3	wsr.dbreaka0 a14
+1390f0	121e0	3	wsr.dbreaka0 a15
+139497	1293c	3	bne a4, a9, 12953
+13a000	14000	3	wsr.dbreakc0 a0
+13a010	14020	3	wsr.dbreakc0 a1
+13a020	14040	3	wsr.dbreakc0 a2
+13a060	140c0	3	wsr.dbreakc0 a6
+13a0a0	14140	3	wsr.dbreakc0 a10
+13a0b0	14160	3	wsr.dbreakc0 a11
+13a0c0	14180	3	wsr.dbreakc0 a12
+13a0e0	141c0	3	wsr.dbreakc0 a14
+13a0f0	141e0	3	wsr.dbreakc0 a15
+13b000	16000	3	wsr.176 a0
+13b010	16020	3	wsr.176 a1
+13b030	16060	3	wsr.176 a3
+13b070	160e0	3	wsr.176 a7
+13b090	16120	3	wsr.176 a9
+13b0a0	16140	3	wsr.176 a10
+13b0c0	16180	3	wsr.176 a12
+13b0f0	161e0	3	wsr.176 a15
+13b100	16200	3	wsr.epc1 a0
+13b130	16260	3	wsr.epc1 a3
+13b140	16280	3	wsr.epc1 a4
+13b150	162a0	3	wsr.epc1 a5
+13b160	162c0	3	wsr.epc1 a6
+13b170	162e0	3	wsr.epc1 a7
+13b1c0	16380	3	wsr.epc1 a12
+13b1f0	163e0	3	wsr.epc1 a15
+13b200	16400	3	wsr.epc2 a0
+13b210	16420	3	wsr.epc2 a1
+13b220	16440	3	wsr.epc2 a2
+13b230	16460	3	wsr.epc2 a3
+13b240	16480	3	wsr.epc2 a4
+13b244	16490	3	excw
+13b250	164a0	3	wsr.epc2 a5
+13b2a0	16540	3	wsr.epc2 a10
+13b2c0	16580	3	wsr.epc2 a12
+13b2e0	165c0	3	wsr.epc2 a14
+13b2f0	165e0	3	wsr.epc2 a15
+13b300	16600	3	wsr.epc3 a0
+13b320	16640	3	wsr.epc3 a2
+13b330	16660	3	wsr.epc3 a3
+13b340	16680	3	wsr.epc3 a4
+13b3a0	16740	3	wsr.epc3 a10
+13b3b0	16760	3	wsr.epc3 a11
+13b3d0	167a0	3	wsr.epc3 a13
+13b3e0	167c0	3	wsr.epc3 a14
+13b3f0	167e0	3	wsr.epc3 a15
+13c000	18000	3	wsr.depc a0
+13c030	18060	3	wsr.depc a3
+13c060	180c0	3	wsr.depc a6
+13c080	18100	3	wsr.depc a8
+13c0a0	18140	3	wsr.depc a10
+13c0b0	18160	3	wsr.depc a11
+13c0c0	18180	3	wsr.depc a12
+13c0d0	181a0	3	wsr.depc a13
+13c0f0	181e0	3	wsr.depc a15
+13c200	18400	3	wsr.eps2 a0
+13c210	18420	3	wsr.eps2 a1
+13c220	18440	3	wsr.eps2 a2
+13c230	18460	3	wsr.eps2 a3
+13c260	184c0	3	wsr.eps2 a6
+13c2b0	18560	3	wsr.eps2 a11
+13c2d0	185a0	3	wsr.eps2 a13
+13c2e0	185c0	3	wsr.eps2 a14
+13c2f0	185e0	3	wsr.eps2 a15
+13c300	18600	3	wsr.eps3 a0
+13c340	18680	3	wsr.eps3 a4
+13c350	186a0	3	wsr.eps3 a5
+13c360	186c0	3	wsr.eps3 a6
+13c380	18700	3	wsr.eps3 a8
+13c390	18720	3	wsr.eps3 a9
+13c3a0	18740	3	wsr.eps3 a10
+13c3c0	18780	3	wsr.eps3 a12
+13c3d0	187a0	3	wsr.eps3 a13
+13c3f0	187e0	3	wsr.eps3 a15
+13ca36	19478	3	excw
+13d0c3	1a18c	3	excw
+13d100	1a200	3	wsr.excsave1 a0
+13d120	1a240	3	wsr.excsave1 a2
+13d130	1a260	3	wsr.excsave1 a3
+13d140	1a280	3	wsr.excsave1 a4
+13d150	1a2a0	3	wsr.excsave1 a5
+13d160	1a2c0	3	wsr.excsave1 a6
+13d1b0	1a360	3	wsr.excsave1 a11
+13d1c0	1a380	3	wsr.excsave1 a12
+13d1e0	1a3c0	3	wsr.excsave1 a14
+13d1f0	1a3e0	3	wsr.excsave1 a15
+13d200	1a400	3	wsr.excsave2 a0
+13d210	1a420	3	wsr.excsave2 a1
+13d220	1a440	3	wsr.excsave2 a2
+13d250	1a4a0	3	wsr.excsave2 a5
+13d270	1a4e0	3	wsr.excsave2 a7
+13d290	1a520	3	wsr.excsave2 a9
+13d2e0	1a5c0	3	wsr.excsave2 a14
+13d2f0	1a5e0	3	wsr.excsave2 a15
+13d300	1a600	3	wsr.excsave3 a0
+13d310	1a620	3	wsr.excsave3 a1
+13d320	1a640	3	wsr.excsave3 a2
+13d350	1a6a0	3	wsr.excsave3 a5
+13d370	1a6e0	3	wsr.excsave3 a7
+13d390	1a720	3	wsr.excsave3 a9
+13d3a0	1a740	3	wsr.excsave3 a10
+13d3d0	1a7a0	3	wsr.excsave3 a13
+13d3f0	1a7e0	3	wsr.excsave3 a15
+13e200	1c400	3	wsr.intset a0
+13e210	1c420	3	wsr.intset a1
+13e220	1c440	3	wsr.intset a2
+13e260	1c4c0	3	wsr.intset a6
+13e270	1c4e0	3	wsr.intset a7
+13e280	1c500	3	wsr.intset a8
+13e290	1c520	3	wsr.intset a9
+13e2a0	1c540	3	wsr.intset a10
+13e2d0	1c5a0	3	wsr.intset a13
+13e2f0	1c5e0	3	wsr.intset a15
+13e300	1c600	3	wsr.intclear a0
+13e330	1c660	3	wsr.intclear a3
+13e350	1c6a0	3	wsr.intclear a5
+13e360	1c6c0	3	wsr.intclear a6
+13e380	1c700	3	wsr.intclear a8
+13e390	1c720	3	wsr.intclear a9
+13e3b0	1c760	3	wsr.intclear a11
+13e3d0	1c7a0	3	wsr.intclear a13
+13e3e0	1c7c0	3	wsr.intclear a14
+13e3f0	1c7e0	3	wsr.intclear a15
+13e400	1c800	3	wsr.intenable a0
+13e430	1c860	3	wsr.intenable a3
+13e450	1c8a0	3	wsr.intenable a5
+13e460	1c8c0	3	wsr.intenable a6
+13e470	1c8e0	3	wsr.intenable a7
+13e480	1c900	3	wsr.intenable a8
+13e4c0	1c980	3	wsr.intenable a12
+13e4d0	1c9a0	3	wsr.intenable a13
+13e4f0	1c9e0	3	wsr.intenable a15
+13e600	1cc00	3	wsr.ps a0
+13e610	1cc20	3	wsr.ps a1
+13e650	1cca0	3	wsr.ps a5
+13e670	1cce0	3	wsr.ps a7
+13e680	1cd00	3	wsr.ps a8
+13e690	1cd20	3	wsr.ps a9
+13e6a0	1cd40	3	wsr.ps a10
+13e6b0	1cd60	3	wsr.ps a11
+13e6f0	1cde0	3	wsr.ps a15
+13e700	1ce00	3	wsr.vecbase a0
+13e720	1ce40	3	wsr.vecbase a2
+13e730	1ce60	3	wsr.vecbase a3
+13e740	1ce80	3	wsr.vecbase a4
+13e760	1cec0	3	wsr.vecbase a6
+13e770	1cee0	3	wsr.vecbase a7
+13e7a0	1cf40	3	wsr.vecbase a10
+13e7d0	1cfa0	3	wsr.vecbase a13
+13e7f0	1cfe0	3	wsr.vecbase a15
+13e800	1d000	3	wsr.exccause a0
+13e820	1d040	3	wsr.exccause a2
+13e830	1d060	3	wsr.exccause a3
+13e850	1d0a0	3	wsr.exccause a5
+13e870	1d0e0	3	wsr.exccause a7
+13e890	1d120	3	wsr.exccause a9
+13e8a0	1d140	3	wsr.exccause a10
+13e8d0	1d1a0	3	wsr.exccause a13
+13e8f0	1d1e0	3	wsr.exccause a15
+13e900	1d200	3	wsr.debugcause a0
+13e920	1d240	3	wsr.debugcause a2
+13e950	1d2a0	3	wsr.debugcause a5
+13e970	1d2e0	3	wsr.debugcause a7
+13e9a0	1d340	3	wsr.debugcause a10
+13e9b0	1d360	3	wsr.debugcause a11
+13e9c0	1d380	3	wsr.debugcause a12
+13e9d0	1d3a0	3	wsr.debugcause a13
+13e9f0	1d3e0	3	wsr.debugcause a15
+13ea00	1d400	3	wsr.ccount a0
+13ea50	1d4a0	3	wsr.ccount a5
+13ea70	1d4e0	3	wsr.ccount a7
+13ea80	1d500	3	wsr.ccount a8
+13eaa0	1d540	3	wsr.ccount a10
+13eac0	1d580	3	wsr.ccount a12
+13ead0	1d5a0	3	wsr.ccount a13
+13eaf0	1d5e0	3	wsr.ccount a15
+13ec00	1d800	3	wsr.icount a0
+13ec10	1d820	3	wsr.icount a1
+13ec50	1d8a0	3	wsr.icount a5
+13ec80	1d900	3	wsr.icount a8
+13ec90	1d920	3	wsr.icount a9
+13ecc0	1d980	3	wsr.icount a12
+13ecd0	1d9a0	3	wsr.icount a13
+13ece0	1d9c0	3	wsr.icount a14
+13ecf0	1d9e0	3	wsr.icount a15
+13ed00	1da00	3	wsr.icountlevel a0
+13ed30	1da60	3	wsr.icountlevel a3
+13ed60	1dac0	3	wsr.icountlevel a6
+13ed70	1dae0	3	wsr.icountlevel a7
+13eda0	1db40	3	wsr.icountlevel a10
+13edd0	1dba0	3	wsr.icountlevel a13
+13ede0	1dbc0	3	wsr.icountlevel a14
+13edf0	1dbe0	3	wsr.icountlevel a15
+13ee00	1dc00	3	wsr.excvaddr a0
+13ee20	1dc40	3	wsr.excvaddr a2
+13ee60	1dcc0	3	wsr.excvaddr a6
+13ee70	1dce0	3	wsr.excvaddr a7
+13eea0	1dd40	3	wsr.excvaddr a10
+13eeb0	1dd60	3	wsr.excvaddr a11
+13eec0	1dd80	3	wsr.excvaddr a12
+13eee0	1ddc0	3	wsr.excvaddr a14
+13eef0	1dde0	3	wsr.excvaddr a15
+13f000	1e000	3	wsr.ccompare0 a0
+13f020	1e040	3	wsr.ccompare0 a2
+13f030	1e060	3	wsr.ccompare0 a3
+13f040	1e080	3	wsr.ccompare0 a4
+13f090	1e120	3	wsr.ccompare0 a9
+13f0a0	1e140	3	wsr.ccompare0 a10
+13f0c0	1e180	3	wsr.ccompare0 a12
+13f0f0	1e1e0	3	wsr.ccompare0 a15
+13f3a2	1e748	3	excw
+13fbe3	1f7cc	3	excw
+141573	2aec	3	excw
+1447d3	8fac	3	excw
+145213	a42c	3	excw
+147b93	f72c	3	excw
+148822	11048	3	excw
+149436	12878	3	excw
+14b504	16a10	3	excw
+14be47	17c9c	3	bgeu a14, a4, 17cb4
+14d0d3	1a1ac	3	excw
+14e0e4	1c1d0	3	excw
+151715	2e34	3	excw
+1565b5	cb74	3	excw
+157524	ea50	3	excw
+159395	12734	3	excw
+1594a4	12950	3	excw
+159cf5	139f4	3	excw
+15d055	1a0b4	3	excw
+15e662	1ccc8	3	excw
+15efe4	1dfd0	3	excw
+161782	2f08	3	l16ui a8, a7, 44
+164b84	9710	3	excw
+169434	12870	3	excw
+16aa73	154ec	3	excw
+16ab25	15654	3	excw
+16abb0	15760	3	excw
+16bf76	17ef8	3	excw
+16d3d3	1a7ac	3	excw
+16e842	1d088	3	excw
+16f165	1e2d4	3	excw
+16f363	1e6cc	3	excw
+16f942	1f288	3	excw
+1735b5	6b74	3	excw
+174ca0	9940	3	excw
+175030	a060	3	excw
+176563	cacc	3	excw
+177f04	fe10	3	excw
+17af65	15ed4	3	excw
+17c515	18a34	3	excw
+17d975	1b2f4	3	excw
+17ee15	1dc34	3	excw
+180225	454	3	excw
+180945	1294	3	call0 1932c
+180f17	1e3c	3	bnone a15, a1, 1e58
+182565	4ad4	3	excw
+184904	9210	3	excw
+185ae5	b5d4	3	excw
+18f0e4	1e1d0	3	excw
+190235	474	3	excw
+190503	a0c	3	excw
+1928d2	51a8	3	l32i a13, a8, 100
+1930c4	6190	3	excw
+193e72	7ce8	3	excw
+198420	10840	3	excw
+199b63	136cc	3	excw
+19a614	14c30	3	excw
+19c500	18a00	3	excw
+19fc90	1f920	3	excw
+1a0540	a80	3	excw
+1a0f55	1eb4	3	excw
+1a2fb0	5f60	3	excw
+1a2fe0	5fc0	3	excw
+1a47d7	8fbc	3	ball a7, a13, 8fda
+1a6b84	d710	3	excw
+1a6f53	deac	3	excw
+1a7717	ee3c	3	bbci a7, 17, ee5a
+1a9f24	13e50	3	excw
+1aafa4	15f50	3	excw
+1ada15	1b434	3	excw
+1aeae4	1d5d0	3	excw
+1b0656	cb8	3	bnez a6, e6c
+1b0897	113c	3	bnone a8, a9, 115b
+1b2e04	5c10	3	excw
+1b30d4	61b0	3	excw
+1b33b5	6774	3	excw
+1b4480	8900	3	excw
+1b5925	b254	3	excw
+1b6cf5	d9f4	3	excw
+1b97f3	12fec	3	excw
+1bb722	16e48	3	excw
+1bca33	1946c	3	excw
+1bccf5	199f4	3	excw
+1be576	1caf8	3	excw
+1c11f5	23f4	3	excw
+1c1f65	3ed4	3	excw
+1c2eb3	5d6c	3	excw
+1c7614	ec30	3	excw
+1c9a64	134d0	3	excw
+1cae84	15d10	3	excw
+1cd150	1a2a0	3	excw
+1ce425	1c854	3	excw
+1ce520	1ca40	3	excw
+1ce9f2	1d3e8	3	excw
+1d22b4	4570	3	excw
+1d3093	612c	3	excw
+1d3353	66ac	3	excw
+1d6613	cc2c	3	excw
+1d6795	cf34	3	excw
+1d7736	ee78	3	excw
+1d8490	10920	3	excw
+1d8740	10e80	3	excw
+1d9995	13334	3	excw
+1d9b33	1366c	3	excw
+1dc1e5	183d4	3	excw
+1dcbe3	197cc	3	excw
+1dd200	1a400	3	excw
+1ddf34	1be70	3	excw
+1de124	1c250	3	excw
+1de5a4	1cb50	3	excw
+1deb35	1d674	3	excw
+1def54	1deb0	3	excw
+1df5f4	1ebf0	3	excw
+1df764	1eed0	3	excw
+1e1064	20d0	3	excw
+1e2603	4c0c	3	excw
+1e2836	5078	3	excw
+1e3fe0	7fc0	3	excw
+1e7d02	fa08	3	excw
+1e8070	100e0	3	excw
+1e8562	10ac8	3	excw
+1ec255	184b4	3	excw
+1ed904	1b210	3	excw
+1efe13	1fc2c	3	excw
+1f0616	c38	3	beqz a6, e2c
+1f24f4	49f0	3	excw
+1f3465	68d4	3	excw
+1f3804	7010	3	excw
+1f3d34	7a70	3	excw
+1f66b5	cd74	3	excw
+1f6c50	d8a0	3	excw
+1fa204	14410	3	excw
+1fa234	14470	3	excw
+1fa9d7	153bc	3	bge a9, a13, 153df
+1fb6c4	16d90	3	excw
+1fc344	18690	3	excw
+1feee4	1ddd0	3	excw
+1ff084	1e110	3	excw
+1ffc23	1f84c	3	excw
+200000	0	3	or a0, a0, a0
+200430	860	3	or a0, a4, a3
+201544	2a90	3	excw
+201a76	34f8	3	excw
+201c95	3934	3	excw
+203c30	7860	3	or a3, a12, a3
+204ed0	9da0	3	or a4, a14, a13
+205e83	bd0c	3	excw
+205fd0	bfa0	3	or a5, a15, a13
+206ef0	dde0	3	or a6, a14, a15
+207074	e0f0	3	excw
+207733	ee6c	3	excw
+2077d5	efb4	3	excw
+208aa2	11548	3	excw
+20bf32	17e68	3	excw
+20e000	1c000	3	or a14, a0, a0
+20e004	1c010	3	excw
+20e220	1c440	3	or a14, a2, a2
+20e4f5	1c9f4	3	excw
+20e6b2	1cd68	3	excw
+20fc70	1f8e0	3	or a15, a12, a7
+20fff0	1ffe0	3	or a15, a15, a15
+210000	0	3	srai a0, a0, 0
+2120d5	41b4	3	excw
+213264	64d0	3	excw
+213474	68f0	3	excw
+213a30	7460	3	srai a3, a3, 10
+214777	8efc	3	ball a7, a7, 8f21
+214a73	94ec	3	excw
+2163c4	c790	3	excw
+217835	f074	3	excw
+21aba5	15754	3	excw
+21ac23	1584c	3	excw
+21c130	18260	3	srai a12, a3, 1
+21d6a3	1ad4c	3	excw
+21e2b2	1c568	3	excw
+21ec70	1d8e0	3	srai a14, a7, 12
+221d74	3af0	3	excw
+222f50	5ea0	3	excw
+223553	6aac	3	excw
+223c75	78f4	3	excw
+226160	c2c0	3	excw
+227340	e680	3	excw
+227ae2	f5c8	3	excw
+2282d2	105a8	3	excw
+228c73	118ec	3	excw
+22be45	17c94	3	call0 3a87c
+22e760	1cec0	3	excw
+22ed60	1dac0	3	excw
+230100	200	3	excw
+231266	24d8	3	bnei a2, 1, 24ff
+231e76	3cf8	3	excw
+233035	6074	3	excw
+2339f7	73fc	3	bltu a9, a15, 7423
+2354a3	a94c	3	excw
+235e64	bcd0	3	excw
+236350	c6a0	3	excw
+236db3	db6c	3	excw
+239fb3	13f6c	3	excw
+23a270	144e0	3	excw
+23ac14	15830	3	excw
+23d434	1a870	3	excw
+23f6d3	1edac	3	excw
+23f7d2	1efa8	3	excw
+23ffd4	1ffb0	3	excw
+2435e2	6bc8	3	excw
+2439d5	73b4	3	excw
+2449d3	93ac	3	excw
+2456a3	ad4c	3	excw
+247b95	f734	3	excw
+24b7e5	16fd4	3	excw
+24db94	1b730	3	excw
+24e024	1c050	3	excw
+24e0a5	1c154	3	excw
+24e183	1c30c	3	excw
+24fd34	1fa70	3	excw
+250203	40c	3	excw
+2541f4	83f0	3	excw
+254957	92bc	3	ball a9, a5, 92e5
+257ce5	f9d4	3	excw
+2582e2	105c8	3	excw
+259c13	1382c	3	excw
+25b335	16674	3	excw
+25b7e3	16fcc	3	excw
+25f0f5	1e1f4	3	excw
+2608a5	1154	3	excw
+2619e5	33d4	3	excw
+2624f3	49ec	3	excw
+267e12	fc28	3	excw
+267e82	fd08	3	excw
+268544	10a90	3	excw
+268e07	11c1c	3	bany a14, a0, 11c46
+26c7d3	18fac	3	excw
+26d373	1a6ec	3	excw
+26d776	1aef8	3	excw
+26d884	1b110	3	excw
+26e9d0	1d3a0	3	excw
+26f342	1e688	3	excw
+2717e4	2fd0	3	excw
+2790f5	121f4	3	excw
+27af53	15eac	3	excw
+27b576	16af8	3	excw
+27d143	1a28c	3	excw
+27d223	1a44c	3	excw
+27d465	1a8d4	3	excw
+27eba2	1d748	3	excw
+27fd35	1fa74	3	excw
+280a12	1428	3	l8ui a1, a10, 40
+281323	264c	3	excw
+2825b3	4b6c	3	excw
+282f83	5f0c	3	excw
+285893	b12c	3	excw
+28d903	1b20c	3	excw
+28e154	1c2b0	3	excw
+28fb32	1f668	3	excw
+28feb3	1fd6c	3	excw
+28fff3	1ffec	3	excw
+293f94	7f30	3	excw
+293ff6	7ff8	3	bgeui a15, 3, 8025
+294613	8c2c	3	excw
+296363	c6cc	3	excw
+297000	e000	3	excw
+2976e0	edc0	3	excw
+2981a5	10354	3	excw
+2995b4	12b70	3	excw
+29a573	14aec	3	excw
+29a9e4	153d0	3	excw
+29cb93	1972c	3	excw
+29d6b4	1ad70	3	excw
+29dcd4	1b9b0	3	excw
+2a1b74	36f0	3	excw
+2a25c7	4b9c	3	blt a5, a12, 4bca
+2a3312	6628	3	excw
+2a3bd5	77b4	3	excw
+2a3fe2	7fc8	3	excw
+2a4813	902c	3	excw
+2a4cd4	99b0	3	excw
+2a5b13	b62c	3	excw
+2a6476	c8f8	3	excw
+2a6c67	d8dc	3	bbci a12, 6, d90a
+2a8664	10cd0	3	excw
+2a8a97	1153c	3	bany a10, a9, 1156a
+2a8ce4	119d0	3	excw
+2a91c2	12388	3	l16si a12, a1, 84
+2abc53	178ac	3	excw
+2ac225	18454	3	excw
+2acff5	19ff4	3	excw
+2adf35	1be74	3	excw
+2ae3f3	1c7ec	3	excw
+2af8a0	1f140	3	excw
+2afb72	1f6e8	3	excw
+2afd84	1fb10	3	excw
+2b2923	524c	3	excw
+2b4c32	9868	3	s8i a3, a12, 43
+2b5917	b23c	3	bbc a9, a1, b26b
+2b5f95	bf34	3	excw
+2b5fd4	bfb0	3	excw
+2b7936	f278	3	excw
+2b8a42	11488	3	excw
+2b9434	12870	3	excw
+2ba1a3	1434c	3	excw
+2bae51	15ca4	3	l32r a5, fffe0b5c
+2bbc23	1784c	3	excw
+2bce32	19c68	3	addi a3, a14, 43
+2bd9d6	1b3b8	3	bgez a9, 1b679
+2bebe4	1d7d0	3	excw
+2bf124	1e250	3	excw
+2bf1a3	1e34c	3	excw
+2bf4d4	1e9b0	3	excw
+2c0c74	18f0	3	excw
+2c3a75	74f4	3	excw
+2c4550	8aa0	3	excw
+2c5910	b220	3	excw
+2c6aa0	d540	3	excw
+2c7d52	faa8	3	excw
+2c8075	100f4	3	excw
+2c8ec7	11d9c	3	bany a14, a12, 11dcc
+2cac62	158c8	3	movi a6, 0xfffffc2c
+2cec95	1d934	3	excw
+2d0f04	1e10	3	excw
+2d3f74	7ef0	3	excw
+2d5723	ae4c	3	excw
+2d6ae5	d5d4	3	excw
+2d6f13	de2c	3	excw
+2d7e10	fc20	3	excw
+2d8702	10e08	3	excw
+2d8b84	11710	3	excw
+2db334	16670	3	excw
+2dca36	19478	3	excw
+2dcf64	19ed0	3	excw
+2ddcf0	1b9e0	3	excw
+2de8f4	1d1f0	3	excw
+2df5a2	1eb48	3	excw
+2e1cb4	3970	3	excw
+2e2af4	55f0	3	excw
+2e2b84	5710	3	excw
+2e3112	6228	3	excw
+2e49d2	93a8	3	s8i a13, a9, 46
+2e5425	a854	3	excw
+2e5b95	b734	3	excw
+2e7633	ec6c	3	excw
+2e86d4	10db0	3	excw
+2e8f14	11e30	3	excw
+2e9224	12450	3	excw
+2ea625	14c54	3	excw
+2eae14	15c30	3	excw
+2eb1f4	163f0	3	excw
+2eb282	16508	3	excw
+2eb9e2	173c8	3	excw
+2ecdd0	19ba0	3	excw
+2f10e6	21d8	3	bgei a0, 1, 220b
+2f1325	2654	3	excw
+2f1883	310c	3	excw
+2f1960	32c0	3	excw
+2f31c0	6380	3	excw
+2f3a53	74ac	3	excw
+2f3e30	7c60	3	excw
+2f4324	8650	3	excw
+2f5cf5	b9f4	3	excw
+2f5dc3	bb8c	3	excw
+2f6100	c200	3	excw
+2f6e36	dc78	3	excw
+2f8803	1100c	3	excw
+2f8d02	11a08	3	excw
+2fa473	148ec	3	excw
+2fb574	16af0	3	excw
+2fc2d3	185ac	3	excw
+2fceb0	19d60	3	excw
+300000	0	3	xor a0, a0, a0
+3001e4	3d0	3	excw
+300e90	1d20	3	xor a0, a14, a9
+301de5	3bd4	3	excw
+302427	485c	3	blt a4, a2, 4890
+302e30	5c60	3	xor a2, a14, a3
+303542	6a88	3	excw
+304216	8438	3	beqz a2, 8740
+305012	a028	3	s16i a1, a0, 96
+3051d7	a3bc	3	bbc a1, a13, a3f0
+305236	a478	3	excw
+305fb4	bf70	3	excw
+3075d0	eba0	3	xor a7, a5, a13
+30a9b0	15360	3	xor a10, a9, a11
+30ab30	15660	3	xor a10, a11, a3
+30bb60	176c0	3	xor a11, a11, a6
+30c760	18ec0	3	xor a12, a7, a6
+30ce10	19c20	3	xor a12, a14, a1
+30efa4	1df50	3	excw
+30f676	1ecf8	3	excw
+30fff0	1ffe0	3	xor a15, a15, a15
+310d40	1a80	3	srai a0, a4, 29
+312720	4e40	3	srai a2, a2, 23
+3138d5	71b4	3	excw
+31a9f0	153e0	3	srai a10, a15, 25
+31af20	15e40	3	srai a10, a2, 31
+31ba76	174f8	3	excw
+31c4d4	189b0	3	excw
+31d1d0	1a3a0	3	srai a13, a13, 17
+31e436	1c878	3	excw
+31eb13	1d62c	3	excw
+31f124	1e250	3	excw
+31fff0	1ffe0	3	srai a15, a15, 31
+320914	1230	3	excw
+3209d3	13ac	3	excw
+321ff0	3fe0	3	excw
+322a73	54ec	3	excw
+326724	ce50	3	excw
+328672	10ce8	3	excw
+328f80	11f00	3	excw
+329963	132cc	3	excw
+32a830	15060	3	excw
+32ad14	15a30	3	excw
+32d793	1af2c	3	excw
+3302f3	5ec	3	excw
+330d82	1b08	3	l8ui a8, a13, 51
+330ef0	1de0	3	excw
+331824	3050	3	excw
+331c30	3860	3	excw
+334df4	9bf0	3	excw
+339736	12e78	3	excw
+33a264	144d0	3	excw
+33af84	15f10	3	excw
+33b812	17028	3	excw
+33de02	1bc08	3	addmi a0, a14, 0x3300
+33fd24	1fa50	3	excw
+341e34	3c70	3	excw
+343515	6a34	3	excw
+343872	70e8	3	excw
+3445f3	8bec	3	excw
+3470a5	e154	3	excw
+347b22	f648	3	excw
+34ab95	15734	3	excw
+34c126	18258	3	beqi a1, 32, 18290
+34c4e0	189c0	3	extui a12, a14, 4, 4
+34d1e4	1a3d0	3	excw
+34d665	1acd4	3	excw
+34de66	1bcd8	3	bnei a14, 64, 1bd10
+34f664	1ecd0	3	excw
+354924	9250	3	excw
+356233	c46c	3	excw
+357353	e6ac	3	excw
+357413	e82c	3	excw
+357495	e934	3	excw
+3586a0	10d40	3	extui a8, a10, 22, 4
+359ba5	13754	3	excw
+35a404	14810	3	excw
+35a804	15010	3	excw
+35a854	150b0	3	excw
+360054	b0	3	excw
+3605a5	b54	3	excw
+360694	d30	3	excw
+368984	11310	3	excw
+369974	132f0	3	excw
+36ae80	15d00	3	excw
+36b0b5	16174	3	excw
+36b2b5	16574	3	excw
+36b614	16c30	3	excw
+36b673	16cec	3	excw
+36c7e5	18fd4	3	excw
+36d6a0	1ad40	3	excw
+36ed50	1daa0	3	excw
+370bb4	1770	3	excw
+371824	3050	3	excw
+372be4	57d0	3	excw
+373763	6ecc	3	excw
+374c74	98f0	3	excw
+375536	aa78	3	excw
+376273	c4ec	3	excw
+378392	10728	3	excw
+378922	11248	3	excw
+3797b5	12f74	3	excw
+37da83	1b50c	3	excw
+37ec34	1d870	3	excw
+37f440	1e880	3	excw
+37fa80	1f500	3	excw
+384936	9278	3	excw
+384c53	98ac	3	excw
+3851c3	a38c	3	excw
+387302	e608	3	excw
+388722	10e48	3	excw
+3889d4	113b0	3	excw
+388bd5	117b4	3	excw
+38c4c0	18980	3	excw
+38d670	1ace0	3	excw
+390c95	1934	3	excw
+391c94	3930	3	excw
+3959d0	b3a0	3	excw
+396eb3	dd6c	3	excw
+398490	10920	3	excw
+3995a5	12b54	3	excw
+399b40	13680	3	excw
+39a3d4	147b0	3	excw
+39aa66	154d8	3	bnei a10, 12, 15515
+39af95	15f34	3	excw
+39b2b4	16570	3	excw
+39bf75	17ef4	3	excw
+39e5a2	1cb48	3	excw
+39f274	1e4f0	3	excw
+3a0275	4f4	3	excw
+3a36a3	6d4c	3	excw
+3a4a43	948c	3	excw
+3a4e36	9c78	3	excw
+3a79a4	f350	3	excw
+3abef6	17df8	3	bgeui a14, 16, 17e36
+3ad007	1a01c	3	bbs a0, a0, 1a05a
+3ad434	1a870	3	excw
+3af435	1e874	3	excw
+3b3823	704c	3	excw
+3b6563	cacc	3	excw
+3b7434	e870	3	excw
+3b8c34	11870	3	excw
+3b8d82	11b08	3	excw
+3b9c34	13870	3	excw
+3ba8b0	15160	3	excw
+3bb6a3	16d4c	3	excw
+3bbbd4	177b0	3	excw
+3bf5b2	1eb68	3	excw
+3c1443	288c	3	excw
+3c1b76	36f8	3	excw
+3c1c85	3914	3	call0 3fae0
+3c3333	666c	3	excw
+3c5c04	b810	3	excw
+3c7000	e000	3	excw
+3c7074	e0f0	3	excw
+3c85c3	10b8c	3	excw
+3c9155	122b4	3	excw
+3c9465	128d4	3	excw
+3c9cd5	139b4	3	excw
+3cb5f0	16be0	3	excw
+3ccee5	19dd4	3	excw
+3cde76	1bcf8	3	excw
+3cfae2	1f5c8	3	excw
+3cff74	1fef0	3	excw
+3d0394	730	3	excw
+3d0580	b00	3	excw
+3d0fa2	1f48	3	l8ui a10, a15, 61
+3d1242	2488	3	l16ui a4, a2, 122
+3d1ea7	3d5c	3	beq a14, a10, 3d9d
+3d2d40	5a80	3	excw
+3d5b12	b628	3	s16i a1, a11, 122
+3d5de5	bbd4	3	excw
+3d7be0	f7c0	3	excw
+3d7d10	fa20	3	excw
+3d7df0	fbe0	3	excw
+3dfa83	1f50c	3	excw
+3e0bd5	17b4	3	excw
+3e1570	2ae0	3	excw
+3e26b5	4d74	3	excw
+3e3103	620c	3	excw
+3e35c0	6b80	3	excw
+3e3f13	7e2c	3	excw
+3e55e3	abcc	3	excw
+3e9163	122cc	3	excw
+3e99c0	13380	3	excw
+3eabe4	157d0	3	excw
+3eb142	16288	3	excw
+3ec1e4	183d0	3	excw
+3ed217	1a43c	3	bbs a2, a1, 1a47e
+3f25e6	4bd8	3	bgei a5, 2, 4c1b
+3f2ff0	5fe0	3	excw
+3f2ff5	5ff4	3	excw
+3f3634	6c70	3	excw
+3f3fb4	7f70	3	excw
+3f4714	8e30	3	excw
+3f6512	ca28	3	s32i a1, a5, 252
+3f6d40	da80	3	excw
+3f7763	eecc	3	excw
+3f79f2	f3e8	3	excw
+3f8382	10708	3	excw
+3f9775	12ef4	3	excw
+3f9894	13130	3	excw
+3faed3	15dac	3	excw
+3feb65	1d6d4	3	excw
+3ff452	1e8a8	3	excw
+400000	0	3	ssr a0
+400100	200	3	ssr a1
+400300	600	3	ssr a3
+400600	c00	3	ssr a6
+400800	1000	3	ssr a8
+400900	1200	3	ssr a9
+400a00	1400	3	ssr a10
+400b62	16c8	3	l8ui a6, a11, 64
+400c00	1800	3	ssr a12
+400d00	1a00	3	ssr a13
+400d13	1a2c	3	excw
+400f00	1e00	3	ssr a15
+401000	2000	3	ssl a0
+401100	2200	3	ssl a1
+401400	2800	3	ssl a4
+401500	2a00	3	ssl a5
+401800	3000	3	ssl a8
+401b00	3600	3	ssl a11
+401c00	3800	3	ssl a12
+401d00	3a00	3	ssl a13
+401e00	3c00	3	ssl a14
+401f00	3e00	3	ssl a15
+402000	4000	3	ssa8l a0
+402100	4200	3	ssa8l a1
+402200	4400	3	ssa8l a2
+402400	4800	3	ssa8l a4
+402600	4c00	3	ssa8l a6
+402700	4e00	3	ssa8l a7
+402900	5200	3	ssa8l a9
+402b00	5600	3	ssa8l a11
+402d00	5a00	3	ssa8l a13
+402f00	5e00	3	ssa8l a15
+403000	6000	3	ssa8b a0
+403100	6200	3	ssa8b a1
+403200	6400	3	ssa8b a2
+403300	6600	3	ssa8b a3
+403400	6800	3	ssa8b a4
+403c00	7800	3	ssa8b a12
+403ca0	7940	3	excw
+403d00	7a00	3	ssa8b a13
+403e00	7c00	3	ssa8b a14
+403f00	7e00	3	ssa8b a15
+404000	8000	3	ssai 0
+404100	8200	3	ssai 1
+404110	8220	3	ssai 17
+404410	8820	3	ssai 20
+404610	8c20	3	ssai 22
+404710	8e20	3	ssai 23
+404900	9200	3	ssai 9
+404c10	9820	3	ssai 28
+404f00	9e00	3	ssai 15
+404f10	9e20	3	ssai 31
+405093	a12c	3	excw
+405c84	b910	3	excw
+406000	c000	3	rer
+406040	c080	3	rer
+406080	c100	3	rer
+406450	c8a0	3	rer
+4066f0	cde0	3	rer
+4067c0	cf80	3	rer
+406a60	d4c0	3	rer
+406d40	da80	3	rer
+406dc0	db80	3	rer
+406fe2	dfc8	3	s32i a14, a15, 0x100
+406ff0	dfe0	3	rer
+407000	e000	3	wer
+407253	e4ac	3	excw
+4073f0	e7e0	3	wer
+407880	f100	3	wer
+4078f0	f1e0	3	wer
+407960	f2c0	3	wer
+407a10	f420	3	wer
+407a20	f440	3	wer
+407b32	f668	3	excw
+407d90	fb20	3	wer
+407f10	fe20	3	wer
+407ff0	ffe0	3	wer
+408036	10078	3	excw
+4087b0	10f60	3	excw
+40aab3	1556c	3	excw
+40ac30	15860	3	excw
+40ad75	15af4	3	excw
+40cee0	19dc0	3	excw
+40e000	1c000	3	nsa a0, a0
+40e070	1c0e0	3	nsa a7, a0
+40e320	1c640	3	nsa a2, a3
+40e590	1cb20	3	nsa a9, a5
+40e700	1ce00	3	nsa a0, a7
+40e960	1d2c0	3	nsa a6, a9
+40ec50	1d8a0	3	nsa a5, a12
+40ec70	1d8e0	3	nsa a7, a12
+40ef70	1dee0	3	nsa a7, a15
+40eff0	1dfe0	3	nsa a15, a15
+40f000	1e000	3	nsau a0, a0
+40f0a0	1e140	3	nsau a10, a0
+40f5b0	1eb60	3	nsau a11, a5
+40f6a0	1ed40	3	nsau a10, a6
+40f7a0	1ef40	3	nsau a10, a7
+40f7c0	1ef80	3	nsau a12, a7
+40f860	1f0c0	3	nsau a6, a8
+40fb10	1f620	3	nsau a1, a11
+40fc90	1f920	3	nsau a9, a12
+40fff0	1ffe0	3	nsau a15, a15
+410000	0	3	srli a0, a0, 0
+410a00	1400	3	srli a0, a0, 10
+411275	24f4	3	excw
+412894	5130	3	excw
+412b43	568c	3	excw
+413487	691c	3	bltu a4, a8, 6961
+414935	9274	3	excw
+4151c0	a380	3	srli a5, a12, 1
+4154e0	a9c0	3	srli a5, a14, 4
+415b55	b6b4	3	excw
+415d20	ba40	3	srli a5, a2, 13
+416250	c4a0	3	srli a6, a5, 2
+416380	c700	3	srli a6, a8, 3
+4179e3	f3cc	3	excw
+419b40	13680	3	srli a9, a4, 11
+41b292	16528	3	excw
+41cb03	1960c	3	excw
+41d344	1a690	3	excw
+41dc95	1b934	3	excw
+41ef30	1de60	3	srli a14, a3, 15
+41fff0	1ffe0	3	srli a15, a15, 15
+4201d4	3b0	3	excw
+420c60	18c0	3	excw
+423bc2	7788	3	excw
+426a20	d440	3	excw
+427474	e8f0	3	excw
+427483	e90c	3	excw
+427923	f24c	3	excw
+428183	1030c	3	excw
+429cf5	139f4	3	excw
+42a455	148b4	3	excw
+42c3e5	187d4	3	excw
+42dc50	1b8a0	3	excw
+42eda3	1db4c	3	excw
+4304e5	9d4	3	excw
+431310	2620	3	excw
+431bb4	3770	3	excw
+431ef0	3de0	3	excw
+433430	6860	3	excw
+434770	8ee0	3	excw
+435fd3	bfac	3	excw
+4360d0	c1a0	3	excw
+437550	eaa0	3	excw
+439784	12f10	3	excw
+43d276	1a4f8	3	excw
+43f036	1e078	3	excw
+43f2b7	1e57c	3	bbsi a2, 27, 1e5c3
+43f322	1e648	3	excw
+440007	1c	3	bnone a0, a0, 64
+441644	2c90	3	excw
+443ee3	7dcc	3	excw
+445a17	b43c	3	bbc a10, a1, b484
+4464a6	c958	3	blti a4, 6, c9a0
+446683	cd0c	3	excw
+44b7f3	16fec	3	excw
+44bac4	17590	3	excw
+44dd34	1ba70	3	excw
+44ebd4	1d7b0	3	excw
+44f202	1e408	3	excw
+44f293	1e52c	3	excw
+450be4	17d0	3	excw
+451443	288c	3	excw
+455d15	ba34	3	excw
+458db5	11b74	3	excw
+45cde4	19bd0	3	excw
+45e947	1d29c	3	bbsi a9, 4, 1d2e5
+45ea43	1d48c	3	excw
+464403	880c	3	excw
+4652d3	a5ac	3	excw
+466c83	d90c	3	excw
+4675f3	ebec	3	excw
+467883	f10c	3	excw
+468c53	118ac	3	excw
+469f43	13e8c	3	excw
+46a613	14c2c	3	excw
+46b484	16910	3	excw
+46c6c3	18d8c	3	excw
+46c843	1908c	3	excw
+46cbf0	197e0	3	excw
+46e0c3	1c18c	3	excw
+46fd23	1fa4c	3	excw
+4706d3	dac	3	excw
+470bd0	17a0	3	excw
+4736f0	6de0	3	excw
+476fe0	dfc0	3	excw
+479113	1222c	3	excw
+47b3f5	167f4	3	excw
+47d380	1a700	3	excw
+47ec73	1d8ec	3	excw
+47f042	1e088	3	excw
+47fb80	1f700	3	excw
+47fcb2	1f968	3	excw
+482573	4aec	3	excw
+482a10	5420	3	excw
+482b10	5620	3	excw
+486a54	d4b0	3	excw
+4876b5	ed74	3	excw
+487794	ef30	3	excw
+487cb4	f970	3	excw
+487d63	facc	3	excw
+488030	10060	3	excw
+48ac83	1590c	3	excw
+48add5	15bb4	3	excw
+48cf65	19ed4	3	excw
+48d276	1a4f8	3	excw
+48e1a2	1c348	3	excw
+48e950	1d2a0	3	excw
+48f602	1ec08	3	excw
+48fe40	1fc80	3	excw
+490fe4	1fd0	3	excw
+492670	4ce0	3	excw
+4926c3	4d8c	3	excw
+493f36	7e78	3	excw
+4943d5	87b4	3	excw
+495122	a248	3	s16i a2, a1, 146
+495723	ae4c	3	excw
+496241	c484	3	l32r a4, fffdea0c
+4969f0	d3e0	3	excw
+4985b2	10b68	3	excw
+499a24	13450	3	excw
+49aa37	1547c	3	bge a10, a3, 154c9
+49b5d3	16bac	3	excw
+49db17	1b63c	3	bbs a11, a1, 1b689
+49f990	1f320	3	excw
+4a22a0	4540	3	excw
+4a3080	6100	3	excw
+4a4633	8c6c	3	excw
+4a6155	c2b4	3	excw
+4a6213	c42c	3	excw
+4a6960	d2c0	3	excw
+4a9083	1210c	3	excw
+4aa604	14c10	3	excw
+4abed3	17dac	3	excw
+4af272	1e4e8	3	excw
+4b0b55	16b4	3	excw
+4b2353	46ac	3	excw
+4b25b3	4b6c	3	excw
+4b3f04	7e10	3	excw
+4b5470	a8e0	3	excw
+4b5755	aeb4	3	excw
+4b7f55	feb4	3	excw
+4b8fa0	11f40	3	excw
+4b93a3	1274c	3	excw
+4b9a14	13430	3	excw
+4bb537	16a7c	3	bgeu a5, a3, 16acb
+4bb735	16e74	3	excw
+4bba35	17474	3	excw
+4bbb93	1772c	3	excw
+4be6b2	1cd68	3	excw
+4c0024	50	3	excw
+4c0a00	1400	3	excw
+4c2364	46d0	3	excw
+4c31b2	6368	3	excw
+4c4c20	9840	3	excw
+4c5310	a620	3	excw
+4c6515	ca34	3	excw
+4c7b24	f650	3	excw
+4c7e75	fcf4	3	excw
+4c9890	13120	3	excw
+4ca173	142ec	3	excw
+4ca3e3	147cc	3	excw
+4cae50	15ca0	3	excw
+4cbf36	17e78	3	excw
+4cc4a5	18954	3	excw
+4ce925	1d254	3	excw
+4cf513	1ea2c	3	excw
+4d0a60	14c0	3	excw
+4d19d5	33b4	3	excw
+4d2c55	58b4	3	excw
+4d2d60	5ac0	3	excw
+4d68f2	d1e8	3	s32i a15, a8, 0x134
+4d9284	12510	3	excw
+4da643	14c8c	3	excw
+4dc2c2	18588	3	addi a12, a2, 77
+4dd0b0	1a160	3	excw
+4ddb96	1b738	3	bltz a11, 1bc19
+4de9f5	1d3f4	3	excw
+4e2de4	5bd0	3	excw
+4e31b5	6374	3	excw
+4e34d2	69a8	3	excw
+4e3793	6f2c	3	excw
+4e81b4	10370	3	excw
+4e82f2	105e8	3	excw
+4e8553	10aac	3	excw
+4e86e5	10dd4	3	excw
+4e91d0	123a0	3	excw
+4e9303	1260c	3	excw
+4eb834	17070	3	excw
+4ec034	18070	3	excw
+4ed3a4	1a750	3	excw
+4ed700	1ae00	3	excw
+4ef303	1e60c	3	excw
+4efa82	1f508	3	excw
+4f03f3	7ec	3	excw
+4f05f0	be0	3	excw
+4f08b3	116c	3	excw
+4f16d3	2dac	3	excw
+4f2f84	5f10	3	excw
+4f3ac2	7588	3	excw
+4f5a14	b430	3	excw
+4f67b0	cf60	3	excw
+4f7254	e4b0	3	excw
+4f8fe4	11fd0	3	excw
+4f9570	12ae0	3	excw
+4fd420	1a840	3	excw
+4fdb20	1b640	3	excw
+4fe107	1c21c	3	bbsi a1, 0, 1c26f
+4fe1b5	1c374	3	excw
+501283	250c	3	excw
+503000	6000	3	ritlb0 a0, a0
+503100	6200	3	ritlb0 a0, a1
+503150	62a0	3	ritlb0 a5, a1
+503310	6620	3	ritlb0 a1, a3
+503630	6c60	3	ritlb0 a3, a6
+503890	7120	3	ritlb0 a9, a8
+503ab0	7560	3	ritlb0 a11, a10
+503e60	7cc0	3	ritlb0 a6, a14
+503f80	7f00	3	ritlb0 a8, a15
+503ff0	7fe0	3	ritlb0 a15, a15
+504000	8000	3	iitlb a0
+5040b5	8174	3	excw
+504100	8200	3	iitlb a1
+504253	84ac	3	excw
+504500	8a00	3	iitlb a5
+504600	8c00	3	iitlb a6
+504700	8e00	3	iitlb a7
+504800	9000	3	iitlb a8
+504a00	9400	3	iitlb a10
+504e00	9c00	3	iitlb a14
+504f00	9e00	3	iitlb a15
+505000	a000	3	pitlb a0, a0
+505080	a100	3	pitlb a8, a0
+505620	ac40	3	pitlb a2, a6
+505b30	b660	3	pitlb a3, a11
+505c40	b880	3	pitlb a4, a12
+505e10	bc20	3	pitlb a1, a14
+505eb0	bd60	3	pitlb a11, a14
+505f20	be40	3	pitlb a2, a15
+505fc0	bf80	3	pitlb a12, a15
+505ff0	bfe0	3	pitlb a15, a15
+506000	c000	3	witlb a0, a0
+506050	c0a0	3	witlb a5, a0
+506180	c300	3	witlb a8, a1
+506294	c530	3	excw
+506502	ca08	3	s32i a0, a5, 0x140
+5069a0	d340	3	witlb a10, a9
+506a40	d480	3	witlb a4, a10
+506b30	d660	3	witlb a3, a11
+506d00	da00	3	witlb a0, a13
+506d40	da80	3	witlb a4, a13
+506e20	dc40	3	witlb a2, a14
+506ff0	dfe0	3	witlb a15, a15
+507000	e000	3	ritlb1 a0, a0
+5070e0	e1c0	3	ritlb1 a14, a0
+507150	e2a0	3	ritlb1 a5, a1
+5072d0	e5a0	3	ritlb1 a13, a2
+507520	ea40	3	ritlb1 a2, a5
+5076e0	edc0	3	ritlb1 a14, a6
+507b20	f640	3	ritlb1 a2, a11
+507e30	fc60	3	ritlb1 a3, a14
+507ea0	fd40	3	ritlb1 a10, a14
+507ff0	ffe0	3	ritlb1 a15, a15
+508083	1010c	3	excw
+508854	110b0	3	excw
+50a175	142f4	3	excw
+50b000	16000	3	rdtlb0 a0, a0
+50b700	16e00	3	rdtlb0 a0, a7
+50b850	170a0	3	rdtlb0 a5, a8
+50ba30	17460	3	rdtlb0 a3, a10
+50bb20	17640	3	rdtlb0 a2, a11
+50bca0	17940	3	rdtlb0 a10, a12
+50bd30	17a60	3	rdtlb0 a3, a13
+50bd40	17a80	3	rdtlb0 a4, a13
+50bdc0	17b80	3	rdtlb0 a12, a13
+50bff0	17fe0	3	rdtlb0 a15, a15
+50c000	18000	3	idtlb a0
+50c200	18400	3	idtlb a2
+50c600	18c00	3	idtlb a6
+50c700	18e00	3	idtlb a7
+50c900	19200	3	idtlb a9
+50cb00	19600	3	idtlb a11
+50cd00	19a00	3	idtlb a13
+50ce00	19c00	3	idtlb a14
+50cf00	19e00	3	idtlb a15
+50d000	1a000	3	pdtlb a0, a0
+50d080	1a100	3	pdtlb a8, a0
+50d0d0	1a1a0	3	pdtlb a13, a0
+50d4b0	1a960	3	pdtlb a11, a4
+50d700	1ae00	3	pdtlb a0, a7
+50d7f0	1afe0	3	pdtlb a15, a7
+50d880	1b100	3	pdtlb a8, a8
+50db20	1b640	3	pdtlb a2, a11
+50dfd0	1bfa0	3	pdtlb a13, a15
+50dff0	1bfe0	3	pdtlb a15, a15
+50e000	1c000	3	wdtlb a0, a0
+50e1a0	1c340	3	wdtlb a10, a1
+50e4b0	1c960	3	wdtlb a11, a4
+50e630	1cc60	3	wdtlb a3, a6
+50e680	1cd00	3	wdtlb a8, a6
+50e730	1ce60	3	wdtlb a3, a7
+50eaa0	1d540	3	wdtlb a10, a10
+50eca0	1d940	3	wdtlb a10, a12
+50eee0	1ddc0	3	wdtlb a14, a14
+50eff0	1dfe0	3	wdtlb a15, a15
+50f000	1e000	3	rdtlb1 a0, a0
+50f180	1e300	3	rdtlb1 a8, a1
+50f2f0	1e5e0	3	rdtlb1 a15, a2
+50f5a0	1eb40	3	rdtlb1 a10, a5
+50f670	1ece0	3	rdtlb1 a7, a6
+50f8e0	1f1c0	3	rdtlb1 a14, a8
+50fe30	1fc60	3	rdtlb1 a3, a14
+50ff10	1fe20	3	rdtlb1 a1, a15
+50ff20	1fe40	3	rdtlb1 a2, a15
+50fff0	1ffe0	3	rdtlb1 a15, a15
+510b10	1620	3	excw
+511a75	34f4	3	excw
+5133b4	6770	3	excw
+515e75	bcf4	3	excw
+516007	c01c	3	bbci a0, 0, c071
+516383	c70c	3	excw
+517f32	fe68	3	excw
+519113	1222c	3	excw
+519593	12b2c	3	excw
+51a5e3	14bcc	3	excw
+51e4b0	1c960	3	excw
+51f723	1ee4c	3	excw
+520035	74	3	excw
+5209e3	13cc	3	excw
+520dd0	1ba0	3	excw
+520f36	1e78	3	excw
+5239f4	73f0	3	excw
+5265c3	cb8c	3	excw
+526ae5	d5d4	3	excw
+5277c2	ef88	3	excw
+527c75	f8f4	3	excw
+528382	10708	3	excw
+5293b3	1276c	3	excw
+52a873	150ec	3	excw
+52aeb0	15d60	3	excw
+52bae0	175c0	3	excw
+52e200	1c400	3	excw
+52e295	1c534	3	excw
+52f0f0	1e1e0	3	excw
+52fe84	1fd10	3	excw
+5316c3	2d8c	3	excw
+531783	2f0c	3	excw
+532483	490c	3	excw
+532800	5000	3	excw
+532876	50f8	3	excw
+533154	62b0	3	excw
+538864	110d0	3	excw
+53a620	14c40	3	excw
+53ad25	15a54	3	excw
+53aef4	15df0	3	excw
+53b664	16cd0	3	excw
+541b74	36f0	3	excw
+542755	4eb4	3	excw
+5439b6	7378	3	bltui a9, 3, 73d0
+548604	10c10	3	excw
+54b654	16cb0	3	excw
+54c9f3	193ec	3	excw
+550e03	1c0c	3	excw
+5513c6	2798	3	j 17beb
+551801	3004	3	l32r a0, fffd8464
+552fd3	5fac	3	excw
+556a80	d500	3	extui a6, a8, 26, 6
+557825	f054	3	excw
+557c22	f848	3	excw
+559556	12ab8	3	bnez a5, 13015
+55bb00	17600	3	extui a11, a0, 27, 6
+55e6c2	1cd88	3	excw
+560e40	1c80	3	excw
+561633	2c6c	3	excw
+5647f4	8ff0	3	excw
+564b65	96d4	3	excw
+564f70	9ee0	3	excw
+567503	ea0c	3	excw
+567c83	f90c	3	excw
+568230	10460	3	excw
+5688b2	11168	3	excw
+568ef5	11df4	3	excw
+569024	12050	3	excw
+569ed3	13dac	3	excw
+56c594	18b30	3	excw
+56cee3	19dcc	3	excw
+56da75	1b4f4	3	excw
+56e180	1c300	3	excw
+5726c0	4d80	3	excw
+574160	82c0	3	excw
+5746b4	8d70	3	excw
+5758f7	b1fc	3	bbc a8, a15, b257
+5780e2	101c8	3	excw
+57cdd5	19bb4	3	excw
+57e280	1c500	3	excw
+57e444	1c890	3	excw
+57e574	1caf0	3	excw
+57f4e4	1e9d0	3	excw
+57fa72	1f4e8	3	excw
+580310	620	3	excw
+582010	4020	3	excw
+582376	46f8	3	excw
+582533	4a6c	3	excw
+583912	7228	3	excw
+583bf4	77f0	3	excw
+584495	8934	3	excw
+585a80	b500	3	excw
+585e33	bc6c	3	excw
+588053	100ac	3	excw
+588a13	1142c	3	excw
+588ce4	119d0	3	excw
+588db2	11b68	3	excw
+589455	128b4	3	excw
+58a424	14850	3	excw
+58a827	1505c	3	bge a8, a2, 150b8
+58b136	16278	3	excw
+58be90	17d20	3	excw
+58c2e5	185d4	3	excw
+58c7c3	18f8c	3	excw
+58ddf0	1bbe0	3	excw
+58e063	1c0cc	3	excw
+58e7d2	1cfa8	3	excw
+58ea23	1d44c	3	excw
+58f936	1f278	3	excw
+58fba3	1f74c	3	excw
+58fbe3	1f7cc	3	excw
+590924	1250	3	excw
+590df4	1bf0	3	excw
+5935f2	6be8	3	excw
+5949c4	9390	3	excw
+594a76	94f8	3	excw
+595073	a0ec	3	excw
+597a54	f4b0	3	excw
+598480	10900	3	excw
+598f90	11f20	3	excw
+59b6b3	16d6c	3	excw
+59c114	18230	3	excw
+59d2a3	1a54c	3	excw
+59e070	1c0e0	3	excw
+59f0f0	1e1e0	3	excw
+59f6a2	1ed48	3	excw
+59f7a2	1ef48	3	excw
+5a2323	464c	3	excw
+5a3330	6660	3	excw
+5a3614	6c30	3	excw
+5a4fc4	9f90	3	excw
+5a7207	e41c	3	bbci a2, 16, e47a
+5a8915	11234	3	excw
+5a9624	12c50	3	excw
+5aa654	14cb0	3	excw
+5aabd4	157b0	3	excw
+5ab684	16d10	3	excw
+5ad504	1aa10	3	excw
+5af663	1eccc	3	excw
+5af9c2	1f388	3	excw
+5b0864	10d0	3	excw
+5b0a63	14cc	3	excw
+5b0a90	1520	3	excw
+5b0ad3	15ac	3	excw
+5b2683	4d0c	3	excw
+5b4fd5	9fb4	3	excw
+5b55a4	ab50	3	excw
+5b55c3	ab8c	3	excw
+5b56a0	ad40	3	excw
+5b5e12	bc28	3	s16i a1, a14, 182
+5b7983	f30c	3	excw
+5b7ea4	fd50	3	excw
+5b8c64	118d0	3	excw
+5bc1f0	183e0	3	excw
+5bfb12	1f628	3	excw
+5c0a20	1440	3	excw
+5c24d4	49b0	3	excw
+5c25a7	4b5c	3	blt a5, a10, 4bbc
+5c2773	4eec	3	excw
+5c2835	5074	3	excw
+5c33f6	67f8	3	bgeui a3, 3, 6858
+5c4da5	9b54	3	excw
+5c6744	ce90	3	excw
+5c9c65	138d4	3	excw
+5c9d30	13a60	3	excw
+5caa75	154f4	3	excw
+5cbd54	17ab0	3	excw
+5ccd15	19a34	3	excw
+5cce60	19cc0	3	excw
+5cee96	1dd38	3	bltz a14, 1e30a
+5cf366	1e6d8	3	bnei a3, 0x100, 1e738
+5cfb33	1f66c	3	excw
+5d35d4	6bb0	3	excw
+5d4316	8638	3	beqz a3, 8c10
+5d9244	12490	3	excw
+5d92d5	125b4	3	excw
+5d9d50	13aa0	3	excw
+5da595	14b34	3	excw
+5db3c0	16780	3	excw
+5dcb30	19660	3	excw
+5dea63	1d4cc	3	excw
+5dec76	1d8f8	3	excw
+5e10c3	218c	3	excw
+5e1b10	3620	3	excw
+5e2875	50f4	3	excw
+5e3460	68c0	3	excw
+5e3c90	7920	3	excw
+5e3ee6	7dd8	3	bgei a14, 3, 7e3a
+5e4524	8a50	3	excw
+5e4c74	98f0	3	excw
+5e4fc0	9f80	3	excw
+5e6a44	d490	3	excw
+5e7850	f0a0	3	excw
+5e7ec0	fd80	3	excw
+5e8153	102ac	3	excw
+5e8d23	11a4c	3	excw
+5ebca3	1794c	3	excw
+5edbe0	1b7c0	3	excw
+5ef840	1f080	3	excw
+5efb35	1f674	3	excw
+5f0fc0	1f80	3	excw
+5f12b0	2560	3	excw
+5f12d5	25b4	3	excw
+5f2443	488c	3	excw
+5f2a24	5450	3	excw
+5f3c33	786c	3	excw
+5f5623	ac4c	3	excw
+5f7014	e030	3	excw
+5f89e6	113d8	3	bgei a9, 8, 1143b
+5f9070	120e0	3	excw
+5f9790	12f20	3	excw
+5f9a60	134c0	3	excw
+5fa894	15130	3	excw
+5fd525	1aa54	3	excw
+5ff464	1e8d0	3	excw
+600000	0	3	neg a0, a0
+600100	200	3	abs a0, a0
+6021f0	43e0	3	abs a2, a15
+602c54	58b0	3	excw
+6031f0	63e0	3	abs a3, a15
+6033a0	6740	3	excw
+604100	8200	3	abs a4, a0
+604173	82ec	3	excw
+605050	a0a0	3	neg a5, a5
+6055f0	abe0	3	excw
+605a94	b530	3	excw
+605ed3	bdac	3	excw
+6060a0	c140	3	neg a6, a10
+606100	c200	3	abs a6, a0
+6063e5	c7d4	3	excw
+606e55	dcb4	3	excw
+608170	102e0	3	abs a8, a7
+608764	10ed0	3	excw
+6091f0	123e0	3	abs a9, a15
+60a040	14080	3	neg a10, a4
+60a0b0	14160	3	neg a10, a11
+60a0c0	14180	3	neg a10, a12
+60a367	146dc	3	bge a3, a6, 14740
+60b1f0	163e0	3	abs a11, a15
+60b813	1702c	3	excw
+60b9a5	17354	3	excw
+60c080	18100	3	neg a12, a8
+60c190	18320	3	abs a12, a9
+60d0d0	1a1a0	3	neg a13, a13
+60d720	1ae40	3	excw
+60e407	1c81c	3	bbsi a4, 0, 1c880
+60e5e2	1cbc8	3	excw
+60e804	1d010	3	excw
+60eb90	1d720	3	excw
+60ec26	1d858	3	beqi a12, 128, 1d8bc
+60ef91	1df24	3	l32r a9, ffff62e0
+60f0b0	1e160	3	neg a15, a11
+60f0f0	1e1e0	3	neg a15, a15
+60f1f0	1e3e0	3	abs a15, a15
+60fe84	1fd10	3	excw
+610300	600	3	xsr.sar a0
+610320	640	3	xsr.sar a2
+610330	660	3	xsr.sar a3
+610350	6a0	3	xsr.sar a5
+610380	700	3	xsr.sar a8
+610390	720	3	xsr.sar a9
+6103c0	780	3	xsr.sar a12
+6103e0	7c0	3	xsr.sar a14
+6103f0	7e0	3	xsr.sar a15
+610500	a00	3	xsr.litbase a0
+610520	a40	3	xsr.litbase a2
+610540	a80	3	xsr.litbase a4
+610550	aa0	3	xsr.litbase a5
+610570	ae0	3	xsr.litbase a7
+6105b0	b60	3	xsr.litbase a11
+6105e0	bc0	3	xsr.litbase a14
+6105f0	be0	3	xsr.litbase a15
+610910	1220	3	excw
+614b82	9708	3	s8i a8, a11, 97
+616000	c000	3	xsr.ibreakenable a0
+616020	c040	3	xsr.ibreakenable a2
+616030	c060	3	xsr.ibreakenable a3
+616040	c080	3	xsr.ibreakenable a4
+616060	c0c0	3	xsr.ibreakenable a6
+6160a0	c140	3	xsr.ibreakenable a10
+6160b0	c160	3	xsr.ibreakenable a11
+6160c0	c180	3	xsr.ibreakenable a12
+6160d0	c1a0	3	xsr.ibreakenable a13
+6160f0	c1e0	3	xsr.ibreakenable a15
+616800	d000	3	xsr.ddr a0
+616810	d020	3	xsr.ddr a1
+616830	d060	3	xsr.ddr a3
+616840	d080	3	xsr.ddr a4
+616850	d0a0	3	xsr.ddr a5
+616880	d100	3	xsr.ddr a8
+6168a0	d140	3	xsr.ddr a10
+6168c0	d180	3	xsr.ddr a12
+6168e0	d1c0	3	xsr.ddr a14
+6168f0	d1e0	3	xsr.ddr a15
+616ca4	d950	3	excw
+617353	e6ac	3	excw
+617603	ec0c	3	excw
+618000	10000	3	xsr.ibreaka0 a0
+618020	10040	3	xsr.ibreaka0 a2
+618050	100a0	3	xsr.ibreaka0 a5
+618070	100e0	3	xsr.ibreaka0 a7
+6180b0	10160	3	xsr.ibreaka0 a11
+6180c0	10180	3	xsr.ibreaka0 a12
+6180e0	101c0	3	xsr.ibreaka0 a14
+6180f0	101e0	3	xsr.ibreaka0 a15
+618a64	114d0	3	excw
+618e53	11cac	3	excw
+619000	12000	3	xsr.dbreaka0 a0
+619020	12040	3	xsr.dbreaka0 a2
+619030	12060	3	xsr.dbreaka0 a3
+619050	120a0	3	xsr.dbreaka0 a5
+619070	120e0	3	xsr.dbreaka0 a7
+6190b0	12160	3	xsr.dbreaka0 a11
+6190c0	12180	3	xsr.dbreaka0 a12
+6190d0	121a0	3	xsr.dbreaka0 a13
+6190f0	121e0	3	xsr.dbreaka0 a15
+619713	12e2c	3	excw
+61a000	14000	3	xsr.dbreakc0 a0
+61a030	14060	3	xsr.dbreakc0 a3
+61a050	140a0	3	xsr.dbreakc0 a5
+61a080	14100	3	xsr.dbreakc0 a8
+61a090	14120	3	xsr.dbreakc0 a9
+61a0a0	14140	3	xsr.dbreakc0 a10
+61a0b0	14160	3	xsr.dbreakc0 a11
+61a0e0	141c0	3	xsr.dbreakc0 a14
+61a0f0	141e0	3	xsr.dbreakc0 a15
+61b100	16200	3	xsr.epc1 a0
+61b120	16240	3	xsr.epc1 a2
+61b130	16260	3	xsr.epc1 a3
+61b170	162e0	3	xsr.epc1 a7
+61b190	16320	3	xsr.epc1 a9
+61b1b0	16360	3	xsr.epc1 a11
+61b1c0	16380	3	xsr.epc1 a12
+61b1e0	163c0	3	xsr.epc1 a14
+61b1f0	163e0	3	xsr.epc1 a15
+61b200	16400	3	xsr.epc2 a0
+61b210	16420	3	xsr.epc2 a1
+61b230	16460	3	xsr.epc2 a3
+61b240	16480	3	xsr.epc2 a4
+61b250	164a0	3	xsr.epc2 a5
+61b270	164e0	3	xsr.epc2 a7
+61b280	16500	3	xsr.epc2 a8
+61b290	16520	3	xsr.epc2 a9
+61b2f0	165e0	3	xsr.epc2 a15
+61b300	16600	3	xsr.epc3 a0
+61b310	16620	3	xsr.epc3 a1
+61b320	16640	3	xsr.epc3 a2
+61b340	16680	3	xsr.epc3 a4
+61b360	166c0	3	xsr.epc3 a6
+61b390	16720	3	xsr.epc3 a9
+61b3a0	16740	3	xsr.epc3 a10
+61b3d0	167a0	3	xsr.epc3 a13
+61b3e0	167c0	3	xsr.epc3 a14
+61b3f0	167e0	3	xsr.epc3 a15
+61b423	1684c	3	excw
+61b8c2	17188	3	excw
+61c000	18000	3	xsr.depc a0
+61c020	18040	3	xsr.depc a2
+61c030	18060	3	xsr.depc a3
+61c040	18080	3	xsr.depc a4
+61c050	180a0	3	xsr.depc a5
+61c080	18100	3	xsr.depc a8
+61c0a0	18140	3	xsr.depc a10
+61c0c0	18180	3	xsr.depc a12
+61c0f0	181e0	3	xsr.depc a15
+61c200	18400	3	xsr.eps2 a0
+61c210	18420	3	xsr.eps2 a1
+61c240	18480	3	xsr.eps2 a4
+61c250	184a0	3	xsr.eps2 a5
+61c260	184c0	3	xsr.eps2 a6
+61c290	18520	3	xsr.eps2 a9
+61c2a0	18540	3	xsr.eps2 a10
+61c2d0	185a0	3	xsr.eps2 a13
+61c2e0	185c0	3	xsr.eps2 a14
+61c2f0	185e0	3	xsr.eps2 a15
+61c300	18600	3	xsr.eps3 a0
+61c310	18620	3	xsr.eps3 a1
+61c340	18680	3	xsr.eps3 a4
+61c380	18700	3	xsr.eps3 a8
+61c3a0	18740	3	xsr.eps3 a10
+61c3b0	18760	3	xsr.eps3 a11
+61c3d0	187a0	3	xsr.eps3 a13
+61c3f0	187e0	3	xsr.eps3 a15
+61d100	1a200	3	xsr.excsave1 a0
+61d130	1a260	3	xsr.excsave1 a3
+61d140	1a280	3	xsr.excsave1 a4
+61d160	1a2c0	3	xsr.excsave1 a6
+61d1b0	1a360	3	xsr.excsave1 a11
+61d1c0	1a380	3	xsr.excsave1 a12
+61d1d0	1a3a0	3	xsr.excsave1 a13
+61d1e0	1a3c0	3	xsr.excsave1 a14
+61d1f0	1a3e0	3	xsr.excsave1 a15
+61d200	1a400	3	xsr.excsave2 a0
+61d220	1a440	3	xsr.excsave2 a2
+61d230	1a460	3	xsr.excsave2 a3
+61d260	1a4c0	3	xsr.excsave2 a6
+61d290	1a520	3	xsr.excsave2 a9
+61d2b0	1a560	3	xsr.excsave2 a11
+61d2c0	1a580	3	xsr.excsave2 a12
+61d2d0	1a5a0	3	xsr.excsave2 a13
+61d2f0	1a5e0	3	xsr.excsave2 a15
+61d300	1a600	3	xsr.excsave3 a0
+61d310	1a620	3	xsr.excsave3 a1
+61d320	1a640	3	xsr.excsave3 a2
+61d330	1a660	3	xsr.excsave3 a3
+61d340	1a680	3	xsr.excsave3 a4
+61d350	1a6a0	3	xsr.excsave3 a5
+61d360	1a6c0	3	xsr.excsave3 a6
+61d3a0	1a740	3	xsr.excsave3 a10
+61d3b0	1a760	3	xsr.excsave3 a11
+61d3f0	1a7e0	3	xsr.excsave3 a15
+61d925	1b254	3	excw
+61ded4	1bdb0	3	excw
+61e400	1c800	3	xsr.intenable a0
+61e420	1c840	3	xsr.intenable a2
+61e440	1c880	3	xsr.intenable a4
+61e450	1c8a0	3	xsr.intenable a5
+61e460	1c8c0	3	xsr.intenable a6
+61e480	1c900	3	xsr.intenable a8
+61e4d0	1c9a0	3	xsr.intenable a13
+61e4f0	1c9e0	3	xsr.intenable a15
+61e600	1cc00	3	xsr.ps a0
+61e630	1cc60	3	xsr.ps a3
+61e650	1cca0	3	xsr.ps a5
+61e660	1ccc0	3	xsr.ps a6
+61e670	1cce0	3	xsr.ps a7
+61e6c0	1cd80	3	xsr.ps a12
+61e6d0	1cda0	3	xsr.ps a13
+61e6f0	1cde0	3	xsr.ps a15
+61e700	1ce00	3	xsr.vecbase a0
+61e710	1ce20	3	xsr.vecbase a1
+61e720	1ce40	3	xsr.vecbase a2
+61e730	1ce60	3	xsr.vecbase a3
+61e740	1ce80	3	xsr.vecbase a4
+61e770	1cee0	3	xsr.vecbase a7
+61e780	1cf00	3	xsr.vecbase a8
+61e7b0	1cf60	3	xsr.vecbase a11
+61e7c0	1cf80	3	xsr.vecbase a12
+61e7f0	1cfe0	3	xsr.vecbase a15
+61e800	1d000	3	xsr.exccause a0
+61e810	1d020	3	xsr.exccause a1
+61e830	1d060	3	xsr.exccause a3
+61e850	1d0a0	3	xsr.exccause a5
+61e870	1d0e0	3	xsr.exccause a7
+61e880	1d100	3	xsr.exccause a8
+61e890	1d120	3	xsr.exccause a9
+61e8c0	1d180	3	xsr.exccause a12
+61e8f0	1d1e0	3	xsr.exccause a15
+61e900	1d200	3	xsr.debugcause a0
+61e930	1d260	3	xsr.debugcause a3
+61e940	1d280	3	xsr.debugcause a4
+61e950	1d2a0	3	xsr.debugcause a5
+61e960	1d2c0	3	xsr.debugcause a6
+61e980	1d300	3	xsr.debugcause a8
+61e9c0	1d380	3	xsr.debugcause a12
+61e9d0	1d3a0	3	xsr.debugcause a13
+61e9e0	1d3c0	3	xsr.debugcause a14
+61e9f0	1d3e0	3	xsr.debugcause a15
+61ea00	1d400	3	xsr.ccount a0
+61ea10	1d420	3	xsr.ccount a1
+61ea40	1d480	3	xsr.ccount a4
+61ea50	1d4a0	3	xsr.ccount a5
+61ea60	1d4c0	3	xsr.ccount a6
+61ea80	1d500	3	xsr.ccount a8
+61eab0	1d560	3	xsr.ccount a11
+61eac0	1d580	3	xsr.ccount a12
+61eae0	1d5c0	3	xsr.ccount a14
+61eaf0	1d5e0	3	xsr.ccount a15
+61ec00	1d800	3	xsr.icount a0
+61ec20	1d840	3	xsr.icount a2
+61ec40	1d880	3	xsr.icount a4
+61ec50	1d8a0	3	xsr.icount a5
+61ec60	1d8c0	3	xsr.icount a6
+61ec70	1d8e0	3	xsr.icount a7
+61ec80	1d900	3	xsr.icount a8
+61ec90	1d920	3	xsr.icount a9
+61ecb0	1d960	3	xsr.icount a11
+61ecf0	1d9e0	3	xsr.icount a15
+61ed00	1da00	3	xsr.icountlevel a0
+61ed20	1da40	3	xsr.icountlevel a2
+61ed30	1da60	3	xsr.icountlevel a3
+61ed40	1da80	3	xsr.icountlevel a4
+61ed60	1dac0	3	xsr.icountlevel a6
+61ed70	1dae0	3	xsr.icountlevel a7
+61eda0	1db40	3	xsr.icountlevel a10
+61edb0	1db60	3	xsr.icountlevel a11
+61edf0	1dbe0	3	xsr.icountlevel a15
+61ee00	1dc00	3	xsr.excvaddr a0
+61ee10	1dc20	3	xsr.excvaddr a1
+61ee20	1dc40	3	xsr.excvaddr a2
+61ee50	1dca0	3	xsr.excvaddr a5
+61ee70	1dce0	3	xsr.excvaddr a7
+61ee90	1dd20	3	xsr.excvaddr a9
+61eea0	1dd40	3	xsr.excvaddr a10
+61eed0	1dda0	3	xsr.excvaddr a13
+61eef0	1dde0	3	xsr.excvaddr a15
+61f000	1e000	3	xsr.ccompare0 a0
+61f030	1e060	3	xsr.ccompare0 a3
+61f040	1e080	3	xsr.ccompare0 a4
+61f050	1e0a0	3	xsr.ccompare0 a5
+61f060	1e0c0	3	xsr.ccompare0 a6
+61f080	1e100	3	xsr.ccompare0 a8
+61f090	1e120	3	xsr.ccompare0 a9
+61f0b0	1e160	3	xsr.ccompare0 a11
+61f0d0	1e1a0	3	xsr.ccompare0 a13
+61f0f0	1e1e0	3	xsr.ccompare0 a15
+61f165	1e2d4	3	excw
+61f243	1e48c	3	excw
+6237b5	6f74	3	excw
+6251f2	a3e8	3	s16i a15, a1, 196
+6269b0	d360	3	excw
+6286f5	10df4	3	excw
+62a133	1426c	3	excw
+62a1f5	143f4	3	excw
+62b893	1712c	3	excw
+62bb80	17700	3	excw
+62c543	18a8c	3	excw
+62c965	192d4	3	excw
+62ce55	19cb4	3	excw
+62d070	1a0e0	3	excw
+62d500	1aa00	3	excw
+62dd00	1ba00	3	excw
+62fa20	1f440	3	excw
+6300b5	174	3	excw
+632790	4f20	3	excw
+634063	80cc	3	excw
+634b37	967c	3	ball a11, a3, 96e3
+636e54	dcb0	3	excw
+638164	102d0	3	excw
+63aae0	155c0	3	excw
+63c784	18f10	3	excw
+63db00	1b600	3	excw
+63e4a2	1c948	3	excw
+641836	3078	3	excw
+643764	6ed0	3	excw
+643fa4	7f50	3	excw
+6445d3	8bac	3	excw
+644b33	966c	3	excw
+645173	a2ec	3	excw
+645873	b0ec	3	excw
+64a595	14b34	3	excw
+64bf22	17e48	3	excw
+64fdd4	1fbb0	3	excw
+6548c2	9188	3	s8i a12, a8, 101
+6551f6	a3f8	3	bgeui a1, 5, a461
+658f76	11ef8	3	excw
+65a584	14b10	3	excw
+65c953	192ac	3	excw
+65dab3	1b56c	3	excw
+65db20	1b640	3	extui a13, a2, 27, 7
+65e393	1c72c	3	excw
+65e952	1d2a8	3	excw
+65f512	1ea28	3	excw
+65ffd5	1ffb4	3	excw
+661f94	3f30	3	excw
+663de2	7bc8	3	excw
+665074	a0f0	3	excw
+666cb4	d970	3	excw
+6672f3	e5ec	3	excw
+667672	ece8	3	excw
+668440	10880	3	excw
+66b2e2	165c8	3	excw
+66b2e4	165d0	3	excw
+66b682	16d08	3	excw
+66e2f4	1c5f0	3	excw
+66f046	1e098	3	j 37c5d
+66f222	1e448	3	excw
+66f422	1e848	3	excw
+66f5a3	1eb4c	3	excw
+6711a5	2354	3	excw
+671ce0	39c0	3	excw
+6723d4	47b0	3	excw
+672f64	5ed0	3	excw
+673ef2	7de8	3	excw
+674533	8a6c	3	excw
+675dd5	bbb4	3	excw
+677c52	f8a8	3	excw
+6789e2	113c8	3	excw
+67a7e0	14fc0	3	excw
+67b6a0	16d40	3	excw
+67bef0	17de0	3	excw
+67dde0	1bbc0	3	excw
+67e922	1d248	3	excw
+67ef14	1de30	3	excw
+6808f3	11ec	3	excw
+682855	50b4	3	excw
+682a15	5434	3	excw
+684895	9134	3	excw
+684fe5	9fd4	3	excw
+685153	a2ac	3	excw
+686094	c130	3	excw
+6877d5	efb4	3	excw
+689bc3	1378c	3	excw
+68b694	16d30	3	excw
+68c684	18d10	3	excw
+68c6f3	18dec	3	excw
+68d5e2	1abc8	3	addmi a14, a5, 0x6800
+68da53	1b4ac	3	excw
+68dc54	1b8b0	3	excw
+6905c0	b80	3	excw
+692894	5130	3	excw
+6936c7	6d9c	3	bltu a6, a12, 6e09
+696a95	d534	3	excw
+697725	ee54	3	excw
+6981b2	10368	3	excw
+698752	10ea8	3	excw
+69b1c2	16388	3	excw
+69f2d5	1e5b4	3	excw
+6a00d5	1b4	3	excw
+6a1415	2834	3	excw
+6a4e34	9c70	3	excw
+6a7730	ee60	3	excw
+6a7de2	fbc8	3	excw
+6abd33	17a6c	3	excw
+6ad7b3	1af6c	3	excw
+6add23	1ba4c	3	excw
+6ae300	1c600	3	excw
+6b0270	4e0	3	excw
+6b0a53	14ac	3	excw
+6b1176	22f8	3	excw
+6b1ad0	35a0	3	excw
+6b5b84	b710	3	excw
+6b6be4	d7d0	3	excw
+6b80f2	101e8	3	excw
+6b8215	10434	3	excw
+6ba724	14e50	3	excw
+6bbb62	176c8	3	excw
+6bcf50	19ea0	3	excw
+6bdc25	1b854	3	excw
+6be9a5	1d354	3	excw
+6bff50	1fea0	3	excw
+6c11b5	2374	3	excw
+6c12f0	25e0	3	excw
+6c1350	26a0	3	excw
+6c1e73	3cec	3	excw
+6c3744	6e90	3	excw
+6c3d95	7b34	3	excw
+6c41f4	83f0	3	excw
+6c4b53	96ac	3	excw
+6c7660	ecc0	3	excw
+6c9300	12600	3	excw
+6ca195	14334	3	excw
+6ca2f3	145ec	3	excw
+6cad50	15aa0	3	excw
+6cb9b4	17370	3	excw
+6cc863	190cc	3	excw
+6cccc7	1999c	3	bnall a12, a12, 19a0c
+6cd3b0	1a760	3	excw
+6cd683	1ad0c	3	excw
+6cdc25	1b854	3	excw
+6cfa74	1f4f0	3	excw
+6d2054	40b0	3	excw
+6d2595	4b34	3	excw
+6d3512	6a28	3	excw
+6d73f3	e7ec	3	excw
+6d79a5	f354	3	excw
+6d8ed7	11dbc	3	bany a14, a13, 11e2d
+6d8f55	11eb4	3	excw
+6d9943	1328c	3	excw
+6da9c0	15380	3	excw
+6dba36	17478	3	excw
+6dc7b4	18f70	3	excw
+6dcd70	19ae0	3	excw
+6dd144	1a290	3	excw
+6dd6e3	1adcc	3	excw
+6decb0	1d960	3	excw
+6df2d4	1e5b0	3	excw
+6df6b3	1ed6c	3	excw
+6dfe14	1fc30	3	excw
+6e1900	3200	3	excw
+6e2275	44f4	3	excw
+6e2e43	5c8c	3	excw
+6e39b5	7374	3	excw
+6e4336	8678	3	excw
+6e5980	b300	3	excw
+6e5f74	bef0	3	excw
+6e7612	ec28	3	excw
+6e8850	110a0	3	excw
+6e92b0	12560	3	excw
+6ea1b2	14368	3	movi a11, 0x16e
+6eb340	16680	3	excw
+6ebc82	17908	3	excw
+6ec165	182d4	3	excw
+6ef1f3	1e3ec	3	excw
+6ef347	1e69c	3	bbsi a3, 20, 1e70e
+6f0aa5	1554	3	excw
+6f1030	2060	3	excw
+6f1074	20f0	3	excw
+6f1db0	3b60	3	excw
+6f3920	7240	3	excw
+6f5420	a840	3	excw
+6f7e73	fcec	3	excw
+6f86a5	10d54	3	excw
+6f8b70	116e0	3	excw
+6f8c32	11868	3	excw
+6f9c23	1384c	3	excw
+6f9cc4	13990	3	excw
+6fac63	158cc	3	excw
+6fc0a4	18150	3	excw
+6fdd77	1bafc	3	bbs a13, a7, 1bb6f
+6ff942	1f288	3	excw
+6ffb62	1f6c8	3	excw
+6ffc92	1f928	3	excw
+700295	534	3	excw
+700924	1250	3	excw
+701e14	3c30	3	excw
+701ff5	3ff4	3	excw
+705633	ac6c	3	excw
+705bc4	b790	3	excw
+7095d0	12ba0	3	excw
+70cc13	1982c	3	excw
+70d4c0	1a980	3	excw
+70d6b5	1ad74	3	excw
+70d740	1ae80	3	excw
+70e790	1cf20	3	excw
+70f440	1e880	3	excw
+70fb10	1f620	3	excw
+712127	425c	3	blt a1, a2, 42d1
+712357	46bc	3	blt a3, a5, 4731
+712814	5030	3	excw
+7135e3	6bcc	3	excw
+714593	8b2c	3	excw
+715d34	ba70	3	excw
+716090	c120	3	excw
+716af5	d5f4	3	excw
+7175b0	eb60	3	excw
+71a0b5	14174	3	excw
+71a1e5	143d4	3	excw
+71a7b4	14f70	3	excw
+71c834	19070	3	excw
+71dda5	1bb54	3	excw
+71df20	1be40	3	excw
+71ed32	1da68	3	excw
+7240a5	8154	3	excw
+7245b4	8b70	3	excw
+724bb2	9768	3	s8i a11, a11, 114
+726290	c520	3	excw
+7269f4	d3f0	3	excw
+7275e2	ebc8	3	excw
+7277d2	efa8	3	excw
+727860	f0c0	3	excw
+7287a0	10f40	3	excw
+728d24	11a50	3	excw
+729320	12640	3	excw
+72a290	14520	3	excw
+72b7f5	16ff4	3	excw
+72c975	192f4	3	excw
+72cc23	1984c	3	excw
+72e213	1c42c	3	excw
+72e634	1cc70	3	excw
+72ecb0	1d960	3	excw
+733b84	7710	3	excw
+736124	c250	3	excw
+737d44	fa90	3	excw
+73a0a3	1414c	3	excw
+73b222	16448	3	excw
+73c540	18a80	3	excw
+73ee60	1dcc0	3	excw
+73ff34	1fe70	3	excw
+741ab5	3574	3	excw
+741ad3	35ac	3	excw
+742d36	5a78	3	excw
+746457	c8bc	3	bbci a4, 5, c934
+746464	c8d0	3	excw
+746c36	d878	3	excw
+747eb6	fd78	3	bltui a14, 7, fdf0
+748115	10234	3	excw
+7481f4	103f0	3	excw
+7487e3	10fcc	3	excw
+749835	13074	3	excw
+74a7e6	14fd8	3	bgei a7, 12, 15050
+74c164	182d0	3	excw
+74cc94	19930	3	excw
+74d794	1af30	3	excw
+74fbb5	1f774	3	excw
+7505f3	bec	3	excw
+751765	2ed4	3	excw
+7520c3	418c	3	excw
+753025	6054	3	excw
+753e63	7ccc	3	excw
+755f95	bf34	3	excw
+756ab3	d56c	3	excw
+757435	e874	3	excw
+758b15	11634	3	excw
+758c95	11934	3	excw
+759d54	13ab0	3	excw
+75c817	1903c	3	bnall a8, a1, 190b5
+75e733	1ce6c	3	excw
+75eb36	1d678	3	excw
+75f913	1f22c	3	excw
+7610c0	2180	3	excw
+762894	5130	3	excw
+7633c0	6780	3	excw
+764107	821c	3	ball a1, a0, 8296
+764a44	9490	3	excw
+766c25	d854	3	excw
+767793	ef2c	3	excw
+767a24	f450	3	excw
+768433	1086c	3	excw
+768683	10d0c	3	excw
+769f35	13e74	3	excw
+76a235	14474	3	excw
+76a4f5	149f4	3	excw
+76db15	1b634	3	excw
+76de50	1bca0	3	excw
+771076	20f8	3	excw
+7719a5	3354	3	excw
+771c12	3828	3	l16ui a1, a12, 238
+773a12	7428	3	excw
+773a36	7478	3	excw
+777ba3	f74c	3	excw
+77bb76	176f8	3	excw
+77cf65	19ed4	3	excw
+77d425	1a854	3	excw
+77d720	1ae40	3	excw
+77dd84	1bb10	3	excw
+77fb42	1f688	3	excw
+7815d5	2bb4	3	excw
+7838b0	7160	3	excw
+784b15	9634	3	excw
+7865b0	cb60	3	excw
+788002	10008	3	excw
+788ce4	119d0	3	excw
+78b7c3	16f8c	3	excw
+78b895	17134	3	excw
+78c227	1845c	3	bnall a2, a2, 184d8
+78caa5	19554	3	excw
+78d3b5	1a774	3	excw
+78dec3	1bd8c	3	excw
+78e262	1c4c8	3	excw
+78f1e5	1e3d4	3	excw
+7901a0	340	3	excw
+7902a5	554	3	excw
+791d20	3a40	3	excw
+792565	4ad4	3	excw
+7944e2	89c8	3	s8i a14, a4, 121
+794d13	9a2c	3	excw
+795ed3	bdac	3	excw
+796163	c2cc	3	excw
+7979d4	f3b0	3	excw
+7984c2	10988	3	excw
+799e43	13c8c	3	excw
+79c6d3	18dac	3	excw
+79fa74	1f4f0	3	excw
+79fbb0	1f760	3	excw
+7a3f63	7ecc	3	excw
+7a5e04	bc10	3	excw
+7a7c75	f8f4	3	excw
+7a9226	12458	3	beqi a2, 10, 124d6
+7a9893	1312c	3	excw
+7a9935	13274	3	excw
+7af7e3	1efcc	3	excw
+7b0c63	18cc	3	excw
+7b3874	70f0	3	excw
+7b55a7	ab5c	3	bbc a5, a10, abdb
+7b57e5	afd4	3	excw
+7b5f20	be40	3	excw
+7b6a10	d420	3	excw
+7b73e3	e7cc	3	excw
+7b8293	1052c	3	excw
+7ba040	14080	3	excw
+7ba960	152c0	3	excw
+7bb922	17248	3	excw
+7bcfb4	19f70	3	excw
+7bf194	1e330	3	excw
+7c0a53	14ac	3	excw
+7c1270	24e0	3	excw
+7c1b64	36d0	3	excw
+7c2e04	5c10	3	excw
+7c6760	cec0	3	excw
+7c6e60	dcc0	3	excw
+7cafe0	15fc0	3	excw
+7cb054	160b0	3	excw
+7cb154	162b0	3	excw
+7cea62	1d4c8	3	excw
+7cf894	1f130	3	excw
+7d0eb4	1d70	3	excw
+7d2373	46ec	3	excw
+7d2e35	5c74	3	excw
+7d33f0	67e0	3	excw
+7d3f94	7f30	3	excw
+7d4775	8ef4	3	excw
+7d4824	9050	3	excw
+7d4c40	9880	3	excw
+7d5bd0	b7a0	3	excw
+7d7d83	fb0c	3	excw
+7d8073	100ec	3	excw
+7dbbd4	177b0	3	excw
+7dd3a0	1a740	3	excw
+7df612	1ec28	3	excw
+7dfd12	1fa28	3	excw
+7e1c13	382c	3	excw
+7e1d36	3a78	3	excw
+7e2484	4910	3	excw
+7e48d3	91ac	3	excw
+7e4b83	970c	3	excw
+7e5de5	bbd4	3	excw
+7e7563	eacc	3	excw
+7ea5e5	14bd4	3	excw
+7ea720	14e40	3	excw
+7ebd92	17b28	3	excw
+7f08a0	1140	3	excw
+7f1ee4	3dd0	3	excw
+7f2723	4e4c	3	excw
+7f3124	6250	3	excw
+7f36e0	6dc0	3	excw
+7f4195	8334	3	excw
+7f5920	b240	3	excw
+7f5ce5	b9d4	3	excw
+7f7190	e320	3	excw
+7f78f2	f1e8	3	excw
+7f8482	10908	3	excw
+7f8862	110c8	3	excw
+7f9715	12e34	3	excw
+7fa574	14af0	3	excw
+7faf60	15ec0	3	excw
+7fb936	17278	3	excw
+7fce54	19cb0	3	excw
+7fdbd3	1b7ac	3	excw
+7fe7e7	1cfdc	3	bbsi a7, 14, 1d05f
+7fe963	1d2cc	3	excw
+7ff435	1e874	3	excw
+800000	0	3	add a0, a0, a0
+8026a3	4d4c	3	excw
+803604	6c10	3	excw
+803c82	7908	3	excw
+805700	ae00	3	add a5, a7, a0
+807910	f220	3	add a7, a9, a1
+807e20	fc40	3	add a7, a14, a2
+808190	10320	3	add a8, a1, a9
+808d23	11a4c	3	excw
+808eb5	11d74	3	excw
+80afe0	15fc0	3	add a10, a15, a14
+80ba33	1746c	3	excw
+80ca24	19450	3	excw
+80d455	1a8b4	3	excw
+80d890	1b120	3	add a13, a8, a9
+80daa0	1b540	3	add a13, a10, a10
+80e0b5	1c174	3	excw
+80e1d0	1c3a0	3	add a14, a1, a13
+80fff0	1ffe0	3	add a15, a15, a15
+810000	0	3	src a0, a0, a0
+810ed0	1da0	3	src a0, a14, a13
+810f93	1f2c	3	excw
+811cf0	39e0	3	src a1, a12, a15
+811f10	3e20	3	src a1, a15, a1
+8128b3	516c	3	excw
+812a53	54ac	3	excw
+813fc0	7f80	3	src a3, a15, a12
+814487	891c	3	ball a4, a8, 88a1
+816c36	d878	3	excw
+816f65	ded4	3	excw
+817470	e8e0	3	src a7, a4, a7
+817d53	faac	3	excw
+818442	10888	3	excw
+8198b4	13170	3	excw
+81a976	152f8	3	excw
+81b0f0	161e0	3	src a11, a0, a15
+81b104	16210	3	excw
+81b1f3	163ec	3	excw
+81b9c2	17388	3	excw
+81bfe5	17fd4	3	excw
+81d0d6	1a1b8	3	bgez a0, 199d9
+81d136	1a278	3	excw
+81e110	1c220	3	src a14, a1, a1
+81ef50	1dea0	3	src a14, a15, a5
+81f2a5	1e554	3	excw
+81fff0	1ffe0	3	src a15, a15, a15
+820000	0	3	mull a0, a0, a0
+820780	f00	3	mull a0, a7, a8
+821470	28e0	3	mull a1, a4, a7
+821743	2e8c	3	excw
+821fb0	3f60	3	mull a1, a15, a11
+822124	4250	3	excw
+823ee3	7dcc	3	excw
+824ab4	9570	3	excw
+8277c0	ef80	3	mull a7, a7, a12
+828073	100ec	3	excw
+829bc0	13780	3	mull a9, a11, a12
+829dc0	13b80	3	mull a9, a13, a12
+82c883	1910c	3	excw
+82d0f0	1a1e0	3	mull a13, a0, a15
+82dcf5	1b9f4	3	excw
+82f660	1ecc0	3	mull a15, a6, a6
+82fe72	1fce8	3	excw
+82fff0	1ffe0	3	mull a15, a15, a15
+830000	0	3	moveqz a0, a0, a0
+832c70	58e0	3	moveqz a2, a12, a7
+834aa5	9554	3	excw
+834ca0	9940	3	moveqz a4, a12, a10
+834d04	9a10	3	excw
+834f90	9f20	3	moveqz a4, a15, a9
+835eb4	bd70	3	excw
+8373d0	e7a0	3	moveqz a7, a3, a13
+8383c2	10788	3	excw
+838fc2	11f88	3	excw
+83b134	16270	3	excw
+83c6c0	18d80	3	moveqz a12, a6, a12
+83dc80	1b900	3	moveqz a13, a12, a8
+83e610	1cc20	3	moveqz a14, a6, a1
+83f2e0	1e5c0	3	moveqz a15, a2, a14
+83fa75	1f4f4	3	excw
+83fff0	1ffe0	3	moveqz a15, a15, a15
+841680	2d00	3	extui a1, a8, 6, 9
+843535	6a74	3	excw
+844f76	9ef8	3	excw
+845694	ad30	3	excw
+845ab3	b56c	3	excw
+846315	c634	3	excw
+846623	cc4c	3	excw
+846bf5	d7f4	3	excw
+8489f3	113ec	3	excw
+849cf4	139f0	3	excw
+84c3a7	1875c	3	bnall a3, a10, 186e4
+84d075	1a0f4	3	excw
+855463	a8cc	3	excw
+8563e5	c7d4	3	excw
+858bd4	117b0	3	excw
+8591d4	123b0	3	excw
+8597b4	12f70	3	excw
+85a455	148b4	3	excw
+85b952	172a8	3	excw
+85be36	17c78	3	excw
+85c133	1826c	3	excw
+85cc43	1988c	3	excw
+85f853	1f0ac	3	excw
+8619f0	33e0	3	excw
+861fb6	3f78	3	bltui a15, 0x10000, 3f02
+862564	4ad0	3	excw
+862dd3	5bac	3	excw
+862f43	5e8c	3	excw
+863c60	78c0	3	excw
+867b95	f734	3	excw
+8683e0	107c0	3	excw
+868cb7	1197c	3	bany a12, a11, 11906
+869950	132a0	3	excw
+86ebf0	1d7e0	3	excw
+86f4e3	1e9cc	3	excw
+86f640	1ec80	3	excw
+86ffd3	1ffac	3	excw
+870b00	1600	3	excw
+870b95	1734	3	excw
+873b74	76f0	3	excw
+873e22	7c48	3	excw
+874870	90e0	3	excw
+875273	a4ec	3	excw
+8777c2	ef88	3	excw
+8783d0	107a0	3	excw
+879937	1327c	3	bne a9, a3, 13207
+87b122	16248	3	excw
+87b223	1644c	3	excw
+87b2e5	165d4	3	excw
+87b323	1664c	3	excw
+87b464	168d0	3	excw
+87dc54	1b8b0	3	excw
+87ecb3	1d96c	3	excw
+87ee33	1dc6c	3	excw
+87ef23	1de4c	3	excw
+87f262	1e4c8	3	excw
+880a10	1420	3	excw
+880b15	1634	3	excw
+881d50	3aa0	3	excw
+885804	b010	3	excw
+885820	b040	3	excw
+885f75	bef4	3	excw
+887ad6	f5b8	3	bgez a10, ee43
+88b984	17310	3	excw
+88efe5	1dfd4	3	excw
+88f925	1f254	3	excw
+88ffe4	1ffd0	3	excw
+8904d0	9a0	3	excw
+892904	5210	3	excw
+892a70	54e0	3	excw
+893db3	7b6c	3	excw
+894125	8254	3	excw
+8942e0	85c0	3	excw
+8951d4	a3b0	3	excw
+8959f3	b3ec	3	excw
+897802	f008	3	excw
+899cc3	1398c	3	excw
+89ab34	15670	3	excw
+89b303	1660c	3	excw
+89b9d2	173a8	3	excw
+89bdb4	17b70	3	excw
+89e135	1c274	3	excw
+8a0ba3	174c	3	excw
+8a14c3	298c	3	excw
+8a25e4	4bd0	3	excw
+8a4564	8ad0	3	excw
+8a5c93	b92c	3	excw
+8a6444	c890	3	excw
+8a75d3	ebac	3	excw
+8abb65	176d4	3	excw
+8abd72	17ae8	3	excw
+8ac434	18870	3	excw
+8ac8d4	191b0	3	excw
+8ad953	1b2ac	3	excw
+8ae936	1d278	3	excw
+8b0264	4d0	3	excw
+8b4503	8a0c	3	excw
+8b4b87	971c	3	ball a11, a8, 96ab
+8b59d4	b3b0	3	excw
+8b5bb4	b770	3	excw
+8b6a84	d510	3	excw
+8b70e4	e1d0	3	excw
+8b80a4	10150	3	excw
+8b84b2	10968	3	excw
+8baac4	15590	3	excw
+8bdff5	1bff4	3	excw
+8bec15	1d834	3	excw
+8c0035	74	3	excw
+8c07d7	fbc	3	bnone a7, a13, f4c
+8c3174	62f0	3	excw
+8c3ce3	79cc	3	excw
+8c6b25	d654	3	excw
+8cdd60	1bac0	3	excw
+8d0234	470	3	excw
+8d1cc3	398c	3	excw
+8d3113	622c	3	excw
+8d3fc0	7f80	3	excw
+8d5833	b06c	3	excw
+8d7433	e86c	3	excw
+8d8184	10310	3	excw
+8d8194	10330	3	excw
+8d9162	122c8	3	l16si a6, a1, 0x11a
+8d9320	12640	3	excw
+8d95a3	12b4c	3	excw
+8da042	14088	3	movi a4, 141
+8db336	16678	3	excw
+8db934	17270	3	excw
+8e0264	4d0	3	excw
+8e13e5	27d4	3	excw
+8e30c4	6190	3	excw
+8e32b5	6574	3	excw
+8e3682	6d08	3	excw
+8e6ea3	dd4c	3	excw
+8e72a3	e54c	3	excw
+8e7392	e728	3	excw
+8e9116	12238	3	beqz a1, 11b25
+8ea923	1524c	3	excw
+8eaeb3	15d6c	3	excw
+8ec136	18278	3	excw
+8eff40	1fe80	3	excw
+8f1930	3260	3	excw
+8f19c0	3380	3	excw
+8f2c80	5900	3	excw
+8f3912	7228	3	excw
+8f6744	ce90	3	excw
+8f9273	124ec	3	excw
+8fe5a6	1cb58	3	blti a5, 128, 1caeb
+8ff3f0	1e7e0	3	excw
+8ffde5	1fbd4	3	excw
+900000	0	3	addx2 a0, a0, a0
+900160	2c0	3	addx2 a0, a1, a6
+904e30	9c60	3	addx2 a4, a14, a3
+905320	a640	3	addx2 a5, a3, a2
+906173	c2ec	3	excw
+9061f0	c3e0	3	addx2 a6, a1, a15
+906c22	d848	3	s32i a2, a12, 0x240
+907ca0	f940	3	addx2 a7, a12, a10
+909555	12ab4	3	excw
+90a573	14aec	3	excw
+90b090	16120	3	addx2 a11, a0, a9
+90b700	16e00	3	addx2 a11, a7, a0
+90ba65	174d4	3	excw
+90c0b3	1816c	3	excw
+90c194	18330	3	excw
+90ca80	19500	3	addx2 a12, a10, a8
+90e212	1c428	3	excw
+90fb92	1f728	3	excw
+90fff0	1ffe0	3	addx2 a15, a15, a15
+910000	0	3	srl a0, a0
+9100b0	160	3	srl a0, a11
+9102c0	580	3	excw
+913020	6040	3	srl a3, a2
+913520	6a40	3	excw
+9143e3	87cc	3	excw
+9150b0	a160	3	srl a5, a11
+916a65	d4d4	3	excw
+916bd5	d7b4	3	excw
+917813	f02c	3	excw
+917ef4	fdf0	3	excw
+919060	120c0	3	srl a9, a6
+919090	12120	3	srl a9, a9
+919585	12b14	3	call0 fffa4470
+919b23	1364c	3	excw
+91a010	14020	3	srl a10, a1
+91a724	14e50	3	excw
+91b070	160e0	3	srl a11, a7
+91b9d6	173b8	3	bgez a9, 16cd7
+91e020	1c040	3	srl a14, a2
+91e4e4	1c9d0	3	excw
+91f0f0	1e1e0	3	srl a15, a15
+91f7e0	1efc0	3	excw
+923fa4	7f50	3	excw
+924e50	9ca0	3	excw
+9293b0	12760	3	excw
+929513	12a2c	3	excw
+92a413	1482c	3	excw
+92b825	17054	3	excw
+92ba60	174c0	3	excw
+92bae2	175c8	3	excw
+92e2d5	1c5b4	3	excw
+92fd82	1fb08	3	excw
+930000	0	3	movnez a0, a0, a0
+930b80	1700	3	movnez a0, a11, a8
+932330	4660	3	movnez a2, a3, a3
+932eb4	5d70	3	excw
+9332c0	6580	3	movnez a3, a2, a12
+933650	6ca0	3	movnez a3, a6, a5
+934164	82d0	3	excw
+934660	8cc0	3	movnez a4, a6, a6
+936195	c334	3	excw
+936ab0	d560	3	movnez a6, a10, a11
+938023	1004c	3	excw
+93c4f0	189e0	3	movnez a12, a4, a15
+93dad5	1b5b4	3	excw
+93e810	1d020	3	movnez a14, a8, a1
+93f364	1e6d0	3	excw
+93f423	1e84c	3	excw
+93fff0	1ffe0	3	movnez a15, a15, a15
+9457b3	af6c	3	excw
+9464d3	c9ac	3	excw
+947173	e2ec	3	excw
+947a13	f42c	3	excw
+948676	10cf8	3	excw
+948795	10f34	3	excw
+949c04	13810	3	excw
+94a705	14e14	3	call0 fffa9888
+94ba33	1746c	3	excw
+94c862	190c8	3	addi a6, a8, -108
+94d614	1ac30	3	excw
+94e623	1cc4c	3	excw
+94f752	1eea8	3	excw
+952f64	5ed0	3	excw
+9539e4	73d0	3	excw
+9547d5	8fb4	3	excw
+955a16	b438	3	beqz a10, ad91
+957292	e528	3	excw
+959065	120d4	3	excw
+95a0b5	14174	3	excw
+95a4f5	149f4	3	excw
+95abd6	157b8	3	bgez a11, 15116
+95c5d5	18bb4	3	excw
+95d614	1ac30	3	excw
+95f7f4	1eff0	3	excw
+95fd14	1fa30	3	excw
+95feb2	1fd68	3	excw
+9616f5	2df4	3	excw
+961fe3	3fcc	3	excw
+9651a0	a340	3	excw
+965ef4	bdf0	3	excw
+966cf4	d9f0	3	excw
+9685c4	10b90	3	excw
+969ea3	13d4c	3	excw
+96ad54	15ab0	3	excw
+96c9e4	193d0	3	excw
+96e754	1ceb0	3	excw
+96f463	1e8cc	3	excw
+972ed3	5dac	3	excw
+973254	64b0	3	excw
+978810	11020	3	excw
+97a854	150b0	3	excw
+97db70	1b6e0	3	excw
+97e370	1c6e0	3	excw
+97e9c4	1d390	3	excw
+97f7e2	1efc8	3	excw
+9807c3	f8c	3	excw
+981eb4	3d70	3	excw
+9835d2	6ba8	3	excw
+984675	8cf4	3	excw
+984ca3	994c	3	excw
+985ca4	b950	3	excw
+986384	c710	3	excw
+9864d2	c9a8	3	s32i a13, a4, 0x260
+988cd0	119a0	3	excw
+989e04	13c10	3	excw
+98b670	16ce0	3	excw
+98c0f3	181ec	3	excw
+98c0f4	181f0	3	excw
+98d936	1b278	3	excw
+98ee22	1dc48	3	excw
+990213	42c	3	excw
+9925f2	4be8	3	l32i a15, a5, 0x264
+992a62	54c8	3	l32i a6, a10, 0x264
+9937b2	6f68	3	excw
+994804	9010	3	excw
+995053	a0ac	3	excw
+995740	ae80	3	excw
+995d80	bb00	3	excw
+99b743	16e8c	3	excw
+99b860	170c0	3	excw
+99d4f0	1a9e0	3	excw
+99eba0	1d740	3	excw
+99f050	1e0a0	3	excw
+9a1f25	3e54	3	excw
+9a3a72	74e8	3	excw
+9a4a23	944c	3	excw
+9a8ab3	1156c	3	excw
+9ab333	1666c	3	excw
+9ab9b6	17378	3	bltui a9, 16, 17316
+9ac337	1867c	3	bnall a3, a3, 1861a
+9ac744	18e90	3	excw
+9ace55	19cb4	3	excw
+9ae610	1cc20	3	excw
+9af6c5	1ed94	3	call0 fffb9d04
+9b06d3	dac	3	excw
+9b1d24	3a50	3	excw
+9b2f75	5ef4	3	excw
+9b8162	102c8	3	excw
+9b9de4	13bd0	3	excw
+9ba4a5	14954	3	excw
+9bab60	156c0	3	excw
+9bc780	18f00	3	excw
+9bd576	1aaf8	3	excw
+9be7c0	1cf80	3	excw
+9c15c2	2b88	3	l16ui a12, a5, 0x138
+9c21d4	43b0	3	excw
+9c4bd0	97a0	3	excw
+9c4c80	9900	3	excw
+9c5617	ac3c	3	bbc a6, a1, abdc
+9c6625	cc54	3	excw
+9c7cb3	f96c	3	excw
+9c9566	12ad8	3	bnei a5, 10, 12a78
+9c9c24	13850	3	excw
+9c9dd4	13bb0	3	excw
+9cad84	15b10	3	excw
+9cbbf4	177f0	3	excw
+9cd0b0	1a160	3	excw
+9ceca6	1d958	3	blti a12, 128, 1d8f8
+9cecf4	1d9f0	3	excw
+9cf052	1e0a8	3	excw
+9cf4e5	1e9d4	3	excw
+9d06a7	d5c	3	bnone a6, a10, cfd
+9d18c3	318c	3	excw
+9d3032	6068	3	excw
+9d5076	a0f8	3	excw
+9d6020	c040	3	excw
+9d6114	c230	3	excw
+9d6500	ca00	3	excw
+9d70f2	e1e8	3	excw
+9d81b0	10360	3	excw
+9d9e52	13ca8	3	l16si a5, a14, 0x13a
+9ddf25	1be54	3	excw
+9decb5	1d974	3	excw
+9df6b5	1ed74	3	excw
+9e0202	408	3	l8ui a0, a2, 158
+9e24a3	494c	3	excw
+9e3374	66f0	3	excw
+9e38e5	71d4	3	excw
+9e4783	8f0c	3	excw
+9e48a5	9154	3	excw
+9e6774	cef0	3	excw
+9e82d0	105a0	3	excw
+9e88d5	111b4	3	excw
+9e89e2	113c8	3	excw
+9e8b56	116b8	3	bnez a11, 110a4
+9e8bf4	117f0	3	excw
+9e9143	1228c	3	excw
+9e98d0	131a0	3	excw
+9ead10	15a20	3	excw
+9ec080	18100	3	excw
+9ec482	18908	3	addi a8, a4, -98
+9ecdf0	19be0	3	excw
+9ed950	1b2a0	3	excw
+9ef9e4	1f3d0	3	excw
+9f1213	242c	3	excw
+9f1215	2434	3	excw
+9f1927	325c	3	beq a9, a2, 31ff
+9f1c55	38b4	3	excw
+9f8cd4	119b0	3	excw
+9fa7a3	14f4c	3	excw
+9faf97	15f3c	3	bge a15, a9, 15edf
+9fb304	16610	3	excw
+9fbf72	17ee8	3	excw
+9fc890	19120	3	excw
+9fe894	1d130	3	excw
+9feba5	1d754	3	excw
+9ff1e3	1e3cc	3	excw
+a00000	0	3	addx4 a0, a0, a0
+a017d0	2fa0	3	addx4 a1, a7, a13
+a01ae0	35c0	3	addx4 a1, a10, a14
+a01d93	3b2c	3	excw
+a02450	48a0	3	addx4 a2, a4, a5
+a030a0	6140	3	addx4 a3, a0, a10
+a03f24	7e50	3	excw
+a05024	a050	3	excw
+a06403	c80c	3	excw
+a06cf3	d9ec	3	excw
+a06f40	de80	3	addx4 a6, a15, a4
+a07080	e100	3	addx4 a7, a0, a8
+a093e4	127d0	3	excw
+a09c20	13840	3	addx4 a9, a12, a2
+a09d40	13a80	3	addx4 a9, a13, a4
+a0c775	18ef4	3	excw
+a0fff0	1ffe0	3	addx4 a15, a15, a15
+a10000	0	3	sll a0, a0
+a10ca4	1950	3	excw
+a11800	3000	3	sll a1, a8
+a11b25	3654	3	excw
+a130e2	61c8	3	excw
+a13600	6c00	3	sll a3, a6
+a14784	8f10	3	excw
+a15055	a0b4	3	excw
+a162a3	c54c	3	excw
+a17c00	f800	3	sll a7, a12
+a18bc2	11788	3	excw
+a19ab4	13570	3	excw
+a19d44	13a90	3	excw
+a19f50	13ea0	3	excw
+a1af00	15e00	3	sll a10, a15
+a1c264	184d0	3	excw
+a1c300	18600	3	sll a12, a3
+a1ce35	19c74	3	excw
+a1cf00	19e00	3	sll a12, a15
+a1e500	1ca00	3	sll a14, a5
+a1f074	1e0f0	3	excw
+a1f200	1e400	3	sll a15, a2
+a1ff00	1fe00	3	sll a15, a15
+a1ff60	1fec0	3	excw
+a20357	6bc	3	bnone a3, a5, 662
+a21520	2a40	3	excw
+a217d5	2fb4	3	excw
+a23f47	7e9c	3	bltu a15, a4, 7e42
+a244b3	896c	3	excw
+a249a0	9340	3	excw
+a26010	c020	3	excw
+a268b4	d170	3	excw
+a27103	e20c	3	excw
+a272e0	e5c0	3	excw
+a28f82	11f08	3	excw
+a29d83	13b0c	3	excw
+a2b810	17020	3	excw
+a2b833	1706c	3	excw
+a2c683	18d0c	3	excw
+a2dbe0	1b7c0	3	excw
+a2e034	1c070	3	excw
+a30000	0	3	movltz a0, a0, a0
+a30e00	1c00	3	movltz a0, a14, a0
+a32a24	5450	3	excw
+a32dd4	5bb0	3	excw
+a334a0	6940	3	movltz a3, a4, a10
+a33c80	7900	3	movltz a3, a12, a8
+a33f40	7e80	3	movltz a3, a15, a4
+a35530	aa60	3	movltz a5, a5, a3
+a363f0	c7e0	3	movltz a6, a3, a15
+a37a40	f480	3	movltz a7, a10, a4
+a37b36	f678	3	excw
+a38bb6	11778	3	bltui a11, 8, 1171f
+a391a0	12340	3	movltz a9, a1, a10
+a3a626	14c58	3	beqi a6, 12, 14bff
+a3ab55	156b4	3	excw
+a3b712	16e28	3	excw
+a3d9e4	1b3d0	3	excw
+a3fff0	1ffe0	3	movltz a15, a15, a15
+a413e4	27d0	3	excw
+a41983	330c	3	excw
+a44775	8ef4	3	excw
+a47e84	fd10	3	excw
+a48075	100f4	3	excw
+a4a294	14530	3	excw
+a4adb5	15b74	3	excw
+a4b124	16250	3	excw
+a4b855	170b4	3	excw
+a4b994	17330	3	excw
+a4c0a3	1814c	3	excw
+a4d2f3	1a5ec	3	excw
+a4ee52	1dca8	3	excw
+a4ee53	1dcac	3	excw
+a50c64	18d0	3	excw
+a53372	66e8	3	excw
+a55243	a48c	3	excw
+a552d4	a5b0	3	excw
+a56263	c4cc	3	excw
+a56c80	d900	3	extui a6, a8, 28, 11
+a58bb2	11768	3	excw
+a59276	124f8	3	excw
+a5b673	16cec	3	excw
+a5d064	1a0d0	3	excw
+a5d0e4	1a1d0	3	excw
+a5f575	1eaf4	3	excw
+a61774	2ef0	3	excw
+a62010	4020	3	excw
+a64523	8a4c	3	excw
+a65803	b00c	3	excw
+a65f30	be60	3	excw
+a66233	c46c	3	excw
+a68300	10600	3	excw
+a6a9b0	15360	3	excw
+a6b422	16848	3	excw
+a6ebf3	1d7ec	3	excw
+a6f5e3	1ebcc	3	excw
+a70323	64c	3	excw
+a707c3	f8c	3	excw
+a70c74	18f0	3	excw
+a71030	2060	3	excw
+a73463	68cc	3	excw
+a736d3	6dac	3	excw
+a74244	8490	3	excw
+a743b4	8770	3	excw
+a746d0	8da0	3	excw
+a755a5	ab54	3	excw
+a77d12	fa28	3	excw
+a78565	10ad4	3	excw
+a78686	10d18	3	j ffffab36
+a789b4	11370	3	excw
+a7a042	14088	3	movi a4, 167
+a7c043	1808c	3	excw
+a7ce15	19c34	3	excw
+a7cfa0	19f40	3	excw
+a7d964	1b2d0	3	excw
+a7f5e4	1ebd0	3	excw
+a7fc96	1f938	3	bltz a12, 1f3bb
+a80656	cb8	3	bnez a6, 73c
+a82310	4620	3	excw
+a83132	6268	3	excw
+a83497	693c	3	bltu a4, a9, 68e8
+a84183	830c	3	excw
+a85f25	be54	3	excw
+a86173	c2ec	3	excw
+a875f3	ebec	3	excw
+a88d60	11ac0	3	excw
+a894a3	1294c	3	excw
+a8a070	140e0	3	excw
+a8b003	1600c	3	excw
+a8b2e2	165c8	3	excw
+a8bc62	178c8	3	excw
+a8c764	18ed0	3	excw
+a8e990	1d320	3	excw
+a90340	680	3	excw
+a91d80	3b00	3	excw
+a93365	66d4	3	excw
+a94176	82f8	3	excw
+a94ca0	9940	3	excw
+a95e65	bcd4	3	excw
+a96020	c040	3	excw
+a974d3	e9ac	3	excw
+a97a76	f4f8	3	excw
+a97b37	f67c	3	bbci a11, 19, f629
+a97b76	f6f8	3	excw
+a981b4	10370	3	excw
+a9c676	18cf8	3	excw
+a9e224	1c450	3	excw
+a9e662	1ccc8	3	excw
+a9f3b3	1e76c	3	excw
+aa1473	28ec	3	excw
+aa2363	46cc	3	excw
+aa4fa4	9f50	3	excw
+aa5325	a654	3	excw
+aa5363	a6cc	3	excw
+aa5a60	b4c0	3	excw
+aa6040	c080	3	excw
+aa76e2	edc8	3	excw
+aa7ae6	f5d8	3	bgei a10, 7, f586
+aa8404	10810	3	excw
+aa8ce2	119c8	3	excw
+aa8ff6	11ff8	3	bgeui a15, 8, 11fa6
+aadf50	1bea0	3	excw
+aae262	1c4c8	3	excw
+ab1455	28b4	3	excw
+ab2ed5	5db4	3	excw
+ab3a04	7410	3	excw
+ab3e62	7cc8	3	excw
+ab5003	a00c	3	excw
+ab6da2	db48	3	s32i a10, a13, 0x2ac
+ab8e00	11c00	3	excw
+abb035	16074	3	excw
+abb600	16c00	3	excw
+abd673	1acec	3	excw
+abd820	1b040	3	excw
+ac0273	4ec	3	excw
+ac22a3	454c	3	excw
+ac4b25	9654	3	excw
+ac5461	a8c4	3	l32r a6, ffff5a14
+ac5b04	b610	3	excw
+ac8200	10400	3	excw
+ac91a5	12354	3	excw
+aca994	15330	3	excw
+accdd2	19ba8	3	addi a13, a13, -84
+acf762	1eec8	3	excw
+ad11a6	2358	3	blti a1, 1, 2309
+ad3653	6cac	3	excw
+ad3d24	7a50	3	excw
+ad7e36	fc78	3	excw
+adb5c4	16b90	3	excw
+adbe83	17d0c	3	excw
+adcef4	19df0	3	excw
+ade6d2	1cda8	3	excw
+adfbb4	1f770	3	excw
+ae0c64	18d0	3	excw
+ae1604	2c10	3	excw
+ae35c7	6b9c	3	bltu a5, a12, 6b4e
+ae46f3	8dec	3	excw
+ae7793	ef2c	3	excw
+ae8595	10b34	3	excw
+ae8b16	11638	3	beqz a11, 11124
+ae9550	12aa0	3	excw
+aea185	14314	3	call0 fffc2d30
+aeb187	1631c	3	bgeu a1, a8, 162ce
+aebd44	17a90	3	excw
+aeee83	1dd0c	3	excw
+af0bb4	1770	3	excw
+af0d80	1b00	3	excw
+af4d13	9a2c	3	excw
+af6794	cf30	3	excw
+af8590	10b20	3	excw
+af88f3	111ec	3	excw
+afd387	1a71c	3	bbs a3, a8, 1a6cf
+afe135	1c274	3	excw
+afe2b5	1c574	3	excw
+afff75	1fef4	3	excw
+b00000	0	3	addx8 a0, a0, a0
+b01000	2000	3	addx8 a1, a0, a0
+b01df3	3bec	3	excw
+b03880	7100	3	addx8 a3, a8, a8
+b043f0	87e0	3	addx8 a4, a3, a15
+b048d4	91b0	3	excw
+b06b25	d654	3	excw
+b07364	e6d0	3	excw
+b07ed0	fda0	3	addx8 a7, a14, a13
+b086a2	10d48	3	excw
+b08a52	114a8	3	excw
+b09076	120f8	3	excw
+b09c64	138d0	3	excw
+b09ee0	13dc0	3	addx8 a9, a14, a14
+b0a3b4	14770	3	excw
+b0a4b4	14970	3	excw
+b0ad15	15a34	3	excw
+b0c2a3	1854c	3	excw
+b0c2d0	185a0	3	addx8 a12, a2, a13
+b0c8c0	19180	3	addx8 a12, a8, a12
+b0d904	1b210	3	excw
+b0dbf5	1b7f4	3	excw
+b0df75	1bef4	3	excw
+b0f1b0	1e360	3	addx8 a15, a1, a11
+b0fff0	1ffe0	3	addx8 a15, a15, a15
+b10000	0	3	sra a0, a0
+b104a4	950	3	excw
+b110c0	2180	3	sra a1, a12
+b116f0	2de0	3	excw
+b12a44	5490	3	excw
+b13030	6060	3	sra a3, a3
+b131a0	6340	3	excw
+b150a0	a140	3	sra a5, a10
+b15f12	be28	3	s16i a1, a15, 0x162
+b160a0	c140	3	sra a6, a10
+b16713	ce2c	3	excw
+b17000	e000	3	sra a7, a0
+b18663	10ccc	3	excw
+b190d0	121a0	3	sra a9, a13
+b1a2b4	14570	3	excw
+b1b0e0	161c0	3	sra a11, a14
+b1b2a3	1654c	3	excw
+b1b415	16834	3	excw
+b1d020	1a040	3	sra a13, a2
+b1dab5	1b574	3	excw
+b1f0f0	1e1e0	3	sra a15, a15
+b20593	b2c	3	excw
+b213a7	275c	3	beq a3, a10, 2712
+b239c0	7380	3	excw
+b24603	8c0c	3	excw
+b26223	c44c	3	excw
+b26a50	d4a0	3	excw
+b276e4	edd0	3	excw
+b279c0	f380	3	excw
+b284a4	10950	3	excw
+b289f0	113e0	3	excw
+b2be20	17c40	3	excw
+b2ddd4	1bbb0	3	excw
+b2e0d3	1c1ac	3	excw
+b30000	0	3	movgez a0, a0, a0
+b30cd5	19b4	3	excw
+b30db4	1b70	3	excw
+b32280	4500	3	movgez a2, a2, a8
+b34084	8110	3	excw
+b34f70	9ee0	3	movgez a4, a15, a7
+b35ab0	b560	3	movgez a5, a10, a11
+b35ab5	b574	3	excw
+b35df5	bbf4	3	excw
+b36ac3	d58c	3	excw
+b36c10	d820	3	movgez a6, a12, a1
+b371e2	e3c8	3	excw
+b37e82	fd08	3	excw
+b38660	10cc0	3	movgez a8, a6, a6
+b38d76	11af8	3	excw
+b38da0	11b40	3	movgez a8, a13, a10
+b39204	12410	3	excw
+b3a206	14418	3	j 12a4
+b3ac30	15860	3	movgez a10, a12, a3
+b3ad33	15a6c	3	excw
+b3c055	180b4	3	excw
+b3d935	1b274	3	excw
+b3e0a0	1c140	3	movgez a14, a0, a10
+b3e0e3	1c1cc	3	excw
+b3f015	1e034	3	excw
+b3f2d2	1e5a8	3	excw
+b3fff0	1ffe0	3	movgez a15, a15, a15
+b430f3	61ec	3	excw
+b434a5	6954	3	excw
+b43af3	75ec	3	excw
+b44b66	96d8	3	bnei a11, 4, 9690
+b46613	cc2c	3	excw
+b49524	12a50	3	excw
+b4a895	15134	3	excw
+b4b061	160c4	3	l32r a6, 3384
+b4b135	16274	3	excw
+b4b176	162f8	3	excw
+b4c5b3	18b6c	3	excw
+b4d736	1ae78	3	excw
+b4eed4	1ddb0	3	excw
+b4f544	1ea90	3	excw
+b53de3	7bcc	3	excw
+b5b112	16228	3	excw
+b5b824	17050	3	excw
+b5bd76	17af8	3	excw
+b60500	a00	3	excw
+b60e24	1c50	3	excw
+b61020	2040	3	excw
+b61495	2934	3	excw
+b630f3	61ec	3	excw
+b63113	622c	3	excw
+b63aa7	755c	3	bltu a10, a10, 7516
+b64ed3	9dac	3	excw
+b67a94	f530	3	excw
+b67cd0	f9a0	3	excw
+b67e12	fc28	3	excw
+b68702	10e08	3	excw
+b6a8d4	151b0	3	excw
+b6bc30	17860	3	excw
+b6c8c4	19190	3	excw
+b6d853	1b0ac	3	excw
+b6dca0	1b940	3	excw
+b6e2c3	1c58c	3	excw
+b6fbc3	1f78c	3	excw
+b703d4	7b0	3	excw
+b73542	6a88	3	excw
+b74bd5	97b4	3	excw
+b758c3	b18c	3	excw
+b75df3	bbec	3	excw
+b76582	cb08	3	s32i a8, a5, 0x2dc
+b773a2	e748	3	excw
+b788e0	111c0	3	excw
+b78ea3	11d4c	3	excw
+b79800	13000	3	excw
+b79d44	13a90	3	excw
+b7acb3	1596c	3	excw
+b7d094	1a130	3	excw
+b7f202	1e408	3	excw
+b7fb76	1f6f8	3	excw
+b811e4	23d0	3	excw
+b81e14	3c30	3	excw
+b81f53	3eac	3	excw
+b82365	46d4	3	excw
+b82795	4f34	3	excw
+b8a493	1492c	3	excw
+b8b7b4	16f70	3	excw
+b8e2f4	1c5f0	3	excw
+b8f7b0	1ef60	3	excw
+b90270	4e0	3	excw
+b90374	6f0	3	excw
+b90ed3	1dac	3	excw
+b91637	2c7c	3	beq a6, a3, 2c39
+b92734	4e70	3	excw
+b930e2	61c8	3	excw
+b93823	704c	3	excw
+b93e23	7c4c	3	excw
+b94c23	984c	3	excw
+b97400	e800	3	excw
+b9b227	1645c	3	bgeu a2, a2, 16419
+b9b580	16b00	3	excw
+b9cec3	19d8c	3	excw
+ba16b6	2d78	3	bltui a6, 0x10000, 2d36
+ba2472	48e8	3	l32i a7, a4, 0x2e8
+ba66b5	cd74	3	excw
+ba7043	e08c	3	excw
+ba80f4	101f0	3	excw
+ba8842	11088	3	excw
+ba90c3	1218c	3	excw
+baaca5	15954	3	excw
+baaee5	15dd4	3	excw
+bab215	16434	3	excw
+bac000	18000	3	excw
+bac883	1910c	3	excw
+baf612	1ec28	3	excw
+bb1897	313c	3	beq a8, a9, 30fb
+bb1a60	34c0	3	excw
+bb2244	4490	3	excw
+bb28c3	518c	3	excw
+bb2b24	5650	3	excw
+bb2e80	5d00	3	excw
+bb3284	6510	3	excw
+bb3fe2	7fc8	3	excw
+bb4af2	95e8	3	s8i a15, a10, 187
+bb6084	c110	3	excw
+bb67e0	cfc0	3	excw
+bb73b0	e760	3	excw
+bb9023	1204c	3	excw
+bb9533	12a6c	3	excw
+bbb7c4	16f90	3	excw
+bbbd04	17a10	3	excw
+bbca20	19440	3	excw
+bbcf07	19e1c	3	bnall a15, a0, 19ddb
+bbe484	1c910	3	excw
+bbf725	1ee54	3	excw
+bc32e0	65c0	3	excw
+bc3672	6ce8	3	excw
+bc40e0	81c0	3	excw
+bc4583	8b0c	3	excw
+bc5b94	b730	3	excw
+bc6a83	d50c	3	excw
+bc7ac2	f588	3	excw
+bc7b76	f6f8	3	excw
+bc8183	1030c	3	excw
+bcac83	1590c	3	excw
+bcb154	162b0	3	excw
+bcc440	18880	3	excw
+bcc813	1902c	3	excw
+bcfe92	1fd28	3	excw
+bd0563	acc	3	excw
+bd3056	60b8	3	bnez a0, 5c8f
+bd4334	8670	3	excw
+bd43e3	87cc	3	excw
+bd75b5	eb74	3	excw
+bd91c0	12380	3	excw
+bda793	14f2c	3	excw
+bdc033	1806c	3	excw
+bde180	1c300	3	excw
+bde990	1d320	3	excw
+bdf554	1eab0	3	excw
+bdfe53	1fcac	3	excw
+be06e4	dd0	3	excw
+be2415	4834	3	excw
+be7dd4	fbb0	3	excw
+be7f52	fea8	3	excw
+beb804	17010	3	excw
+becc40	19880	3	excw
+bee314	1c630	3	excw
+beeb13	1d62c	3	excw
+bef1c2	1e388	3	excw
+bef683	1ed0c	3	excw
+befb84	1f710	3	excw
+bf0814	1030	3	excw
+bf16a4	2d50	3	excw
+bf1f64	3ed0	3	excw
+bf1fb3	3f6c	3	excw
+bf2746	4e98	3	j ffff4b39
+bf2a24	5450	3	excw
+bf2a56	54b8	3	bnez a10, 50ae
+bf32b2	6568	3	excw
+bf3d70	7ae0	3	excw
+bf7330	e660	3	excw
+bf8102	10208	3	excw
+bf8a76	114f8	3	excw
+bf8f52	11ea8	3	excw
+bf9875	130f4	3	excw
+bf9ba6	13758	3	blti a11, 10, 1371b
+bf9e76	13cf8	3	excw
+bfbb74	176f0	3	excw
+bfc2f5	185f4	3	excw
+bfeab2	1d568	3	excw
+c00000	0	3	sub a0, a0, a0
+c00ef5	1df4	3	excw
+c016a5	2d54	3	excw
+c01b20	3640	3	sub a1, a11, a2
+c02c70	58e0	3	sub a2, a12, a7
+c03ae3	75cc	3	excw
+c042d0	85a0	3	sub a4, a2, a13
+c04850	90a0	3	sub a4, a8, a5
+c05980	b300	3	sub a5, a9, a8
+c06ba4	d750	3	excw
+c07440	e880	3	sub a7, a4, a4
+c08454	108b0	3	excw
+c090d0	121a0	3	sub a9, a0, a13
+c0bfa2	17f48	3	excw
+c0c5a5	18b54	3	excw
+c0d543	1aa8c	3	excw
+c0dcb2	1b968	3	addmi a11, a12, 0xffffc000
+c0e520	1ca40	3	sub a14, a5, a2
+c0e6e5	1cdd4	3	excw
+c0fff0	1ffe0	3	sub a15, a15, a15
+c10000	0	3	mul16u a0, a0, a0
+c117b0	2f60	3	mul16u a1, a7, a11
+c13fd4	7fb0	3	excw
+c14a34	9470	3	excw
+c15416	a838	3	beqz a4, a451
+c15980	b300	3	mul16u a5, a9, a8
+c15cc3	b98c	3	excw
+c16335	c674	3	excw
+c17080	e100	3	mul16u a7, a0, a8
+c19153	122ac	3	excw
+c1aac0	15580	3	mul16u a10, a10, a12
+c1b4c3	1698c	3	excw
+c1bf40	17e80	3	mul16u a11, a15, a4
+c1c0d6	181b8	3	bgez a0, 17dd8
+c1df15	1be34	3	excw
+c1df77	1befc	3	bbs a15, a7, 1bec1
+c1e590	1cb20	3	mul16u a14, a5, a9
+c1e800	1d000	3	mul16u a14, a8, a0
+c1ff20	1fe40	3	mul16u a15, a15, a2
+c1fff0	1ffe0	3	mul16u a15, a15, a15
+c20630	c60	3	excw
+c22243	448c	3	excw
+c22536	4a78	3	excw
+c23252	64a8	3	excw
+c23bb4	7770	3	excw
+c23c95	7934	3	excw
+c244a0	8940	3	excw
+c251d5	a3b4	3	excw
+c255d0	aba0	3	excw
+c272b0	e560	3	excw
+c29567	12adc	3	bne a5, a6, 12aa2
+c29d63	13acc	3	excw
+c2a064	140d0	3	excw
+c2a1a0	14340	3	excw
+c2b4d7	169bc	3	bgeu a4, a13, 16982
+c2b736	16e78	3	excw
+c2ba13	1742c	3	excw
+c2d550	1aaa0	3	excw
+c2e0d0	1c1a0	3	excw
+c2ef94	1df30	3	excw
+c33a60	74c0	3	excw
+c33c02	7808	3	excw
+c34555	8ab4	3	excw
+c35183	a30c	3	excw
+c351f4	a3f0	3	excw
+c39525	12a54	3	excw
+c3bed3	17dac	3	excw
+c3bff2	17fe8	3	excw
+c3d8d5	1b1b4	3	excw
+c3e3c2	1c788	3	excw
+c3ef02	1de08	3	excw
+c40bb7	177c	3	bnone a11, a11, 1744
+c41022	2048	3	l16ui a2, a0, 0x188
+c41256	24b8	3	bnez a2, 20fd
+c45163	a2cc	3	excw
+c46a64	d4d0	3	excw
+c48874	110f0	3	excw
+c489b7	1137c	3	bany a9, a11, 11344
+c4b4a4	16950	3	excw
+c4b742	16e88	3	excw
+c4d975	1b2f4	3	excw
+c4e6d5	1cdb4	3	excw
+c4e802	1d008	3	excw
+c4f426	1e858	3	beqi a4, 0x100, 1e820
+c539b2	7368	3	excw
+c54c25	9854	3	excw
+c56493	c92c	3	excw
+c56d55	dab4	3	excw
+c59083	1210c	3	excw
+c59f44	13e90	3	excw
+c5d0b3	1a16c	3	excw
+c5d483	1a90c	3	excw
+c5e125	1c254	3	excw
+c5e393	1c72c	3	excw
+c5f5a3	1eb4c	3	excw
+c615b2	2b68	3	l16ui a11, a5, 0x18c
+c61835	3074	3	excw
+c61ea3	3d4c	3	excw
+c660c4	c190	3	excw
+c665e4	cbd0	3	excw
+c690d7	121bc	3	bne a0, a13, 12186
+c69f57	13ebc	3	bne a15, a5, 13e86
+c6ad13	15a2c	3	excw
+c6be25	17c54	3	excw
+c6c784	18f10	3	excw
+c6e7e4	1cfd0	3	excw
+c6eb64	1d6d0	3	excw
+c704a3	94c	3	excw
+c70b63	16cc	3	excw
+c71147	229c	3	beq a1, a4, 2267
+c712d5	25b4	3	excw
+c74375	86f4	3	excw
+c76253	c4ac	3	excw
+c78b64	116d0	3	excw
+c78f83	11f0c	3	excw
+c7ac17	1583c	3	bge a12, a1, 15807
+c7ba02	17408	3	excw
+c7c176	182f8	3	excw
+c7d475	1a8f4	3	excw
+c7e4c4	1c990	3	excw
+c80750	ea0	3	excw
+c82b23	564c	3	excw
+c83944	7290	3	excw
+c84e70	9ce0	3	excw
+c86435	c874	3	excw
+c869b4	d370	3	excw
+c887f3	10fec	3	excw
+c8afc3	15f8c	3	excw
+c8b483	1690c	3	excw
+c8cee5	19dd4	3	excw
+c8f4e2	1e9c8	3	excw
+c8ff74	1fef0	3	excw
+c92b00	5600	3	excw
+c92db5	5b74	3	excw
+c92e12	5c28	3	l32i a1, a14, 0x324
+c94aa4	9550	3	excw
+c968a4	d150	3	excw
+c9a4a2	14948	3	movi a10, 0x4c9
+c9a5c4	14b90	3	excw
+c9af04	15e10	3	excw
+c9b8b2	17168	3	excw
+c9c544	18a90	3	excw
+c9c720	18e40	3	excw
+c9d354	1a6b0	3	excw
+c9e120	1c240	3	excw
+c9ff12	1fe28	3	excw
+ca11d5	23b4	3	excw
+ca2972	52e8	3	l32i a7, a9, 0x328
+ca40e6	81d8	3	bgei a0, 4, 81a6
+ca4ef3	9dec	3	excw
+caacf2	159e8	3	movi a15, 0xfffffcca
+cab524	16a50	3	excw
+cabac4	17590	3	excw
+cac425	18854	3	excw
+cad204	1a410	3	excw
+cb08f4	11f0	3	excw
+cb13e0	27c0	3	excw
+cb1450	28a0	3	excw
+cb2da0	5b40	3	excw
+cb3264	64d0	3	excw
+cb4114	8230	3	excw
+cb5f76	bef8	3	excw
+cb6800	d000	3	excw
+cb7bf3	f7ec	3	excw
+cbee32	1dc68	3	excw
+cbf1c2	1e388	3	excw
+cc0d75	1af4	3	excw
+cc0ec4	1d90	3	excw
+cc2b53	56ac	3	excw
+cc3c04	7810	3	excw
+cc4465	88d4	3	excw
+cc4e13	9c2c	3	excw
+cc5113	a22c	3	excw
+cc6c94	d930	3	excw
+cc8ed3	11dac	3	excw
+cc9112	12228	3	l16si a1, a1, 0x198
+cc9fc3	13f8c	3	excw
+ccab84	15710	3	excw
+ccbf67	17edc	3	bgeu a15, a6, 17eac
+cccf15	19e34	3	excw
+ccd4a0	1a940	3	excw
+cd34f3	69ec	3	excw
+cd39d0	73a0	3	excw
+cd66b4	cd70	3	excw
+cd6744	ce90	3	excw
+cd8673	10cec	3	excw
+cdc665	18cd4	3	excw
+cdc763	18ecc	3	excw
+cddc64	1b8d0	3	excw
+cde323	1c64c	3	excw
+ce3a10	7420	3	excw
+ce50f5	a1f4	3	excw
+ce5a14	b430	3	excw
+ce6676	ccf8	3	excw
+ce87c4	10f90	3	excw
+ce8c62	118c8	3	excw
+cf0615	c34	3	excw
+cf2193	432c	3	excw
+cf3553	6aac	3	excw
+cf41b0	8360	3	excw
+cf41b4	8370	3	excw
+cf6fa5	df54	3	excw
+cf7113	e22c	3	excw
+cf9914	13230	3	excw
+cfa9e5	153d4	3	excw
+cfbc26	17858	3	beqi a12, 16, 1782b
+cfbef5	17df4	3	excw
+cfcc74	198f0	3	excw
+cfce57	19cbc	3	bnall a14, a5, 19c8f
+cfe1e4	1c3d0	3	excw
+cfed73	1daec	3	excw
+d00000	0	3	subx2 a0, a0, a0
+d00143	28c	3	excw
+d002a0	540	3	subx2 a0, a2, a10
+d01207	241c	3	beq a2, a0, 23f0
+d02180	4300	3	subx2 a2, a1, a8
+d035f0	6be0	3	subx2 a3, a5, a15
+d038e4	71d0	3	excw
+d04965	92d4	3	excw
+d05864	b0d0	3	excw
+d05e63	bccc	3	excw
+d07910	f220	3	subx2 a7, a9, a1
+d085a0	10b40	3	subx2 a8, a5, a10
+d08a76	114f8	3	excw
+d09eb5	13d74	3	excw
+d0a410	14820	3	subx2 a10, a4, a1
+d0aa44	15490	3	excw
+d0b232	16468	3	excw
+d0c223	1844c	3	excw
+d0d970	1b2e0	3	subx2 a13, a9, a7
+d0dca5	1b954	3	excw
+d0f693	1ed2c	3	excw
+d0f880	1f100	3	subx2 a15, a8, a8
+d0fff0	1ffe0	3	subx2 a15, a15, a15
+d10000	0	3	mul16s a0, a0, a0
+d10870	10e0	3	mul16s a0, a8, a7
+d11920	3240	3	mul16s a1, a9, a2
+d11cf5	39f4	3	excw
+d12150	42a0	3	mul16s a2, a1, a5
+d133b0	6760	3	mul16s a3, a3, a11
+d13d22	7a48	3	excw
+d149a4	9350	3	excw
+d15687	ad1c	3	bbc a6, a8, acf1
+d15980	b300	3	mul16s a5, a9, a8
+d166d0	cda0	3	mul16s a6, a6, a13
+d18f24	11e50	3	excw
+d1b182	16308	3	excw
+d1b5e2	16bc8	3	excw
+d1bd22	17a48	3	excw
+d1db50	1b6a0	3	mul16s a13, a11, a5
+d1e0d2	1c1a8	3	excw
+d1e833	1d06c	3	excw
+d1f704	1ee10	3	excw
+d1fc30	1f860	3	mul16s a15, a12, a3
+d1fc36	1f878	3	excw
+d1fff0	1ffe0	3	mul16s a15, a15, a15
+d20ed3	1dac	3	excw
+d22394	4730	3	excw
+d230b3	616c	3	excw
+d23240	6480	3	excw
+d25ce4	b9d0	3	excw
+d265e3	cbcc	3	excw
+d2a854	150b0	3	excw
+d2af73	15eec	3	excw
+d2b814	17030	3	excw
+d2c994	19330	3	excw
+d2cf94	19f30	3	excw
+d2d003	1a00c	3	excw
+d2f184	1e310	3	excw
+d2f3f2	1e7e8	3	excw
+d2f4b6	1e978	3	bltui a4, 0x100, 1e94e
+d2f4e0	1e9c0	3	excw
+d30442	888	3	l8ui a4, a4, 211
+d30725	e54	3	excw
+d31830	3060	3	excw
+d32113	422c	3	excw
+d32d72	5ae8	3	l32i a7, a13, 0x34c
+d32e94	5d30	3	excw
+d33547	6a9c	3	bltu a5, a4, 6a73
+d33af2	75e8	3	excw
+d35c84	b910	3	excw
+d362d6	c5b8	3	bgez a2, c2f2
+d383a5	10754	3	excw
+d39190	12320	3	excw
+d39800	13000	3	excw
+d3fb43	1f68c	3	excw
+d42887	511c	3	blt a8, a8, 50f4
+d45153	a2ac	3	excw
+d47683	ed0c	3	excw
+d4a0b4	14170	3	excw
+d4bbf4	177f0	3	excw
+d4bfb4	17f70	3	excw
+d4d6a4	1ad50	3	excw
+d4e3d2	1c7a8	3	excw
+d4f075	1e0f4	3	excw
+d4fce3	1f9cc	3	excw
+d4fe55	1fcb4	3	excw
+d50992	1328	3	l8ui a9, a9, 213
+d51c02	3808	3	l16ui a0, a12, 0x1aa
+d538e3	71cc	3	excw
+d54ab3	956c	3	excw
+d54cb4	9970	3	excw
+d55c03	b80c	3	excw
+d56565	cad4	3	excw
+d58453	108ac	3	excw
+d59b54	136b0	3	excw
+d5ad22	15a48	3	movi a2, 0xfffffdd5
+d5e0b2	1c168	3	excw
+d60e20	1c40	3	excw
+d63a33	746c	3	excw
+d65874	b0f0	3	excw
+d659f3	b3ec	3	excw
+d666f0	cde0	3	excw
+d679e3	f3cc	3	excw
+d67bd5	f7b4	3	excw
+d68000	10000	3	excw
+d68a02	11408	3	excw
+d68a13	1142c	3	excw
+d68cc3	1198c	3	excw
+d69665	12cd4	3	excw
+d6d000	1a000	3	excw
+d6d784	1af10	3	excw
+d6dd83	1bb0c	3	excw
+d6e010	1c020	3	excw
+d6e3f0	1c7e0	3	excw
+d6fcc0	1f980	3	excw
+d70203	40c	3	excw
+d71614	2c30	3	excw
+d73492	6928	3	excw
+d73ad0	75a0	3	excw
+d73b13	762c	3	excw
+d74284	8510	3	excw
+d75be5	b7d4	3	excw
+d77695	ed34	3	excw
+d78e25	11c54	3	excw
+d79003	1200c	3	excw
+d7a023	1404c	3	excw
+d7ab94	15730	3	excw
+d7b8e0	171c0	3	excw
+d7e394	1c730	3	excw
+d7eb13	1d62c	3	excw
+d7f2f4	1e5f0	3	excw
+d80d76	1af8	3	excw
+d81be5	37d4	3	excw
+d82990	5320	3	excw
+d83cd0	79a0	3	excw
+d873b4	e770	3	excw
+d886f6	10df8	3	bgeui a6, 8, 10dd4
+d8af40	15e80	3	excw
+d8b902	17208	3	excw
+d8ba42	17488	3	excw
+d8bc64	178d0	3	excw
+d8c2b2	18568	3	addi a11, a2, -40
+d8c3d4	187b0	3	excw
+d8d354	1a6b0	3	excw
+d8fd32	1fa68	3	excw
+d908b7	117c	3	bnone a8, a11, 1159
+d91580	2b00	3	excw
+d95f83	bf0c	3	excw
+d96615	cc34	3	excw
+d973e4	e7d0	3	excw
+d982d3	105ac	3	excw
+d98542	10a88	3	excw
+d98fe3	11fcc	3	excw
+d9dc00	1b800	3	excw
+d9e1f0	1c3e0	3	excw
+d9f5d5	1ebb4	3	excw
+da3124	6250	3	excw
+da3d72	7ae8	3	excw
+da4e34	9c70	3	excw
+da7a22	f448	3	excw
+da9b76	136f8	3	excw
+daae84	15d10	3	excw
+dab153	162ac	3	excw
+dab3d3	167ac	3	excw
+dab744	16e90	3	excw
+daec04	1d810	3	excw
+db2ac0	5580	3	excw
+db3543	6a8c	3	excw
+db5964	b2d0	3	excw
+db7043	e08c	3	excw
+dbb7e0	16fc0	3	excw
+dbbe23	17c4c	3	excw
+dbca84	19510	3	excw
+dc0383	70c	3	excw
+dc0875	10f4	3	excw
+dc0fc2	1f88	3	l8ui a12, a15, 220
+dc25b4	4b70	3	excw
+dc3722	6e48	3	excw
+dc48e5	91d4	3	excw
+dc5d24	ba50	3	excw
+dc7310	e620	3	excw
+dc7b62	f6c8	3	excw
+dc8876	110f8	3	excw
+dcc274	184f0	3	excw
+dcd6b3	1ad6c	3	excw
+dcd803	1b00c	3	excw
+dcfe43	1fc8c	3	excw
+dd20e2	41c8	3	l32i a14, a0, 0x374
+dd3933	726c	3	excw
+dd3fe5	7fd4	3	excw
+dd5854	b0b0	3	excw
+dd5e90	bd20	3	excw
+dd5ec4	bd90	3	excw
+dd6100	c200	3	excw
+dd8333	1066c	3	excw
+dd9663	12ccc	3	excw
+ddcf25	19e54	3	excw
+ddd774	1aef0	3	excw
+ddfd12	1fa28	3	excw
+de1495	2934	3	excw
+de7a42	f488	3	excw
+dea407	1481c	3	bge a4, a0, 147fe
+ded710	1ae20	3	excw
+dedaa3	1b54c	3	excw
+defd70	1fae0	3	excw
+df0ac3	158c	3	excw
+df4f65	9ed4	3	excw
+df5117	a23c	3	bbc a1, a1, a21f
+df5da3	bb4c	3	excw
+df5e50	bca0	3	excw
+df7ff6	fff8	3	bgeui a15, 7, ffdb
+df80a0	10140	3	excw
+df8965	112d4	3	excw
+df9493	1292c	3	excw
+dfa2c4	14590	3	excw
+dfaeb5	15d74	3	excw
+dfb017	1603c	3	bgeu a0, a1, 1601f
+dfb750	16ea0	3	excw
+dfba75	174f4	3	excw
+dfd073	1a0ec	3	excw
+dfde32	1bc68	3	addmi a3, a14, 0xffffdf00
+dfe9f2	1d3e8	3	excw
+e00000	0	3	subx4 a0, a0, a0
+e01b20	3640	3	subx4 a1, a11, a2
+e020c3	418c	3	excw
+e032e4	65d0	3	excw
+e03352	66a8	3	excw
+e034f0	69e0	3	subx4 a3, a4, a15
+e04435	8874	3	excw
+e049c4	9390	3	excw
+e04da0	9b40	3	subx4 a4, a13, a10
+e05030	a060	3	subx4 a5, a0, a3
+e067e0	cfc0	3	subx4 a6, a7, a14
+e06e70	dce0	3	subx4 a6, a14, a7
+e07e54	fcb0	3	excw
+e08ce5	119d4	3	excw
+e08d17	11a3c	3	bany a13, a1, 11a20
+e09313	1262c	3	excw
+e0a510	14a20	3	subx4 a10, a5, a1
+e0a7e5	14fd4	3	excw
+e0da22	1b448	3	addmi a2, a10, 0xffffe000
+e0e4a0	1c940	3	subx4 a14, a4, a10
+e0e612	1cc28	3	excw
+e0e923	1d24c	3	excw
+e0f2a4	1e550	3	excw
+e0fff0	1ffe0	3	subx4 a15, a15, a15
+e10b54	16b0	3	excw
+e13b92	7728	3	excw
+e145b4	8b70	3	excw
+e156d2	ada8	3	s16i a13, a6, 0x1c2
+e16de5	dbd4	3	excw
+e16ed0	dda0	3	excw
+e18890	11120	3	excw
+e19352	126a8	3	l16si a5, a3, 0x1c2
+e198c3	1318c	3	excw
+e19fc2	13f88	3	l16si a12, a15, 0x1c2
+e1df24	1be50	3	excw
+e1e165	1c2d4	3	excw
+e1fd53	1faac	3	excw
+e22014	4030	3	excw
+e224f3	49ec	3	excw
+e22817	503c	3	blt a8, a1, 5022
+e22bb0	5760	3	excw
+e24044	8090	3	excw
+e24625	8c54	3	excw
+e254b0	a960	3	excw
+e2be36	17c78	3	excw
+e312c4	2590	3	excw
+e314d3	29ac	3	excw
+e34243	848c	3	excw
+e35495	a934	3	excw
+e37e95	fd34	3	excw
+e3b8a4	17150	3	excw
+e3e452	1c8a8	3	excw
+e3e7a0	1cf40	3	excw
+e3f7a3	1ef4c	3	excw
+e3fc94	1f930	3	excw
+e3fd75	1faf4	3	excw
+e40115	234	3	excw
+e406f0	de0	3	extui a0, a15, 6, 15
+e41776	2ef8	3	excw
+e43463	68cc	3	excw
+e43575	6af4	3	excw
+e43d93	7b2c	3	excw
+e469c3	d38c	3	excw
+e46ce4	d9d0	3	excw
+e46eb5	dd74	3	excw
+e47ef2	fde8	3	excw
+e48274	104f0	3	excw
+e492f3	125ec	3	excw
+e4b9e4	173d0	3	excw
+e4ba92	17528	3	excw
+e4cf93	19f2c	3	excw
+e4d915	1b234	3	excw
+e50104	210	3	excw
+e52394	4730	3	excw
+e52e74	5cf0	3	excw
+e536c2	6d88	3	excw
+e54f15	9e34	3	excw
+e587e3	10fcc	3	excw
+e58f72	11ee8	3	excw
+e596b4	12d70	3	excw
+e5a3d3	147ac	3	excw
+e5ff54	1feb0	3	excw
+e60d73	1aec	3	excw
+e618e4	31d0	3	excw
+e621a4	4350	3	excw
+e623e5	47d4	3	excw
+e62ab3	556c	3	excw
+e62b63	56cc	3	excw
+e638c0	7180	3	excw
+e63ef5	7df4	3	excw
+e663b3	c76c	3	excw
+e67076	e0f8	3	excw
+e67554	eab0	3	excw
+e68622	10c48	3	excw
+e692e3	125cc	3	excw
+e6ab25	15654	3	excw
+e6d135	1a274	3	excw
+e6dd55	1bab4	3	excw
+e6e072	1c0e8	3	excw
+e6e8e3	1d1cc	3	excw
+e6ec65	1d8d4	3	excw
+e6efd0	1dfa0	3	excw
+e70223	44c	3	excw
+e704b4	970	3	excw
+e71134	2270	3	excw
+e735b0	6b60	3	excw
+e75c73	b8ec	3	excw
+e75e20	bc40	3	excw
+e75f00	be00	3	excw
+e77654	ecb0	3	excw
+e798d4	131b0	3	excw
+e7b733	16e6c	3	excw
+e7c364	186d0	3	excw
+e7f952	1f2a8	3	excw
+e801a5	354	3	excw
+e80264	4d0	3	excw
+e80c20	1840	3	excw
+e81cc3	398c	3	excw
+e81ef5	3df4	3	excw
+e825f3	4bec	3	excw
+e82e80	5d00	3	excw
+e84d90	9b20	3	excw
+e85423	a84c	3	excw
+e86e30	dc60	3	excw
+e87d14	fa30	3	excw
+e88c53	118ac	3	excw
+e89a55	134b4	3	excw
+e8a333	1466c	3	excw
+e8b304	16610	3	excw
+e8d444	1a890	3	excw
+e8ddf6	1bbf8	3	bgeui a13, 64, 1bbe4
+e90720	e40	3	excw
+e91403	280c	3	excw
+e91863	30cc	3	excw
+e92a10	5420	3	excw
+e93ca5	7954	3	excw
+e93cc4	7990	3	excw
+e951f4	a3f0	3	excw
+e955e3	abcc	3	excw
+e95d40	ba80	3	excw
+e96223	c44c	3	excw
+e96b53	d6ac	3	excw
+e98032	10068	3	excw
+e9bab3	1756c	3	excw
+e9bba3	1774c	3	excw
+e9c0c0	18180	3	excw
+e9d373	1a6ec	3	excw
+e9fc94	1f930	3	excw
+ea0bf5	17f4	3	excw
+ea28b3	516c	3	excw
+ea3b66	76d8	3	bnei a11, 3, 76c6
+ea3f76	7ef8	3	excw
+ea4564	8ad0	3	excw
+ea5ac4	b590	3	excw
+ea6fc4	df90	3	excw
+ea7042	e088	3	excw
+ea7070	e0e0	3	excw
+ea7654	ecb0	3	excw
+ea8b12	11628	3	excw
+ea8e04	11c10	3	excw
+ea9f90	13f20	3	excw
+eac394	18730	3	excw
+ead074	1a0f0	3	excw
+ead250	1a4a0	3	excw
+ead2a0	1a540	3	excw
+eada07	1b41c	3	bbs a10, a0, 1b40a
+eae2d3	1c5ac	3	excw
+eafe93	1fd2c	3	excw
+eb05b3	b6c	3	excw
+eb0784	f10	3	excw
+eb18c4	3190	3	excw
+eb1f15	3e34	3	excw
+eb2836	5078	3	excw
+eb3d03	7a0c	3	excw
+eb3f35	7e74	3	excw
+eb41a4	8350	3	excw
+eb8496	10938	3	bltz a4, 107f4
+eb8f53	11eac	3	excw
+eb9836	13078	3	excw
+eb99e7	133dc	3	bne a9, a14, 133cb
+eba1a0	14340	3	excw
+eba7f3	14fec	3	excw
+ebaee5	15dd4	3	excw
+ebc2b4	18570	3	excw
+ebfc94	1f930	3	excw
+ec0383	70c	3	excw
+ec0643	c8c	3	excw
+ec1894	3130	3	excw
+ec4c93	992c	3	excw
+ec58e5	b1d4	3	excw
+ec5d23	ba4c	3	excw
+ec69d5	d3b4	3	excw
+ec7da6	fb58	3	blti a13, 7, fb48
+ec8cb5	11974	3	excw
+ec9535	12a74	3	excw
+ec9840	13080	3	excw
+eca4c0	14980	3	excw
+ecaee2	15dc8	3	movi a14, 0xfffffeec
+ed0930	1260	3	excw
+ed0e25	1c54	3	excw
+ed1160	22c0	3	excw
+ed1584	2b10	3	excw
+ed48e0	91c0	3	excw
+ed5335	a674	3	excw
+ed5e14	bc30	3	excw
+eda383	1470c	3	excw
+edace3	159cc	3	excw
+edba92	17528	3	excw
+edcea2	19d48	3	addi a10, a14, -19
+edd773	1aeec	3	excw
+ede632	1cc68	3	excw
+ede744	1ce90	3	excw
+ee0fa0	1f40	3	excw
+ee2e63	5ccc	3	excw
+ee3c20	7840	3	excw
+ee45b5	8b74	3	excw
+ee4974	92f0	3	excw
+ee4c74	98f0	3	excw
+ee5e10	bc20	3	excw
+ee6534	ca70	3	excw
+ee69f0	d3e0	3	excw
+ee6fc4	df90	3	excw
+eea644	14c90	3	excw
+eeb3a0	16740	3	excw
+eebb96	17738	3	bltz a11, 17627
+eecdd4	19bb0	3	excw
+eee910	1d220	3	excw
+eefc35	1f874	3	excw
+eefd76	1faf8	3	excw
+eeffe5	1ffd4	3	excw
+ef0f24	1e50	3	excw
+ef1106	2218	3	j ffffde60
+ef1263	24cc	3	excw
+ef4c84	9910	3	excw
+ef5ef5	bdf4	3	excw
+ef60f5	c1f4	3	excw
+ef6414	c830	3	excw
+ef6e60	dcc0	3	excw
+ef6eb5	dd74	3	excw
+ef7bd1	f7a4	3	l32r a13, b590
+ef89f3	113ec	3	excw
+ef9710	12e20	3	excw
+ef9d54	13ab0	3	excw
+efba73	174ec	3	excw
+efca35	19474	3	excw
+efd330	1a660	3	excw
+f00000	0	3	subx8 a0, a0, a0
+f00bd3	17ac	3	excw
+f01250	24a0	3	subx8 a1, a2, a5
+f01930	3260	3	subx8 a1, a9, a3
+f01980	3300	3	subx8 a1, a9, a8
+f024f5	49f4	3	excw
+f03550	6aa0	3	subx8 a3, a5, a5
+f03770	6ee0	3	subx8 a3, a7, a7
+f048a3	914c	3	excw
+f04d73	9aec	3	excw
+f05260	a4c0	3	subx8 a5, a2, a6
+f060b0	c160	3	subx8 a6, a0, a11
+f07652	eca8	3	excw
+f08732	10e68	3	excw
+f0d6b0	1ad60	3	subx8 a13, a6, a11
+f0e3f2	1c7e8	3	excw
+f0f0e2	1e1c8	3	excw
+f0f302	1e608	3	excw
+f0fff0	1ffe0	3	subx8 a15, a15, a15
+f124a6	4958	3	blti a4, 2, 494d
+f124f0	49e0	3	excw
+f13020	6040	3	excw
+f13543	6a8c	3	excw
+f14820	9040	3	excw
+f15924	b250	3	excw
+f17700	ee00	3	excw
+f17a74	f4f0	3	excw
+f17fe4	ffd0	3	excw
+f19ef5	13df4	3	excw
+f1d3c2	1a788	3	addmi a12, a3, 0xfffff100
+f1e000	1c000	3	rfdo 0
+f1e010	1c020	3	rfdd
+f1e100	1c200	3	rfdo 1
+f1e200	1c400	3	rfdo 2
+f1e210	1c420	3	rfdd
+f1e310	1c620	3	rfdd
+f1e410	1c820	3	rfdd
+f1e610	1cc20	3	rfdd
+f1e700	1ce00	3	rfdo 7
+f1e710	1ce20	3	rfdd
+f1e800	1d000	3	rfdo 8
+f1e810	1d020	3	rfdd
+f1e910	1d220	3	rfdd
+f1ea00	1d400	3	rfdo 10
+f1ec00	1d800	3	rfdo 12
+f1ec10	1d820	3	rfdd
+f1ed00	1da00	3	rfdo 13
+f1ef00	1de00	3	rfdo 15
+f1ef10	1de20	3	rfdd
+f23d92	7b28	3	excw
+f247c3	8f8c	3	excw
+f25015	a034	3	excw
+f26e67	dcdc	3	bbci a14, 6, dcd2
+f27cf2	f9e8	3	excw
+f27da3	fb4c	3	excw
+f28752	10ea8	3	excw
+f29f87	13f1c	3	bne a15, a8, 13f12
+f2b076	160f8	3	excw
+f2bb50	176a0	3	excw
+f2d2d3	1a5ac	3	excw
+f2f3d6	1e7b8	3	bgez a3, 1e6eb
+f2f5e0	1ebc0	3	excw
+f2f950	1f2a0	3	excw
+f34125	8254	3	excw
+f36033	c06c	3	excw
+f37d80	fb00	3	excw
+f388c0	11180	3	excw
+f3aa40	15480	3	excw
+f3c064	180d0	3	excw
+f3e490	1c920	3	excw
+f3e5e4	1cbd0	3	excw
+f3ec35	1d874	3	excw
+f44aa5	9554	3	excw
+f45116	a238	3	beqz a1, a181
+f45323	a64c	3	excw
+f48e02	11c08	3	excw
+f49c53	138ac	3	excw
+f4a3c3	1478c	3	excw
+f53614	6c30	3	excw
+f538b6	7178	3	bltui a8, 3, 7171
+f57633	ec6c	3	excw
+f58d64	11ad0	3	excw
+f5ae96	15d38	3	bltz a14, 15c96
+f5baf5	175f4	3	excw
+f5ca25	19454	3	excw
+f5fff0	1ffe0	3	extui a15, a15, 31, 16
+f63c80	7900	3	excw
+f64280	8500	3	excw
+f642a3	854c	3	excw
+f67953	f2ac	3	excw
+f68625	10c54	3	excw
+f6a600	14c00	3	excw
+f6ae65	15cd4	3	excw
+f6c5b4	18b70	3	excw
+f6d623	1ac4c	3	excw
+f6e222	1c448	3	excw
+f6f902	1f208	3	excw
+f70593	b2c	3	excw
+f711f3	23ec	3	excw
+f72dd0	5ba0	3	excw
+f73496	6938	3	bltz a4, 68af
+f736d5	6db4	3	excw
+f78023	1004c	3	excw
+f78794	10f30	3	excw
+f7b5f5	16bf4	3	excw
+f7bc97	1793c	3	bgeu a12, a9, 17937
+f7f4e0	1e9c0	3	excw
+f80055	b4	3	excw
+f80276	4f8	3	excw
+f80983	130c	3	excw
+f828e5	51d4	3	excw
+f84f75	9ef4	3	excw
+f85076	a0f8	3	excw
+f85b35	b674	3	excw
+f873c4	e790	3	excw
+f8b2b2	16568	3	excw
+f8c0f3	181ec	3	excw
+f8ee83	1dd0c	3	excw
+f908a0	1140	3	excw
+f93ab5	7574	3	excw
+f95600	ac00	3	excw
+f99ed2	13da8	3	l16si a13, a14, 0x1f2
+f9d923	1b24c	3	excw
+f9db82	1b708	3	addmi a8, a11, 0xfffff900
+f9e5c2	1cb88	3	excw
+fa0b15	1634	3	excw
+fa28c0	5180	3	excw
+fa42d3	85ac	3	excw
+fa4565	8ad4	3	excw
+fa6cb4	d970	3	excw
+fa82d5	105b4	3	excw
+fa89d0	113a0	3	excw
+fa8be3	117cc	3	excw
+fab725	16e54	3	excw
+fab862	170c8	3	excw
+fad874	1b0f0	3	excw
+fadb25	1b654	3	excw
+fae070	1c0e0	3	excw
+fae1b5	1c374	3	excw
+faee84	1dd10	3	excw
+faf330	1e660	3	excw
+faf3e0	1e7c0	3	excw
+faf774	1eef0	3	excw
+fb36b3	6d6c	3	excw
+fb5415	a834	3	excw
+fb7180	e300	3	excw
+fb7a14	f430	3	excw
+fba2e3	145cc	3	excw
+fbebc4	1d790	3	excw
+fbfe15	1fc34	3	excw
+fc2604	4c10	3	excw
+fc4f73	9eec	3	excw
+fc50a5	a154	3	excw
+fc5e33	bc6c	3	excw
+fc6f53	deac	3	excw
+fc7483	e90c	3	excw
+fc8012	10028	3	excw
+fc9cf5	139f4	3	excw
+fcdec4	1bd90	3	excw
+fce1c3	1c38c	3	excw
+fce6d0	1cda0	3	excw
+fd0503	a0c	3	excw
+fd13c2	2788	3	l16ui a12, a3, 0x1fa
+fd1f50	3ea0	3	excw
+fd2a40	5480	3	excw
+fd3813	702c	3	excw
+fd72e7	e5dc	3	bbci a2, 30, e5dd
+fd74c2	e988	3	excw
+fd75d3	ebac	3	excw
+fde144	1c290	3	excw
+fde824	1d050	3	excw
+fe0013	2c	3	excw
+fe0834	1070	3	excw
+fe12a0	2540	3	excw
+fe2af0	55e0	3	excw
+fe43a3	874c	3	excw
+fe46c0	8d80	3	excw
+fe5684	ad10	3	excw
+fe6803	d00c	3	excw
+fe7636	ec78	3	excw
+fe7bf2	f7e8	3	excw
+fe7f63	fecc	3	excw
+fe80e4	101d0	3	excw
+fe9496	12938	3	bltz a4, 12925
+fea776	14ef8	3	excw
+fee333	1c66c	3	excw
+fee890	1d120	3	excw
+fef200	1e400	3	excw
+feff35	1fe74	3	excw
+ff0b55	16b4	3	excw
+ff0ff2	1fe8	3	l8ui a15, a15, 255
+ff0ff7	1ffc	3	bnone a15, a15, 1fff
+ff1ff2	3fe8	3	l16ui a15, a15, 0x1fe
+ff1ff7	3ffc	3	beq a15, a15, 3fff
+ff29d4	53b0	3	excw
+ff2ff2	5fe8	3	l32i a15, a15, 0x3fc
+ff2ff7	5ffc	3	blt a15, a15, 5fff
+ff38d3	71ac	3	excw
+ff3ff7	7ffc	3	bltu a15, a15, 7fff
+ff4597	8b3c	3	ball a5, a9, 8b3f
+ff4ff2	9fe8	3	s8i a15, a15, 255
+ff4ff7	9ffc	3	ball a15, a15, 9fff
+ff5ff2	bfe8	3	s16i a15, a15, 0x1fe
+ff5ff7	bffc	3	bbc a15, a15, bfff
+ff6ff2	dfe8	3	s32i a15, a15, 0x3fc
+ff7ff7	fffc	3	bbci a15, 31, ffff
+ff84b4	10970	3	excw
+ff8835	11074	3	excw
+ff8ff7	11ffc	3	bany a15, a15, 11fff
+ff9ff2	13fe8	3	l16si a15, a15, 0x1fe
+ff9ff7	13ffc	3	bne a15, a15, 13fff
+ffaff2	15fe8	3	movi a15, -1
+ffaff7	15ffc	3	bge a15, a15, 15fff
+ffbff7	17ffc	3	bgeu a15, a15, 17fff
+ffcff2	19fe8	3	addi a15, a15, -1
+ffcff7	19ffc	3	bnall a15, a15, 19fff
+ffd330	1a660	3	excw
+ffdc84	1b910	3	excw
+ffdff2	1bfe8	3	addmi a15, a15, 0xffffff00
+ffdff7	1bffc	3	bbs a15, a15, 1bfff
+ffe693	1cd2c	3	excw
+fff782	1ef08	3	excw
+ffff16	1fe38	3	beqz a15, 1fe3b
+ffff26	1fe58	3	beqi a15, 0x100, 1fe5b
+ffff56	1feb8	3	bnez a15, 1febb
+ffff66	1fed8	3	bnei a15, 0x100, 1fedb
+ffff96	1ff38	3	bltz a15, 1ff3b
+ffffa6	1ff58	3	blti a15, 0x100, 1ff5b
+ffffb6	1ff78	3	bltui a15, 0x100, 1ff7b
+ffffc5	1ff94	3	call0 1ff94
+ffffc6	1ff98	3	j 1ff9b
+ffffd6	1ffb8	3	bgez a15, 1ffbb
+ffffe6	1ffd8	3	bgei a15, 0x100, 1ffdb
+fffff1	1ffe4	3	l32r a15, 1ffe0
+fffff6	1fff8	3	bgeui a15, 0x100, 1fffb
+fffff7	1fffc	3	bbsi a15, 31, 1ffff
