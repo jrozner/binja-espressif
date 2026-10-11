@@ -3,6 +3,7 @@
 what the extension manager installs before the plugin is listed on
 extensions.binary.ninja. See "Testing a release privately" in the README.
 
+  scripts/test_extension_repo.py v0.1.0-rc.1 --github OWNER/REPO[:BRANCH] [-o DIR]
   scripts/test_extension_repo.py v0.1.0-rc.1 --base-url URL [-o DIR]
 
 Binary Ninja's extension manager (the "V2" one) reads third-party
@@ -24,6 +25,10 @@ BASE_URL is where DIR will be served from (the URLs in the files are
 absolute), such as http://127.0.0.1:8000 for `python3 -m http.server 8000`
 in DIR; it is also the URL to add to extensionManager.unofficialUrls.
 RepositoryManager().add_repository() takes BASE_URL/extensions.json instead.
+--github OWNER/REPO[:BRANCH] is short for the base URL of DIR committed at
+the root of that branch (default main) of a public GitHub repository,
+https://raw.githubusercontent.com/OWNER/REPO/BRANCH. (Binary Ninja fetches
+without credentials, so a private repository does not work.)
 
 The record is built from plugin.json as of TAG (`git show TAG:plugin.json`;
 --plugin-json reads a file instead), the way the extension server builds it.
@@ -51,6 +56,7 @@ MANIFESTS = "v2/manifests"
 EXTENSIONS = "extensions.json"
 VERSIONS = "versions.json"
 MANIFEST_NAME = "binja-xtensa-test"
+BRANCH = re.compile(r"^[A-Za-z0-9_.][A-Za-z0-9_./-]*(?<![/.])\Z")
 # Download platforms of the extension server, by plugin.json platform.
 PLATFORMS = {
     "Darwin": ("darwin-x64", "darwin-arm64"),
@@ -67,6 +73,18 @@ MAX_LENGTHS = {"name": 64, "description": 256, "author": 128, "version": 16}
 
 def package_url(repository, tag):
     return "https://github.com/{}/archive/refs/tags/{}.zip".format(repository, urllib.parse.quote(tag))
+
+
+def github_base_url(spec):
+    """The raw.githubusercontent.com URL of the root of OWNER/REPO[:BRANCH]."""
+    repo, colon, branch = spec.partition(":")
+    if core.REPOSITORY.match(repo) is None:
+        raise ValueError("--github {!r} is not owner/name[:branch]".format(spec))
+    if not colon:
+        branch = "main"
+    if BRANCH.match(branch) is None or ".." in branch or "//" in branch:
+        raise ValueError("--github {!r} has an invalid branch name".format(spec))
+    return "https://raw.githubusercontent.com/{}/{}".format(repo, branch)
 
 
 def install_path(repository):
@@ -158,7 +176,11 @@ def read_plugin_json(path, tag):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("tag", help="the release tag, such as v0.1.0-rc.1")
-    parser.add_argument("--base-url", required=True, help="the URL DIR will be served from")
+    where = parser.add_mutually_exclusive_group(required=True)
+    where.add_argument("--base-url", help="the URL DIR will be served from")
+    where.add_argument("--github", metavar="OWNER/REPO[:BRANCH]",
+                       help="DIR will be committed at the root of BRANCH (default main) of this public GitHub "
+                            "repository: the base URL is https://raw.githubusercontent.com/OWNER/REPO/BRANCH")
     parser.add_argument("-o", "--output", default="test-extension-repo", metavar="DIR",
                         help="directory to write (default: %(default)s)")
     parser.add_argument("--repo", default=DEFAULT_REPOSITORY, help="GitHub owner/name (default: %(default)s)")
@@ -171,6 +193,11 @@ def main():
         fail("tag {!r} is not v<version>, where the version is {}".format(args.tag, core.VERSION_FORMAT))
     if core.REPOSITORY.match(args.repo) is None:
         fail("--repo {!r} is not owner/name".format(args.repo))
+    if args.github is not None:
+        try:
+            args.base_url = github_base_url(args.github)
+        except ValueError as e:
+            fail(str(e))
     base = urllib.parse.urlsplit(args.base_url)
     if base.scheme not in ("http", "https") or not base.netloc or base.query or base.fragment:
         fail("--base-url {!r} is not an http(s) URL".format(args.base_url))
@@ -190,8 +217,12 @@ def main():
             json.dump(document, f, indent=2)
             f.write("\n")
     print("Wrote a repository of {} {} (from {}) to {}.".format(plugin["name"], plugin["version"], url, args.output))
-    print("Serve {} at {} and add this URL to the extensionManager.unofficialUrls setting:".format(
-        args.output, base_url))
+    if args.github is not None:
+        print("Commit the contents of {} at the root of {} and add this URL to the "
+              "extensionManager.unofficialUrls setting:".format(args.output, args.github))
+    else:
+        print("Serve {} at {} and add this URL to the extensionManager.unofficialUrls setting:".format(
+            args.output, base_url))
     print("  " + base_url.rstrip("/"))
 
 

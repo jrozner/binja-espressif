@@ -918,7 +918,8 @@ class TestTestExtensionRepo(TempDirTest):
             json.dump(self.plugin, f)
 
     def generate(self, tag, *args, base="http://127.0.0.1:8000"):
-        return run_script("test_extension_repo.py", tag, "--base-url", base, "--plugin-json", self.plugin_json,
+        where = ("--base-url", base) if base is not None else ()
+        return run_script("test_extension_repo.py", tag, *where, "--plugin-json", self.plugin_json,
                           "-o", self.out, "--created", "1791700000", *args)
 
     def load(self, name):
@@ -995,6 +996,36 @@ class TestTestExtensionRepo(TempDirTest):
         version = self.load("versions.json")["results"][0]
         self.assertEqual({p["download_url"] for p in version["platform_versions"]}, {"http://127.0.0.1:8000/p.zip"})
         self.assertIn("\n  https://example.com/test\n", r.stdout)
+
+    def test_github(self):
+        raw = "https://raw.githubusercontent.com/"
+        for spec, base in [("jrozner/binja-extensions-test", raw + "jrozner/binja-extensions-test/main"),
+                           ("someone/repo.name:rc/test-1", raw + "someone/repo.name/rc/test-1")]:
+            with self.subTest(spec=spec):
+                r = self.generate("v0.1.0-rc.1", "--github", spec, base=None)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertIn("\n  {}\n".format(base), r.stdout)
+                self.assertIn(spec, r.stdout)
+                self.assertEqual(self.load("v2/manifests")[0]["extensions_url"], base + "/extensions.json")
+                self.assertEqual(self.load("extensions.json")["results"][0]["versions_url"], base + "/versions.json")
+                # The package is still the tag's archive of --repo, not of the hosting repository.
+                version = self.load("versions.json")["results"][0]
+                self.assertEqual({p["download_url"] for p in version["platform_versions"]},
+                                 {"https://github.com/jrozner/binja-xtensa/archive/refs/tags/v0.1.0-rc.1.zip"})
+
+    def test_github_rejects(self):
+        for args in [("--github", "binja-extensions-test"),
+                     ("--github", "https://github.com/jrozner/binja-extensions-test"),
+                     ("--github", "jrozner/binja-extensions-test:"),
+                     ("--github", "jrozner/binja-extensions-test:../x"),
+                     ("--github", "jrozner/binja-extensions-test:main/"),
+                     ("--github", "jrozner/binja-extensions-test:a?b"),
+                     ("--github", "jrozner/binja-extensions-test", "--base-url", "http://127.0.0.1:8000"),
+                     ()]:  # neither
+            with self.subTest(args=args):
+                r = self.generate("v0.1.0-rc.1", *args, base=None)
+                self.assertNotEqual(r.returncode, 0)
+                self.assertFalse(os.path.exists(self.out))
 
     def test_platforms(self):
         self.plugin["platforms"] = ["Linux"]
