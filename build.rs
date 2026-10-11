@@ -1,21 +1,22 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-/// The chips whose Espressif SVD file (from the `svd` submodule) is embedded,
-/// gzip-compressed, in the plugin; see src/svd.rs.
-const SVD_CHIPS: [&str; 7] = [
-    "esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3", "esp32c6", "esp32h2",
+/// The chips whose Espressif SVD file (vendored in `svd/`, see
+/// svd/README.md) is embedded, gzip-compressed, in the plugin; see
+/// src/espressif/svd.rs.
+const SVD_CHIPS: [&str; 8] = [
+    "esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3", "esp32c6", "esp32h2", "esp32c5",
 ];
 
 fn compress_svd_files() {
     let manifest = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let out = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
     for chip in SVD_CHIPS {
-        let source = manifest.join("svd").join("svd").join(format!("{chip}.svd"));
+        let source = manifest.join("svd").join(format!("{chip}.svd"));
         println!("cargo::rerun-if-changed={}", source.display());
         let svd = std::fs::read(&source).unwrap_or_else(|err| {
             panic!(
-                "cannot read {}: {err}\nThe Espressif SVD files are a git submodule; run `git submodule update --init`.",
+                "cannot read {}: {err}\nThe SVD files are part of the repository; scripts/fetch_svds.sh downloads them again.",
                 source.display()
             )
         });

@@ -99,17 +99,16 @@ It provides:
   shared by code and read-only data, the SRAM segments are mapped writable
   and executable and the flash window read-only, as code.
 - **Peripheral registers from SVD**: Espressif's SVD files for the ESP32,
-  ESP32-S2, ESP32-S3, ESP32-C2, ESP32-C3, ESP32-C6 and ESP32-H2
-  (https://github.com/espressif/svd, Apache-2.0) are
-  bundled (the `svd` git submodule) and applied automatically to ESP
+  ESP32-S2, ESP32-S3, ESP32-C2, ESP32-C3, ESP32-C6, ESP32-H2 and ESP32-C5
+  (Apache-2.0, see [svd/README.md](svd/README.md)) are bundled and applied
+  automatically to ESP
   firmware images and ELF files by Binary Ninja's SVD loader, naming and typing every
   peripheral register (`UART0.INT_CLR.RXFIFO_FULL_INT_CLR = 9`). An SVD file chosen in *Open with
   Options* (*SVD File*, `analysis.svd.autoLoadFile`) takes precedence, and
   `espressif.svd.autoLoad` turns this off. The files are unpacked once to
   `<user directory>/espressif/svd/`. This needs Binary Ninja's SVD loader
   plugin (`svd_ninja`); without it, peripherals are left unnamed. The ESP8266
-  has no official SVD, so the view names its peripheral blocks itself; there
-  is no SVD file for the ESP32-C5 yet.
+  has no official SVD, so the view names its peripheral blocks itself.
 - **Flash dumps**: a dump with a partition table at flash offset 0x8000
   opens as a container (the `EspFlash` transform), like an archive: its
   files are `bootloader` (the second stage bootloader, up to the table),
@@ -367,13 +366,15 @@ matches the API revision pinned in `Cargo.toml`
 override).
 
 ```sh
-git submodule update --init      # Espressif's SVD files (or clone with --recursive)
 cargo build --release
 cp target/release/libbinja_xtensa.so ~/.binaryninja/plugins/   # .dylib / .dll elsewhere
 ```
 
-To pick up newer SVD files, `git submodule update --remote svd` and rebuild;
-`build.rs` compresses the files of the supported chips into the plugin.
+`build.rs` compresses the SVD files in `svd/` into the plugin. They are
+vendored, each pinned to an upstream commit with its SHA-256 in
+`svd/SOURCES`; `scripts/fetch_svds.sh` downloads them again and checks them
+(to pick up a newer file, change its commit there and run the script with
+`--update`).
 
 A native plugin loads only in a Binary Ninja whose core ABI matches the API
 it was built against (`BN_MINIMUM_CORE_ABI_VERSION` to
@@ -542,8 +543,14 @@ folder means nothing is installed.
 
 ## License
 
-MIT, see [LICENSE](LICENSE). The Espressif SVD files embedded in the plugin
-(from the `svd` submodule) are licensed under Apache-2.0 by Espressif. The
+MIT, see [LICENSE](LICENSE). The Espressif SVD files in `svd/`, embedded in
+the plugin, are licensed under Apache-2.0 by Espressif
+([svd/LICENSE](svd/LICENSE)); they come unmodified from
+[espressif/svd](https://github.com/espressif/svd) and, for the ESP32-C5,
+from [espressif/esp-bist](https://github.com/espressif/esp-bist) (that file
+carries Espressif's Apache-2.0 license text; the rest of esp-bist is
+LGPL-3.0 and is not used), at the commits listed in
+[svd/SOURCES](svd/SOURCES). The
 mask ROM symbol tables are derived from ESP-IDF's ROM linker scripts
 (Apache-2.0, Espressif) and the ESP8266 RTOS and NONOS SDKs' (Apache-2.0
 and the Espressif MIT License). The ROM type libraries in `data/rom_types/`

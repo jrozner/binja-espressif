@@ -382,11 +382,11 @@ impl Chip {
         }
     }
 
-    /// The gzip-compressed Espressif SVD file for the chip; the ESP8266 and
-    /// the ESP32-C5 have none.
+    /// The gzip-compressed Espressif SVD file for the chip; the ESP8266 has
+    /// none.
     pub fn bundled_svd(self) -> Option<&'static [u8]> {
         match self {
-            Chip::Esp8266 | Chip::Esp32C5 => None,
+            Chip::Esp8266 => None,
             Chip::Esp32 => Some(svd::ESP32),
             Chip::Esp32S2 => Some(svd::ESP32S2),
             Chip::Esp32S3 => Some(svd::ESP32S3),
@@ -394,6 +394,7 @@ impl Chip {
             Chip::Esp32C3 => Some(svd::ESP32C3),
             Chip::Esp32C6 => Some(svd::ESP32C6),
             Chip::Esp32H2 => Some(svd::ESP32H2),
+            Chip::Esp32C5 => Some(svd::ESP32C5),
         }
     }
 

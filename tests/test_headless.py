@@ -677,7 +677,20 @@ for chip, (code_addr, rodata_addr, bss_addr, rom_data_addr) in layouts.items():
         check(sec is not None and sec.semantics == bn.SectionSemantics.ReadOnlyDataSectionSemantics,
               "esp32c3: DROM is read-only data")
 bv = load_bytes(riscv_image(23, [(0x40800000, rv_code)], 0x40800000), ".bin")
-check(bv.view_type == "ESP" and bv.platform.name == "esp32c5", "esp32c5: ESP view (no SVD)")
+bv.update_analysis_and_wait()
+check(bv.view_type == "ESP" and bv.platform.name == "esp32c5", "esp32c5: ESP view")
+# The C5's SVD is vendored from esp-bist (espressif/svd has none); the base
+# addresses are ESP-IDF's (soc/esp32c5/register/soc/reg_base.h).
+c5_peripherals = {
+    0x60000000: "UART0", 0x60001000: "UART1", 0x60008000: "TIMG0", 0x60081000: "SPI2",
+    0x60091000: "GPIO", 0x60096000: "PCR", 0x600B1400: "LP_UART", 0x600B4800: "EFUSE",
+    0x20000000: "CLINT", 0x20800000: "CLIC",
+}
+for addr, name in c5_peripherals.items():
+    check({s.name for s in bv.get_symbols(addr, 1)} == {name}, f"esp32c5: bundled SVD names {name} at {addr:#x}")
+    check(bv.get_segment_at(addr) is not None, f"esp32c5: {name} is mapped")
+var = bv.get_data_var_at(0x60091000)
+check(var is not None and str(var.type) == "struct GPIO", f"esp32c5: bundled SVD types GPIO ({var and var.type})")
 bv = load_bytes(riscv_image(18, [(0x4FF00000, rv_code)], 0x4FF00000), ".bin")
 check(bv.view_type != "ESP", "ESP32-P4 images are not loaded")
 

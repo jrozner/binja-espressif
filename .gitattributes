@@ -1,3 +1,8 @@
 # Shell scripts run under Git Bash on Windows runners (the release
 # workflow), where checkouts otherwise get CRLF line endings.
 *.sh text eol=lf
+
+# The vendored SVD files are checked against the SHA-256s in svd/SOURCES:
+# keep their bytes as downloaded (no CRLF conversion). GitHub collapses their
+# multi-megabyte diffs in pull requests; git still diffs them as text.
+svd/*.svd -text linguist-generated
