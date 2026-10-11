@@ -80,12 +80,13 @@ It provides:
   and seeds its handlers, and reads the value `call_start_cpu0` loads into
   `gp` (`la gp, __global_pointer$`) so that `gp`-relative accesses to small
   data resolve from the start. The value is set as the view's global
-  pointer value (*user* value, since Binary Ninja only allows setting those);
-  one you set yourself, or saved in a database, is left alone. Bootloader
-  images do not use `gp`. On the ESP32-C6, H2 and C5, where SRAM is one
-  region seen by both buses and flash is mapped through one window shared
-  by code and read-only data, the SRAM segments are mapped writable and
-  executable and the flash window read-only, as code.
+  pointer value (*user* value, since Binary Ninja only allows setting those),
+  once, when the file is first loaded: one you set yourself is left alone,
+  and one you change or clear stays that way when the database is reopened.
+  Bootloader images do not use `gp`. On the ESP32-C6, H2 and C5, where SRAM
+  is one region seen by both buses and flash is mapped through one window
+  shared by code and read-only data, the SRAM segments are mapped writable
+  and executable and the flash window read-only, as code.
 - **Peripheral registers from SVD**: Espressif's SVD files for the ESP32,
   ESP32-S2, ESP32-S3, ESP32-C2, ESP32-C3, ESP32-C6 and ESP32-H2
   (https://github.com/espressif/svd, Apache-2.0) are
