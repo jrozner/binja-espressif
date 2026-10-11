@@ -26,6 +26,12 @@
 # extension manager installed (the tag's), never against anything fetched
 # from the release.
 #
+# Pre-releases: a version with a pre-release suffix (0.2.0-rc.1, tag
+# v0.2.0-rc.1) goes through the same two runs, and its publish run must have
+# the prerelease input set (and a final version's must not): the release is
+# then marked as a pre-release and not as latest, so it is not what
+# releases/latest returns. See "Testing a release privately" in the README.
+#
 # Assets, one per platform and core ABI:
 #
 #   binja_xtensa-abi<N>-linux-x86_64.so
@@ -51,9 +57,14 @@ on:
           - build
           - publish
       version:
-        description: "build only: the version being released (default: plugin.json's version), e.g. 0.2.0"
+        description: "build only: the version being released (default: plugin.json's version), e.g. 0.2.0 or 0.2.0-rc.1"
         required: false
         type: string
+      prerelease:
+        description: "publish only: publish a pre-release (required for, and only allowed for, a tag like v0.2.0-rc.1); it is not marked latest"
+        required: false
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -191,8 +202,13 @@ jobs:
             echo "Built from \`$GITHUB_SHA\`. To release:"
             echo
             echo "1. On top of \`$GITHUB_SHA\`, save this as \`binja_xtensa_loader/manifest.json\` (or download the \`manifest\` artifact) and set \`plugin.json\`'s version to \`$version\`; change nothing else."
-            echo "2. Commit, push, tag the commit \`v$version\` and push the tag."
-            echo "3. Run this workflow on the tag \`v$version\` with mode \`publish\`."
+            if [[ "$version" == *-* ]]; then
+              echo "2. Commit on a branch (not \`main\`), tag the commit \`v$version\` and push the tag."
+              echo "3. Run this workflow on the tag \`v$version\` with mode \`publish\` and \`prerelease\` checked."
+            else
+              echo "2. Commit, push, tag the commit \`v$version\` and push the tag."
+              echo "3. Run this workflow on the tag \`v$version\` with mode \`publish\`."
+            fi
             echo
             echo '```json'
             cat manifest.json
@@ -216,11 +232,14 @@ jobs:
     env:
       TAG: ${{ github.ref_name }}
       REF_TYPE: ${{ github.ref_type }}
+      PRERELEASE: ${{ inputs.prerelease }}
     steps:
+      # check-tag checks the tag's version in full, including that it is a
+      # pre-release version exactly when the prerelease input is set.
       - name: Check the dispatched ref is a version tag
         run: |
-          if [ "$REF_TYPE" != tag ] || ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
-            echo "::error::publish must be dispatched on a vX.Y or vX.Y.Z tag, not $REF_TYPE '$TAG'"
+          if [ "$REF_TYPE" != tag ] || ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::publish must be dispatched on a vX.Y, vX.Y.Z or vX.Y.Z-<pre-release> tag, not $REF_TYPE '$TAG'"
             exit 1
           fi
 
@@ -233,7 +252,9 @@ jobs:
       - name: Check plugin.json and the manifest are for the tag
         id: manifest
         run: |
-          scripts/release_manifest.py check-tag "$TAG" > build.env
+          prerelease=()
+          if [ "$PRERELEASE" = true ]; then prerelease=(--prerelease); fi
+          scripts/release_manifest.py check-tag "$TAG" "${prerelease[@]}" > build.env
           cat build.env >> "$GITHUB_OUTPUT"
           cat build.env
           rm build.env
@@ -283,7 +304,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         # --verify-tag makes gh fail if the tag doesn't exist on GitHub
-        # instead of creating it from the default branch.
+        # instead of creating it from the default branch. A pre-release is
+        # never marked latest.
         run: |
+          flags=()
+          if [ "$PRERELEASE" = true ]; then flags=(--prerelease --latest=false); fi
           gh release create "$TAG" dist/* \
-            --title "$TAG" --generate-notes --verify-tag
+            --title "$TAG" --generate-notes --verify-tag "${flags[@]}"

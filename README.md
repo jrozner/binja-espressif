@@ -480,6 +480,103 @@ releases, `main`'s manifest stays that of the last release; if
 `plugin.json`'s version moves ahead of it, the loader of a checkout of
 `main` refuses to install anything, as it isn't a release.
 
+**Pre-releases.** A version with a pre-release suffix, such as
+`0.2.0-rc.1` (tag `v0.2.0-rc.1`), goes through the same steps, and its
+publish run needs the `prerelease` input (`-f prerelease=true`); a final
+version's must not have it. The release is then a GitHub pre-release and
+is not marked latest. That matters beyond testing: extensions.binary.ninja
+reads `plugin.json` at the latest release, skips a version it already has,
+and ignores a pre-release suffix when comparing versions, so an rc it
+picked up could make it skip the final release of the same version.
+
+To release exactly the libraries a pre-release was tested with, reuse its
+build run: on top of the same build commit, commit its manifest with only
+`version` changed (say to `0.2.0`) and `plugin.json`'s version to match,
+tag that `v0.2.0` and publish it without `prerelease` (within the 90 days
+the run's artifacts are kept).
+
+## Testing a release privately
+
+Before the plugin is listed on extensions.binary.ninja, a release can be
+installed through the extension manager from a repository of your own.
+Release libraries are built for the core ABI of the stable Binary Ninja, so
+test with a **stable** Binary Ninja (a dev build finds no library to
+install). Windows and macOS use the same steps.
+
+1. **Cut a pre-release** (see [Releasing](#releasing)):
+
+   ```sh
+   gh workflow run release.yml --ref main -f mode=build -f version=0.1.0-rc.1
+   ```
+
+   On top of the build commit, on a branch rather than `main` (so `main`
+   keeps the final version), commit the run's manifest as
+   `binja_xtensa_loader/manifest.json` with `plugin.json`'s version set to
+   `0.1.0-rc.1`, tag that commit `v0.1.0-rc.1`, push the tag, and publish:
+
+   ```sh
+   gh workflow run release.yml --ref v0.1.0-rc.1 -f mode=publish -f prerelease=true
+   ```
+
+2. **Make a repository** listing that release. Binary Ninja reads
+   third-party repositories in the format of the extensions.binary.ninja API
+   (as served by Binary Ninja's `examples/python/mock_extension_server.py`),
+   not the `plugins.json` of Vector35/community-plugins, which current
+   versions reject. `scripts/test_extension_repo.py` writes it as static
+   files from `plugin.json` at the tag, with the tag's source archive on
+   GitHub as the download, the way the extension server would list it:
+
+   ```sh
+   git fetch --tags
+   scripts/test_extension_repo.py v0.1.0-rc.1 --base-url http://127.0.0.1:8000 -o bx-repo
+   python3 -m http.server 8000 --bind 127.0.0.1 --directory bx-repo
+   ```
+
+   `--base-url` is where the directory is served from. Serving it on the
+   test machine keeps it private; elsewhere, generate it with that host's
+   URL. Binary Ninja fetches `<base URL>/v2/manifests` from it, so it needs
+   a host that serves paths (not a gist).
+
+3. **Start Binary Ninja with a throwaway user folder**, holding only your
+   license and the repository URL:
+
+   ```sh
+   mkdir bn-test && cp ~/.binaryninja/license.dat bn-test/
+   echo '{"extensionManager.unofficialUrls": ["http://127.0.0.1:8000"]}' > bn-test/settings.json
+   BN_USER_DIRECTORY=$PWD/bn-test /path/to/stable/binaryninja/binaryninja
+   ```
+
+   The license is in `%APPDATA%\Binary Ninja` on Windows and
+   `~/Library/Application Support/Binary Ninja` on macOS; there, set
+   `BN_USER_DIRECTORY` in the environment that starts Binary Ninja. The
+   setting is *Unofficial 3rd Party Plugin Repository URLs* in Settings,
+   too.
+
+4. **Install** *Espressif Xtensa* (version `0.1.0-rc.1`, from the
+   `binja-xtensa-test` repository) in the extension manager and restart.
+
+Then check:
+
+- The loader asks to download the library for this platform; accept it.
+  The log names the library and its verified SHA-256, and
+  `binja_xtensa-native.so` (`.dll`, `.dylib`) is in `bn-test/plugins`.
+- After a restart, the library loads without errors in the log and an
+  ESP32 ELF or image opens with the Xtensa architecture.
+- The ROM image prompt appears for a file that uses it, and
+  **Plugins > Espressif > Download ROM Images** maps it.
+- A flash dump opens in the container browser with its partitions, and
+  headless, `files.espressif.partition` picks one.
+- **Plugins > Espressif > Remove Native Library** removes the library
+  (after a restart, the architectures are gone and the loader doesn't ask
+  again), and uninstalling the plugin in the extension manager removes the
+  loader.
+
+To try the update to the final release, regenerate the repository for
+`v0.1.0` once it is published: the extension manager offers it as an
+update, and the loader then asks to replace the library if it changed (not
+if the final release reuses the pre-release's build). Delete `bn-test` when
+done.
+
 ## Testing
 
 ```sh
