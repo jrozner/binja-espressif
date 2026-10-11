@@ -29,16 +29,19 @@ use binaryninja::binary_view::{BinaryView, BinaryViewBase};
 use binaryninja::calling_convention::{
     CallingConvention, CoreCallingConvention, register_calling_convention,
 };
-use binaryninja::confidence::MAX_CONFIDENCE;
-use binaryninja::function::Function;
+use binaryninja::confidence::{Conf, MAX_CONFIDENCE};
+use binaryninja::function::{Function, FunctionUpdateType};
 use binaryninja::function_recognizer::FunctionRecognizer;
 use binaryninja::low_level_il::LowLevelILRegularFunction;
+use binaryninja::low_level_il::instruction::{InstructionHandler, LowLevelILInstructionKind};
 use binaryninja::rc::Ref;
 use binaryninja::types::{
     FunctionParameter, Type, ValueLocation, ValueLocationComponent, ValueLocationSource,
 };
-use binaryninja::variable::{Variable, VariableSourceType};
+use binaryninja::variable::{RegisterValueType, Variable, VariableSourceType};
+use binaryninja::workflow::{Activity, AnalysisContext, Workflow, activity};
 
+use crate::xtensa::Core;
 use crate::xtensa::arch::Xtensa;
 use crate::xtensa::registers::Reg;
 
@@ -343,7 +346,7 @@ pub struct Conventions {
 /// Registers the calling conventions of a core and sets its default.
 pub fn register(arch: &'static Xtensa) -> Conventions {
     // On the windowed cores, call0 functions are recognized by their missing
-    // `entry` instruction (see `WindowRecognizer`) rather than heuristically:
+    // `entry` instruction (see `CALL0_STEP`) rather than heuristically:
     // the heuristics would prefer call0 for every windowed function, since
     // those read their arguments from a2..a7 as well.
     let call0_regs = Regs::call0(!arch.core.windowed());
@@ -367,36 +370,114 @@ pub fn register(arch: &'static Xtensa) -> Conventions {
     Conventions { call0, windowed }
 }
 
-/// Fixes up functions on the windowed cores after lifting:
+/// The analysis step that gives the functions on the windowed cores that
+/// do not start with `entry` the `call0` convention: every windowed-ABI
+/// function does, so these are hand-written routines called with
+/// `call0`/`callx0`, whole programs built with `-mabi=call0`, or not
+/// functions in the C sense at all, such as exception vectors.
 ///
-/// * Functions that do not start with `entry` get the `call0` convention:
-///   every windowed-ABI function does, so these are hand-written routines
-///   called with `call0`/`callx0` (or not functions in the C sense at all,
-///   such as exception vectors). This is only a default: a function with a
-///   user type is left alone, so a convention the user chose (with
-///   `__convention("windowed")` in its type, or by setting the calling
-///   convention, which also makes the type a user type) sticks. That matters
-///   for code that has no `entry` but is called with `call4`/`call8`/`call12`,
-///   such as placeholder stubs for unresolved externals: typed as `call0`,
-///   their callers' arguments would be read from `a2..a7` instead of
-///   `a10..a15`.
-///   The typed mask ROM functions in the plugin's ROM region are left alone
-///   (see [`crate::espressif::rom_types`]); the other functions there, in
-///   a ROM image, are code like any other.
+/// This is only a default: a function with a user type is left alone, so a
+/// convention the user chose (with `__convention("windowed")` in its type, or
+/// by setting the calling convention, which also makes the type a user type)
+/// sticks. That matters for code that has no `entry` but is called with
+/// `call4`/`call8`/`call12`, such as placeholder stubs for unresolved
+/// externals: typed as `call0`, their callers' arguments would be read from
+/// `a2..a7` instead of `a10..a15`. The typed mask ROM functions in the
+/// plugin's ROM region are left alone too (see
+/// [`crate::espressif::rom_types`]); the other functions there, in a ROM
+/// image, are code like any other.
+///
+/// It runs in every analysis of a function, right after lifting: a full
+/// update resets the convention to the platform's default (`windowed`), and
+/// the parameters and return value are inferred from the convention when the
+/// MLIL is generated. A function recognizer runs too late for that, after
+/// the function's analysis is complete, and the core does not analyze the
+/// function again for a convention set there.
+const CALL0_STEP: &str = "xtensa.function.call0Convention";
+/// The step [`CALL0_STEP`] runs after.
+const LIFT_STEP: &str = "core.function.generateLiftedIL";
+
+/// Registers [`CALL0_STEP`].
+pub fn register_call0_step() {
+    let config = activity::Config::action(
+        CALL0_STEP,
+        "Xtensa call0 convention",
+        "Gives the functions on the windowed Xtensa cores that do not start with entry the call0 calling convention.",
+    );
+    // The action must not capture anything: `Activity::new_with_action`
+    // keeps a pointer to the closure, which it does not keep alive.
+    let step = Activity::new_with_action(config, |ctx: &AnalysisContext| {
+        let func = ctx.function();
+        let arch = func.arch();
+        let name = arch.name();
+        if Core::ALL
+            .iter()
+            .any(|core| core.windowed() && core.arch_name() == name)
+            && let Some(call0) = arch.calling_convention_by_name("call0")
+        {
+            default_to_call0(&ctx.view(), &func, &call0);
+        }
+    });
+    let registered = Workflow::cloned("core.function.metaAnalysis")
+        .ok_or(())
+        .and_then(|w| w.activity_after(&step, LIFT_STEP))
+        .and_then(|w| w.register());
+    if registered.is_err() {
+        tracing::error!("cannot register the Xtensa call0 convention step");
+    }
+}
+
+fn default_to_call0(bv: &BinaryView, func: &Function, call0: &CoreCallingConvention) {
+    if func.has_user_type() || crate::espressif::rom_types::rom_function_name(bv, func).is_some() {
+        return;
+    }
+    // A function in the last two bytes of a segment (a `ret.n` stub, say)
+    // has no room for `entry`; it is still a call0 function.
+    let mut code = [0u8; 3];
+    let len = bv.read(&mut code, func.start());
+    if len == 0 || crate::xtensa::is_entry_insn(&code[..len]) {
+        return;
+    }
+    if func
+        .calling_convention()
+        .is_none_or(|cc| cc.contents.name() != "call0")
+    {
+        func.set_auto_calling_convention(Some(call0));
+    }
+}
+
+/// Fixes up functions on the windowed cores after their analysis:
+///
 /// * Windowed functions clobber exactly `a8..a15` of their caller (the
 ///   registers that become the callee's `a0..a7`). The core would otherwise
 ///   derive the clobbered set from the function's own writes to `a0..a7`,
 ///   which belong to the callee's window and never affect the caller.
+/// * `callx0` sites are typed as calls with the `call0` convention. The core
+///   takes the convention of a call through a register from the platform
+///   (`windowed`), whatever the caller's or the callee's: with the target
+///   unknown, the arguments would be read from `a10..a15` and the result
+///   from `a10`, and `a12..a15` would not survive the call; with a target
+///   that resolves to a function, the arguments follow its type, but the
+///   result is still looked for in `a10`. A call site's type is the only
+///   convention the core takes per call, so these get the callee's type,
+///   or, for an unknown target, a variadic `call0` type whose arguments are
+///   the argument registers the caller sets. Call sites typed by the user
+///   are left alone, and so are calls through a typed function pointer: the
+///   core types those from the pointer itself, at full confidence, on every
+///   analysis, so the pointer's type needs `__convention("call0")`.
 pub struct WindowRecognizer {
     pub call0: Ref<CoreCallingConvention>,
 }
+
+/// The confidence of the `callx0` sites' types: below the user's.
+const CALL_TYPE_CONFIDENCE: u8 = 128;
 
 impl FunctionRecognizer for WindowRecognizer {
     fn recognize_low_level_il(
         &self,
         bv: &BinaryView,
         func: &Function,
-        _llil: &LowLevelILRegularFunction,
+        llil: &LowLevelILRegularFunction,
     ) -> bool {
         // Mask ROM functions are typed from the ROM type library: their
         // type says how to call them. Their region holds zeros, or a ROM
@@ -404,33 +485,89 @@ impl FunctionRecognizer for WindowRecognizer {
         if crate::espressif::rom_types::rom_function_name(bv, func).is_some() {
             return false;
         }
-        // A function in the last two bytes of a segment (a `ret.n` stub,
-        // say) has no room for `entry`; it is still a call0 function.
+        self.type_call0_sites(bv, func, llil);
         let mut code = [0u8; 3];
         let len = bv.read(&mut code, func.start());
-        if len == 0 {
+        if !crate::xtensa::is_entry_insn(&code[..len]) {
             return false;
         }
-        if crate::xtensa::is_entry_insn(&code[..len]) {
-            let arch = func.arch();
-            let clobbered: Vec<CoreRegister> = (8..=15)
-                .filter_map(|n| arch.register_from_id(RegisterId(n)))
-                .collect();
-            let current = func.clobbered_registers();
-            let mut ids: Vec<u32> = current.contents.iter().map(|r| r.id().0).collect();
-            ids.sort();
-            if current.confidence < MAX_CONFIDENCE || ids != (8..=15).collect::<Vec<u32>>() {
-                func.set_auto_clobbered_registers(clobbered, MAX_CONFIDENCE);
-            }
-        } else if !func.has_user_type()
-            && func
-                .calling_convention()
-                .is_none_or(|cc| cc.contents.name() != "call0")
-        {
-            func.set_auto_calling_convention(Some(&*self.call0));
+        let arch = func.arch();
+        let clobbered: Vec<CoreRegister> = (8..=15)
+            .filter_map(|n| arch.register_from_id(RegisterId(n)))
+            .collect();
+        let current = func.clobbered_registers();
+        let mut ids: Vec<u32> = current.contents.iter().map(|r| r.id().0).collect();
+        ids.sort();
+        if current.confidence < MAX_CONFIDENCE || ids != (8..=15).collect::<Vec<u32>>() {
+            func.set_auto_clobbered_registers(clobbered, MAX_CONFIDENCE);
         }
         false
     }
+}
+
+impl WindowRecognizer {
+    /// Types `func`'s `callx0` sites (see [`WindowRecognizer`]). The
+    /// recognizer runs once the function's analysis is complete, so the
+    /// function is analyzed again if any type changed.
+    fn type_call0_sites(&self, bv: &BinaryView, func: &Function, llil: &LowLevelILRegularFunction) {
+        let platform = func.platform();
+        let mut changed = false;
+        for block in llil.basic_blocks().iter() {
+            for insn in block.iter() {
+                let LowLevelILInstructionKind::Call(op) = insn.kind() else {
+                    continue;
+                };
+                let addr = insn.address();
+                let mut code = [0u8; 3];
+                if bv.read(&mut code, addr) < 3 || !is_callx0(&code) {
+                    continue;
+                }
+                let target = op.target().value();
+                let callee = matches!(
+                    target.state,
+                    RegisterValueType::ConstantValue | RegisterValueType::ConstantPointerValue
+                )
+                .then(|| bv.function_at(&platform, target.value as u64))
+                .flatten();
+                let ty = match callee {
+                    Some(callee) => callee.function_type(),
+                    None => Type::function_with_opts(
+                        Type::int(WORD, true),
+                        &[],
+                        true,
+                        Conf::new(self.call0.clone(), MAX_CONFIDENCE),
+                        Conf::new(0, MAX_CONFIDENCE),
+                    ),
+                };
+                if let Some(current) = func.call_type_adjustment(addr, None)
+                    && (current.confidence == MAX_CONFIDENCE
+                        || (current.confidence == CALL_TYPE_CONFIDENCE && current.contents == ty))
+                {
+                    continue;
+                }
+                func.set_auto_call_type_adjustment(
+                    addr,
+                    Conf::new(&*ty, CALL_TYPE_CONFIDENCE),
+                    None,
+                );
+                changed = true;
+            }
+        }
+        if changed {
+            // The parameters inferred with the call sites untyped would stay:
+            // the core keeps those it inferred with full confidence through
+            // later updates.
+            func.set_auto_parameter_locations(Vec::new(), 0);
+            func.mark_updates_required(FunctionUpdateType::IncrementalAutoFunctionUpdate);
+        }
+    }
+}
+
+/// Is `code` a `callx0`?
+fn is_callx0(code: &[u8]) -> bool {
+    // callx0 as: byte0 = t << 4 | op0 with t = m << 2 | n = 0b1100,
+    // byte1 = r << 4 | s with r = 0, byte2 = op2 << 4 | op1 = 0.
+    code.len() >= 3 && code[0] == 0xc0 && code[1] & 0xf0 == 0 && code[2] == 0
 }
 
 #[cfg(test)]
@@ -502,6 +639,18 @@ mod tests {
             xtensa_locations(&[int.clone(), int.clone(), int.clone()], &permitted),
             [Regs(0, 1), Stack(0), Stack(4)]
         );
+    }
+
+    #[test]
+    fn callx0_encoding() {
+        // callx0 a0, callx0 a9 (as objdump shows them: 0000c0, 0009c0).
+        assert!(is_callx0(&[0xc0, 0x00, 0x00]));
+        assert!(is_callx0(&[0xc0, 0x09, 0x00]));
+        // callx8 a9, ret, call0 and a truncated callx0 are not.
+        assert!(!is_callx0(&[0xe0, 0x09, 0x00]));
+        assert!(!is_callx0(&[0x80, 0x00, 0x00]));
+        assert!(!is_callx0(&[0x05, 0xee, 0xff]));
+        assert!(!is_callx0(&[0xc0, 0x00]));
     }
 
     #[test]

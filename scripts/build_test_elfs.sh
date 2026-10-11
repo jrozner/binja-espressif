@@ -33,6 +33,13 @@ for chip in esp32 esp32s2 esp32s3 esp8266; do
     "${prefix}ld" -T "$chip.ld" "${defs[@]}" -o "$chip.elf" "$work/$chip.o"
 done
 
+# call0.c with the call0 ABI on the ESP32, a windowed core: no function has
+# an `entry` instruction. It calls nothing external. Without relaxation, ld
+# keeps the long calls to another section as l32r/callx0 pairs.
+export XTENSA_GNU_CONFIG=$toolchain/lib/xtensa_esp32.so
+"${prefix}gcc" -mdynconfig="$XTENSA_GNU_CONFIG" -O2 -ffreestanding -nostdlib -mlongcalls -mabi=call0 -c call0.c -o "$work/call0.o"
+"${prefix}ld" --no-relax -T esp32.ld -o esp32-call0.elf "$work/call0.o"
+
 # Relocatable objects for the ELF relocation handler, each with its
 # relocations as objdump lists them (the oracle tests/test_headless.py checks
 # Binary Ninja against): corpus.c with and without -mlongcalls on every

@@ -82,8 +82,9 @@ impl Core {
 }
 
 /// Registers an architecture, its calling conventions, its ELF relocation
-/// handler and (on the windowed cores) the call0 function recognizer for
-/// every core.
+/// handler and (on the windowed cores) the windowed function recognizer for
+/// every core, and the analysis step that finds the call0 functions on the
+/// windowed cores.
 pub fn register() {
     for core in Core::ALL {
         let arch = register_architecture(core.arch_name(), move |custom_handle, handle| {
@@ -99,6 +100,7 @@ pub fn register() {
             });
         }
     }
+    cc::register_call0_step();
 }
 
 /// Is `code` the start of a windowed-ABI function (`entry a1, n`)?
