@@ -9,12 +9,21 @@
 //!
 //! A type on a symbol at an unmapped address does not reach the calls to it,
 //! and Binary Ninja creates functions only where there are bytes. So the
-//! ROM's code is mapped, as a memory region of its own filled with zeros
-//! (see [`add_rom_region`]), and each typed ROM function is defined there as
-//! an imported function with its type. [`RomRecognizer`] makes those
-//! functions clobber what real code would, and the Xtensa `WindowRecognizer`
-//! leaves their calling convention alone. ROM variables need no region: a
-//! data variable at an unmapped address keeps its type.
+//! ROM's code is mapped, as a memory region of its own (see
+//! [`add_rom_region`]), and each typed ROM function is defined there as an
+//! imported function with its type. [`RomRecognizer`] makes those functions
+//! clobber what the API's callers may assume, and the Xtensa
+//! `WindowRecognizer` leaves their calling convention alone. ROM variables
+//! need no region: a data variable at an unmapped address keeps its type.
+//!
+//! The region holds the chip's ROM image when one is available (see
+//! `rom_images` and `rom_download`), and zeros otherwise. With an image, the
+//! typed functions have real bodies, which Binary Ninja analyzes: their
+//! names and prototypes are then pinned against what that analysis would
+//! change, the functions behind the ROM's jump table are typed too, and the
+//! ROM's other functions get the image's names (see [`use_image`]).
+//! Analysis creates functions in the ROM only where code calls them; the
+//! region is not swept.
 //!
 //! Only names that have a prototype are typed, and only one per address
 //! (preferring the name the view already shows), so that the name shown for
@@ -28,9 +37,9 @@ use std::collections::{HashMap, HashSet};
 use binaryninja::architecture::{
     Architecture, ArchitectureExt, CoreArchitecture, CoreRegister, Register as _, RegisterId,
 };
-use binaryninja::binary_view::BinaryView;
+use binaryninja::binary_view::{BinaryView, MetadataStoreFlags};
 use binaryninja::calling_convention::CallingConvention;
-use binaryninja::confidence::MAX_CONFIDENCE;
+use binaryninja::confidence::{Conf, MAX_CONFIDENCE};
 use binaryninja::data_buffer::DataBuffer;
 use binaryninja::function::Function;
 use binaryninja::function_recognizer::FunctionRecognizer;
@@ -39,9 +48,10 @@ use binaryninja::platform::Platform;
 use binaryninja::rc::Ref;
 use binaryninja::segment::SegmentFlags;
 use binaryninja::symbol::{SymbolBuilder, SymbolType};
-use binaryninja::types::{TypeClass, TypeLibrary};
+use binaryninja::types::{Type, TypeClass, TypeLibrary};
 
-use crate::espressif::{Chip, cache};
+use crate::espressif::rom_images::{Found, RomElf};
+use crate::espressif::{Chip, cache, rom_download};
 
 static ESP32: &[u8] = include_bytes!("../../data/rom_types/esp32.bntl");
 static ESP32S2: &[u8] = include_bytes!("../../data/rom_types/esp32s2.bntl");
@@ -143,19 +153,38 @@ fn library(chip: Chip) -> Option<Ref<TypeLibrary>> {
     Some(lib)
 }
 
-/// The bytes of the ROM's code at `start..start + len`: zeros, as the ROM
-/// itself is not bundled; its functions only need their types. (Espressif
-/// publishes the ROM images, in esp-rom-elfs, should they ever be bundled.)
-fn rom_contents(_chip: Chip, _start: u32, len: usize) -> Vec<u8> {
-    vec![0; len]
+/// The view metadata that names the ROM image the ROM code regions hold;
+/// without it they hold zeros.
+const IMAGE_METADATA: &str = "espressif.rom.image";
+
+/// The bytes of the ROM's code at `start..start + len`: the ROM image's, if
+/// there is one (see [`rom_images`](super::rom_images)), else zeros, as the
+/// ROM itself is not bundled and its functions only need their types.
+fn rom_contents(image: Option<&RomElf>, start: u32, len: usize) -> Vec<u8> {
+    match image {
+        Some(elf) => elf.contents(start, len),
+        None => vec![0; len],
+    }
+}
+
+fn region_flags() -> SegmentFlags {
+    SegmentFlags::new()
+        .readable(true)
+        .executable(true)
+        .contains_code(true)
+        .deny_write(true)
 }
 
 /// Maps the chip's ROM code, as memory regions of its own, unless the view
-/// already maps it (a reopened database keeps its regions). Returns whether
-/// the ROM code is mapped by these regions.
-pub fn add_rom_region(view: &BinaryView, chip: Chip) -> bool {
+/// already maps it (a reopened database keeps its regions). The regions
+/// hold the chip's ROM image if one is available (see
+/// [`rom_download::rom_image`]), else zeros. Returns whether the ROM code is
+/// mapped by these regions, and the ROM image they hold.
+pub fn add_rom_region(view: &BinaryView, chip: Chip) -> (bool, Option<Found>) {
     let mut map = view.memory_map();
     let mut mapped = true;
+    let mut image = None;
+    let mut added = false;
     for (i, (start, end)) in chip.rom_code_ranges().into_iter().enumerate() {
         let name = region_name(i);
         if map.get_region(&name).is_some() {
@@ -179,13 +208,14 @@ pub fn add_rom_region(view: &BinaryView, chip: Chip) -> bool {
             mapped = false;
             continue;
         }
-        let contents = DataBuffer::new(&rom_contents(chip, start, (end - start) as usize));
-        let flags = SegmentFlags::new()
-            .readable(true)
-            .executable(true)
-            .contains_code(true)
-            .deny_write(true);
-        if !map.add_data_memory_region(&name, start as u64, &contents, Some(flags)) {
+        if !added {
+            image = rom_download::rom_image(view, chip);
+        }
+        let elf = image.as_ref().map(|f| &f.elf);
+        let contents = DataBuffer::new(&rom_contents(elf, start, (end - start) as usize));
+        if map.add_data_memory_region(&name, start as u64, &contents, Some(region_flags())) {
+            added = true;
+        } else {
             tracing::warn!(
                 "could not map the {} ROM at {start:#x}",
                 chip.display_name()
@@ -193,13 +223,171 @@ pub fn add_rom_region(view: &BinaryView, chip: Chip) -> bool {
             mapped = false;
         }
     }
-    mapped
+    if !added {
+        return (mapped, None);
+    }
+    if let Some(found) = &image {
+        record_image(view, chip, found);
+    }
+    (mapped, image)
 }
 
-/// Fixes up the functions in the ROM code regions after lifting: they
-/// clobber the caller-saved registers of their calling convention, as real
-/// code would, where the analysis of their empty bodies finds that they
-/// clobber none.
+fn record_image(view: &BinaryView, chip: Chip, found: &Found) {
+    let name = found
+        .path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    view.store_metadata(
+        IMAGE_METADATA,
+        name.as_str(),
+        MetadataStoreFlags::PERSISTENT,
+    );
+    tracing::info!(
+        "mapped the {} ROM v{}.{} from {}",
+        chip.display_name(),
+        found.revision / 100,
+        found.revision % 100,
+        found.path.display()
+    );
+}
+
+/// Does the view have the chip's ROM code regions, filled with zeros for
+/// want of a ROM image?
+pub fn has_zero_filled_region(view: &BinaryView, chip: Chip) -> bool {
+    if view.query_metadata(IMAGE_METADATA).is_some() {
+        return false;
+    }
+    let map = view.memory_map();
+    (0..chip.rom_code_ranges().len()).all(|i| map.get_region(&region_name(i)).is_some())
+}
+
+/// Replaces the contents of the view's ROM code regions with the ROM image
+/// `found`. The functions, symbols and types in them are kept.
+pub fn map_rom_image(view: &BinaryView, chip: Chip, found: &Found) -> bool {
+    let mut map = view.memory_map();
+    let mut ok = true;
+    for (i, (start, end)) in chip.rom_code_ranges().into_iter().enumerate() {
+        let name = region_name(i);
+        if map.get_region(&name).is_some() && !map.remove_memory_region(&name) {
+            ok = false;
+            continue;
+        }
+        let contents = DataBuffer::new(&rom_contents(
+            Some(&found.elf),
+            start,
+            (end - start) as usize,
+        ));
+        if !map.add_data_memory_region(&name, start as u64, &contents, Some(region_flags())) {
+            tracing::warn!(
+                "could not map the {} ROM at {start:#x}",
+                chip.display_name()
+            );
+            ok = false;
+        }
+    }
+    if ok {
+        record_image(view, chip, found);
+        use_image(view, chip, &found.elf);
+    }
+    ok
+}
+
+/// What a ROM image changes for the view's ROM functions, once it is
+/// mapped:
+///
+/// * The typed ROM functions' names, prototypes and purity become user
+///   data (see [`pin_rom_function`]), so that the analysis of their bodies
+///   does not change them.
+/// * The functions behind the typed ROM functions that are jump table
+///   entries (see [`RomElf::implementation`]) get the same prototype and
+///   name, pinned too: a jump table entry is a thunk, whose return value
+///   Binary Ninja takes from the function it jumps to.
+/// * The ROM's other functions get the names the ELF file's symbol table
+///   gives them, where the view has none. This only names them: analysis
+///   creates functions where code calls them, not here.
+///
+/// This runs where nothing else changes the view (the view's
+/// initialization, the ELF fix-ups, the image step), not in the analysis of
+/// each function, which runs on many threads.
+fn use_image(view: &BinaryView, chip: Chip, elf: &RomElf) {
+    let (Some(platform), Some(lib)) = (view.default_platform(), library(chip)) else {
+        return;
+    };
+    let typed: Vec<(String, Ref<Function>)> = view
+        .functions()
+        .iter()
+        .filter_map(|f| rom_function_name(view, &f).map(|name| (name, f.to_owned())))
+        .collect();
+    let mut pinned = 0;
+    for (name, func) in &typed {
+        if pin_rom_function(view, &lib, func, name, name) {
+            pinned += 1;
+        }
+        let Some((imp_name, imp)) = elf.implementation(func.start() as u32) else {
+            continue;
+        };
+        let imp = imp as u64;
+        if view
+            .function_at(&platform, imp)
+            .is_some_and(|f| f.has_user_type())
+        {
+            continue;
+        }
+        let Some(ty) = view.import_type_library_object(name.as_str(), Some(&lib)) else {
+            continue;
+        };
+        let sym = SymbolBuilder::new(SymbolType::Function, imp_name, imp).create();
+        view.define_auto_symbol_with_type(&sym, &platform, &*ty);
+        if let Some(f) = view.function_at(&platform, imp)
+            && pin_rom_function(view, &lib, &f, name, imp_name)
+        {
+            pinned += 1;
+        }
+    }
+    let mut named = 0;
+    for (name, addr) in elf.functions() {
+        let addr = *addr as u64;
+        if view.symbol_by_address(addr).is_none() {
+            let sym = SymbolBuilder::new(SymbolType::Function, name.as_str(), addr).create();
+            view.define_auto_symbol(&sym);
+            named += 1;
+        }
+    }
+    tracing::info!(
+        "pinned {pinned} typed {} ROM functions and named {named} others from the ROM image",
+        chip.display_name()
+    );
+}
+
+/// The name of the typed ROM function at the start of `func`: a ROM symbol
+/// there (an imported function, see [`apply`]) that has a prototype in the
+/// chip's ROM type library, in a ROM code region. Functions in the region
+/// that are not (the ones analysis finds in a ROM image) are ordinary code.
+pub fn rom_function_name(view: &BinaryView, func: &Function) -> Option<String> {
+    let addr = func.start();
+    if !in_rom_region(view, addr) {
+        return None;
+    }
+    let chip = Chip::from_platform_name(&func.platform().name())?;
+    let lib = library(chip)?;
+    view.symbols_in_range(addr..addr + 1)
+        .iter()
+        .filter(|s| s.address() == addr && s.sym_type() == SymbolType::ImportedFunction)
+        .map(|s| s.raw_name().to_string_lossy().into_owned())
+        .find(|name| {
+            lib.get_named_object(name.as_str().into())
+                .is_some_and(|t| t.type_class() == TypeClass::FunctionTypeClass)
+        })
+}
+
+/// Fixes up the typed ROM functions (see [`rom_function_name`]) after
+/// lifting: they clobber the caller-saved registers of their calling
+/// convention. That is the contract of an external API, which callers rely
+/// on, where the analysis of a body finds less: nothing at all in a
+/// zero-filled region, and in a ROM image possibly too little (a jump table
+/// entry's tail jump, an indirect call it cannot follow, code that does not
+/// follow the ABI internally).
 pub struct RomRecognizer;
 
 impl FunctionRecognizer for RomRecognizer {
@@ -209,11 +397,68 @@ impl FunctionRecognizer for RomRecognizer {
         func: &Function,
         _llil: &LowLevelILRegularFunction,
     ) -> bool {
-        if in_rom_region(bv, func.start()) {
+        if rom_function_name(bv, func).is_some() {
             clobber_caller_saved(func);
         }
         false
     }
+}
+
+/// Makes a typed ROM function's name, prototype, purity and return value
+/// location user data, from the ROM type library. The ROM header's
+/// prototype is what callers follow, but in a ROM image Binary Ninja's
+/// analysis of the body would otherwise change them:
+///
+/// * the jump table entries the RISC-V and ESP32-S3 ROMs export their API
+///   through only jump to the implementation, and Binary Ninja names such
+///   thunks after their target (`j_sub_40057f76`), over the ROM's name
+///   (`memset`), at every call;
+/// * it narrows parameter types (`void *` to `uint8_t *`) and changes
+///   return values through tail calls;
+/// * it infers `__pure` (wrongly, for a jump table entry whose indirect
+///   jump it cannot follow), and calls to pure functions whose result is
+///   unused vanish from HLIL.
+///
+/// `name` names the prototype; `symbol` is the function's name, and its
+/// kind is kept. Returns whether it pinned them.
+fn pin_rom_function(
+    view: &BinaryView,
+    lib: &TypeLibrary,
+    func: &Function,
+    name: &str,
+    symbol: &str,
+) -> bool {
+    let Some(ty) = view.import_type_library_object(name, Some(lib)) else {
+        return false;
+    };
+    // A type the user gave the function stays. (A database reopened from a
+    // view without a ROM image reports the library's type as a user type.)
+    if func.has_user_type() && !same_prototype(&func.function_type(), &ty) {
+        return false;
+    }
+    let kind = func.symbol().sym_type();
+    let sym = SymbolBuilder::new(kind, symbol, func.start()).create();
+    view.define_user_symbol(&sym);
+    func.set_user_type(&ty);
+    func.set_user_pure(Conf::new(ty.pure().contents, MAX_CONFIDENCE));
+    func.set_user_is_return_value_default_location(true);
+    true
+}
+
+/// Do two function types have the same return type, parameter types and
+/// variable arguments (whatever their parameters' names)?
+fn same_prototype(a: &Type, b: &Type) -> bool {
+    let signature = |t: &Type| {
+        let params: Vec<String> = t
+            .parameters()
+            .unwrap_or_default()
+            .iter()
+            .map(|p| p.ty.contents.to_string())
+            .collect();
+        let ret = t.return_value().map(|r| r.contents.to_string());
+        (ret, params, t.has_variable_arguments().contents)
+    };
+    signature(a) == signature(b)
 }
 
 fn clobber_caller_saved(func: &Function) {
@@ -335,7 +580,12 @@ pub fn apply<'a>(view: &BinaryView, chip: Chip, symbols: impl IntoIterator<Item 
     }
 
     let mut typed = 0;
-    if !functions.is_empty() && add_rom_region(view, chip) {
+    let (mapped, image) = if functions.is_empty() {
+        (false, None)
+    } else {
+        add_rom_region(view, chip)
+    };
+    if mapped {
         for (name, addr) in &functions {
             let addr = *addr as u64;
             if view.function_at(&platform, addr).is_some() {
@@ -365,6 +615,9 @@ pub fn apply<'a>(view: &BinaryView, chip: Chip, symbols: impl IntoIterator<Item 
     }
     if typed > 0 {
         tracing::info!("typed {typed} mask ROM functions and variables");
+    }
+    if let Some(found) = image {
+        use_image(view, chip, &found.elf);
     }
 }
 

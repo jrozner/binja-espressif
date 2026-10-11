@@ -6,6 +6,7 @@
 pub mod cache;
 pub mod elf;
 pub mod image;
+pub mod rom_download;
 pub mod rom_images;
 pub mod rom_symbols;
 pub mod rom_types;
@@ -710,7 +711,10 @@ pub fn register() {
     rom_types::register_recognizer();
     svd::register_settings();
     svd::register_activity();
+    rom_download::register_settings();
     elf::register_activity();
+    rom_download::register_activity();
+    rom_download::register_command();
     register_binary_view_type(view::EspViewType);
 
     if let Some(elf) = BinaryViewType::by_name("ELF") {

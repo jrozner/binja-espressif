@@ -380,8 +380,9 @@ pub fn register(arch: &'static Xtensa) -> Conventions {
 ///   such as placeholder stubs for unresolved externals: typed as `call0`,
 ///   their callers' arguments would be read from `a2..a7` instead of
 ///   `a10..a15`.
-///   Mask ROM functions in the plugin's ROM region are left alone (see
-///   [`crate::espressif::rom_types`]).
+///   The typed mask ROM functions in the plugin's ROM region are left alone
+///   (see [`crate::espressif::rom_types`]); the other functions there, in
+///   a ROM image, are code like any other.
 /// * Windowed functions clobber exactly `a8..a15` of their caller (the
 ///   registers that become the callee's `a0..a7`). The core would otherwise
 ///   derive the clobbered set from the function's own writes to `a0..a7`,
@@ -397,10 +398,10 @@ impl FunctionRecognizer for WindowRecognizer {
         func: &Function,
         _llil: &LowLevelILRegularFunction,
     ) -> bool {
-        // Mask ROM functions are typed from the ROM type library, in a
-        // region that holds no real code (no `entry`): their type says
-        // how to call them.
-        if crate::espressif::rom_types::in_rom_region(bv, func.start()) {
+        // Mask ROM functions are typed from the ROM type library: their
+        // type says how to call them. Their region holds zeros, or a ROM
+        // image whose jump table entries have no `entry` either.
+        if crate::espressif::rom_types::rom_function_name(bv, func).is_some() {
             return false;
         }
         // A function in the last two bytes of a segment (a `ret.n` stub,
