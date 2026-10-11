@@ -9,18 +9,11 @@ pub mod rom_symbols;
 pub mod svd;
 pub mod view;
 
-use std::ffi::CString;
-
 use binaryninja::Endianness;
 use binaryninja::architecture::{ArchitectureExt, CoreArchitecture};
 use binaryninja::binary_view::{BinaryView, BinaryViewType, register_binary_view_type};
 use binaryninja::platform::Platform;
 use binaryninja::rc::Ref;
-use binaryninjacore_sys::{
-    BNFreeCallingConvention, BNFreePlatform, BNGetArchitectureByName,
-    BNGetArchitectureCallingConventionByName, BNGetPlatformByName,
-    BNRegisterPlatformCallingConvention,
-};
 
 use crate::espressif::image::{Region, RegionKind};
 use crate::riscv;
@@ -543,7 +536,7 @@ fn register_platforms() {
         let platform = Platform::new(&arch, chip.platform_name());
         platform.register_os(PLATFORM_OS);
         for cc in arch.calling_conventions().iter() {
-            add_calling_convention(chip.platform_name(), chip.arch_name(), &cc.name());
+            platform.register_calling_convention(&cc);
         }
         let default = match chip.cpu().default_calling_convention() {
             Some(name) => arch.calling_convention_by_name(name),
@@ -554,31 +547,6 @@ fn register_platforms() {
         if let Some(cc) = default {
             platform.set_default_calling_convention(&cc);
         }
-    }
-}
-
-/// Adds an architecture's calling convention to a platform, so that types
-/// can name it. The Rust API has no wrapper for this, and does not expose
-/// the platform and calling convention handles, so the core is called with
-/// handles looked up by name.
-fn add_calling_convention(platform: &str, arch: &str, cc: &str) {
-    let (platform, arch, cc) = (
-        CString::new(platform).unwrap(),
-        CString::new(arch).unwrap(),
-        CString::new(cc).unwrap(),
-    );
-    unsafe {
-        let platform = BNGetPlatformByName(platform.as_ptr());
-        let arch = BNGetArchitectureByName(arch.as_ptr());
-        if platform.is_null() || arch.is_null() {
-            return;
-        }
-        let cc = BNGetArchitectureCallingConventionByName(arch, cc.as_ptr());
-        if !cc.is_null() {
-            BNRegisterPlatformCallingConvention(platform, cc);
-            BNFreeCallingConvention(cc);
-        }
-        BNFreePlatform(platform);
     }
 }
 
