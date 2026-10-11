@@ -998,6 +998,13 @@ for label, bv in [("ELF", bn.load(call0_elf)), ("image", load_bytes(elf_to_image
     check(t is not None and f"{names['pair']}({t}, 5)" in text, f"{label}: start passes the result of twice to pair")
     check(t is not None and f"{names['op']}(4, 5, 6) + {t}" in text,
           f"{label}: a callx0 through a pointer takes call0 arguments, returns in a2 and keeps a12")
+    if label == "ELF":
+        # A call through a typed function pointer takes the pointer's type,
+        # which the core applies itself: an int64_t result in a2/a3.
+        ty = bv.parse_type_string('int64_t (__convention("call0") *op)(int32_t, int32_t, int32_t)')[0]
+        bv.define_user_data_var(call0_symbols["op"], ty, "op")
+        bv.update_analysis_and_wait()
+        check("op(4, 5, 6).d + " in hlil_text(start), "ELF: a callx0 through a typed pointer follows its type")
 
 print("Patching:")
 

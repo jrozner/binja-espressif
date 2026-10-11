@@ -462,7 +462,9 @@ fn default_to_call0(bv: &BinaryView, func: &Function, call0: &CoreCallingConvent
 ///   convention the core takes per call, so these get the callee's type,
 ///   or, for an unknown target, a variadic `call0` type whose arguments are
 ///   the argument registers the caller sets. Call sites typed by the user
-///   are left alone.
+///   are left alone, and so are calls through a typed function pointer: the
+///   core types those from the pointer itself, at full confidence, on every
+///   analysis, so the pointer's type needs `__convention("call0")`.
 pub struct WindowRecognizer {
     pub call0: Ref<CoreCallingConvention>,
 }
