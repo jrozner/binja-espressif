@@ -17,7 +17,7 @@ use binaryninjacore_sys::{
 };
 
 use crate::espressif::image::{self, Firmware, RegionKind, Segment};
-use crate::espressif::{Chip, rom_types};
+use crate::espressif::{Chip, rom_download, rom_types};
 
 /// The load setting that selects the image of a flash dump to load: an app
 /// partition's label, [`BOOTLOADER`], or empty for the default.
@@ -411,6 +411,7 @@ impl EspView {
             };
             view.define_auto_symbol(&SymbolBuilder::new(kind, name, addr as u64).create());
         }
+        rom_download::record_min_revision(view, min_rev);
         rom_types::apply(view, chip, chip.rom_symbols_for_revision(min_rev).copied());
     }
 

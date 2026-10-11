@@ -382,8 +382,10 @@ pub fn register(arch: &'static Xtensa) -> Conventions {
 /// sticks. That matters for code that has no `entry` but is called with
 /// `call4`/`call8`/`call12`, such as placeholder stubs for unresolved
 /// externals: typed as `call0`, their callers' arguments would be read from
-/// `a2..a7` instead of `a10..a15`. Mask ROM functions in the plugin's ROM
-/// region are left alone too (see [`crate::espressif::rom_types`]).
+/// `a2..a7` instead of `a10..a15`. The typed mask ROM functions in the
+/// plugin's ROM region are left alone too (see
+/// [`crate::espressif::rom_types`]); the other functions there, in a ROM
+/// image, are code like any other.
 ///
 /// It runs in every analysis of a function, right after lifting: a full
 /// update resets the convention to the platform's default (`windowed`), and
@@ -426,7 +428,7 @@ pub fn register_call0_step() {
 }
 
 fn default_to_call0(bv: &BinaryView, func: &Function, call0: &CoreCallingConvention) {
-    if func.has_user_type() || crate::espressif::rom_types::in_rom_region(bv, func.start()) {
+    if func.has_user_type() || crate::espressif::rom_types::rom_function_name(bv, func).is_some() {
         return;
     }
     // A function in the last two bytes of a segment (a `ret.n` stub, say)
@@ -475,9 +477,10 @@ impl FunctionRecognizer for WindowRecognizer {
         func: &Function,
         llil: &LowLevelILRegularFunction,
     ) -> bool {
-        // Mask ROM functions are typed from the ROM type library, in a
-        // region that holds no real code.
-        if crate::espressif::rom_types::in_rom_region(bv, func.start()) {
+        // Mask ROM functions are typed from the ROM type library: their
+        // type says how to call them. Their region holds zeros, or a ROM
+        // image whose jump table entries have no `entry` either.
+        if crate::espressif::rom_types::rom_function_name(bv, func).is_some() {
             return false;
         }
         self.type_call0_sites(bv, func, llil);
