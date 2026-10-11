@@ -28,7 +28,7 @@ use std::collections::{HashMap, HashSet};
 use binaryninja::architecture::{
     Architecture, ArchitectureExt, CoreArchitecture, CoreRegister, Register as _, RegisterId,
 };
-use binaryninja::binary_view::{BinaryView, BinaryViewBase};
+use binaryninja::binary_view::BinaryView;
 use binaryninja::calling_convention::CallingConvention;
 use binaryninja::confidence::MAX_CONFIDENCE;
 use binaryninja::data_buffer::DataBuffer;
@@ -161,10 +161,13 @@ pub fn add_rom_region(view: &BinaryView, chip: Chip) -> bool {
         if map.get_region(&name).is_some() {
             continue;
         }
-        if view.offset_valid(start as u64) {
-            // Something else maps the ROM (a ROM dump the user loaded, say).
+        let range = start as u64..end as u64;
+        let overlaps = |r: std::ops::Range<u64>| r.start < range.end && range.start < r.end;
+        if view.segments().iter().any(|s| overlaps(s.address_range())) {
+            // Something else maps (some of) the ROM: a ROM dump, say. Zeros
+            // must not hide it.
             tracing::info!(
-                "the {} ROM at {start:#x} is already mapped",
+                "the {} ROM at {start:#x}..{end:#x} is already mapped in part",
                 chip.display_name()
             );
             mapped = false;

@@ -789,6 +789,15 @@ for min_rev, present in ((0, False), (300, True)):
     f = bv.get_function_at(0x4000f8d4)  # ets_use_secure_boot_v2
     check((f is not None and f.name == "ets_use_secure_boot_v2" and str(f.return_type) == "bool") == present,
           f"ESP32 v{min_rev // 100}.{min_rev % 100} image: ets_use_secure_boot_v2 {'typed' if present else 'absent'}")
+# ROM contents the image maps itself (here a segment inside the ESP32's ROM)
+# are not hidden by a ROM region of zeros.
+rom_code = bytes.fromhex("3641001df0000000")  # entry a1, 32; retw.n
+img = struct.pack("<BBBBI", 0xE9, 2, 2, 0, 0x40080000) + bytes(16)
+for addr in (0x40080000, 0x40001000):
+    img += struct.pack("<II", addr, len(rom_code)) + rom_code
+bv = load_bytes(img, ".bin")
+check(bv.view_type == "ESP" and not rom_regions(bv) and bv.read(0x40001000, 8) == rom_code,
+      "an image mapping part of the ROM gets no ROM region over it")
 # The ESP8266 has no ROM types, and so no ROM region.
 bv = bn.load(os.path.join(DATA, "esp8266.elf"))
 check(not rom_regions(bv), "esp8266.elf: no ROM code region")
