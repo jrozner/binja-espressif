@@ -4,6 +4,7 @@
 
 pub mod arch;
 pub mod cc;
+pub mod encode;
 pub mod exemplars;
 pub mod flags;
 pub mod intrinsics;
@@ -11,12 +12,14 @@ pub mod lift;
 pub mod loops;
 pub mod patch;
 pub mod registers;
+pub mod reloc;
 pub mod tokens;
 
 use binaryninja::architecture::{ArchitectureExt, register_architecture};
 use xtensa_isa::{Features, Isa};
 
 use crate::xtensa::arch::Xtensa;
+use crate::xtensa::reloc::XtensaElfRelocationHandler;
 
 /// A supported core configuration. Espressif's Xtensa cores are each
 /// configured differently, so each gets its own architecture.
@@ -78,14 +81,18 @@ impl Core {
     }
 }
 
-/// Registers an architecture, its calling conventions and (on the windowed
-/// cores) the call0 function recognizer for every core.
+/// Registers an architecture, its calling conventions, its ELF relocation
+/// handler and (on the windowed cores) the call0 function recognizer for
+/// every core.
 pub fn register() {
     for core in Core::ALL {
         let arch = register_architecture(core.arch_name(), move |custom_handle, handle| {
             Xtensa::new(core, handle, custom_handle)
         });
         let conventions = cc::register(arch);
+        arch.register_relocation_handler("ELF", move |custom_handle, handle| {
+            XtensaElfRelocationHandler::new(core.isa(), custom_handle, handle)
+        });
         if core.windowed() {
             arch.register_function_recognizer(cc::WindowRecognizer {
                 call0: conventions.call0,

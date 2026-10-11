@@ -121,6 +121,29 @@ It provides:
   the bundled ROM table for names it lacks (the symbols of every chip
   revision only, as an ELF does not say which revision it needs); and the
   RISC-V global pointer is taken from `__global_pointer$`.
+- **Relocatable objects**: `.o` files, and the members of static libraries
+  such as ESP-IDF's binary Wi-Fi, PHY and Bluetooth libraries
+  (`libnet80211.a`, `libphy.a`, `libbtdm_app.a`), load with their
+  relocations applied by an ELF relocation handler on each Xtensa
+  architecture: `R_XTENSA_32` (literal pools and data pointers, adding to
+  the part of the addend the assembler leaves in the word),
+  `R_XTENSA_32_PCREL`, and `R_XTENSA_SLOT0_OP` on `l32r`, the calls, `j`,
+  the conditional branches (`beqz.n`/`bnez.n` included), the
+  zero-overhead loops and `movi`. Every re-encoded instruction is decoded
+  to check it; one that cannot reach its target (out of range, misaligned,
+  or an `l32r` whose literal lies after it) is left as assembled and a
+  warning is logged. The linker's relaxation hints (`ASM_EXPAND`,
+  `ASM_SIMPLIFY`) and label differences (`DIFF`, `PDIFF`, `NDIFF`, already
+  stored by the assembler) need nothing. Binary Ninja places an object's
+  sections one after another from 0x10000, in section header order, and
+  GNU as puts the literal sections first, so `l32r` reaches its literals;
+  undefined symbols become external symbols. An object has no addresses to
+  tell the chips apart by, so call0 objects (`ABI=1` in their
+  `.xtensa.info`) open as `esp8266` and windowed ones as `esp32`: set
+  `loader.platform` for ESP32-S2 or ESP32-S3 code. `bn.load` does not open
+  a `.a` archive; Binary Ninja's `AR` container transform lists its
+  members (headless, through `binaryninja.transform.TransformSession`, as
+  in `tests/test_headless.py`), or extract them with `ar x`.
 
 Assembling is not supported on the Xtensa architectures.
 
@@ -131,6 +154,13 @@ Not supported for now:
   in two incompatible versions for chip revisions before and from v3.0, and
   the hardware loops) are not decoded; Binary Ninja's `rv32gc` treats them
   as invalid instructions.
+- **Other relocations.** The dynamic and TLS relocations (Espressif
+  firmware is linked statically), the FLIX slot relocations
+  (`R_XTENSA_SLOTn_OP`/`ALT` for slots 1 and up, and `SLOT0_ALT`) and
+  `const16` operands are not applied; Espressif's cores have neither FLIX
+  nor `const16`. Binary Ninja's DWARF import rejects the Xtensa relocations
+  of an object's debug sections, so objects built with `-g` load without
+  their debug information.
 - **Zcb/Zcmp on the ESP32-C5.** ESP-IDF only emits them with
   `CONFIG_COMPILER_ENABLE_RISCV_ZCMP` (off by default). `rv32gc` decodes
   `cm.push`/`cm.pop` as `fsd` and does not decode the Zcb instructions, so
@@ -162,7 +192,7 @@ Ninja build.
 ## Testing
 
 ```sh
-cargo test --lib --no-default-features    # image formats, partitions, loops, intrinsics, patching
+cargo test --lib --no-default-features    # image formats, partitions, loops, intrinsics, patching, relocations
 cargo test --release --test lift_sweep    # lifts ~1.5M encodings through the real core
 cargo build --release && tests/test_headless.py
 ```
@@ -176,7 +206,13 @@ and checks ELF loading, chip detection, calling conventions, call-site
 arguments, loop recovery, lifting semantics, patching, and the ESP view
 (including partition selection and malformed images) on images and flash
 dumps synthesized from `tests/data/*.elf`. Those ELFs are built from
-`tests/data/corpus.c` by `scripts/build_test_elfs.sh` with Espressif's GCC.
+`tests/data/corpus.c` by `scripts/build_test_elfs.sh` with Espressif's GCC,
+which also builds the relocatable objects in `tests/data/obj` (with and
+without `-mlongcalls`, ESP-IDF style with `-ffunction-sections`, and
+`tests/data/reloc_edge.S`, whose relocations cannot all be applied) and
+lists their relocations with objdump: the test checks every
+`R_XTENSA_SLOT0_OP` and `R_XTENSA_32` Binary Ninja applies against that
+listing.
 
 ## License
 

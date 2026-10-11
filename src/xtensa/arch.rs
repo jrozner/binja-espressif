@@ -60,7 +60,7 @@ impl Xtensa {
 
 /// Runs an architecture callback, turning a panic into `None`: a bug must
 /// not take the whole process down (a panic cannot unwind into the core).
-fn guard<T>(what: &str, addr: u64, f: impl FnOnce() -> Option<T>) -> Option<T> {
+pub(crate) fn guard<T>(what: &str, addr: u64, f: impl FnOnce() -> Option<T>) -> Option<T> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|_| {
         tracing::error!("{what} panicked at {addr:#x}");
         None

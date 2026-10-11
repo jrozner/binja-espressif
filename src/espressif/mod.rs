@@ -364,7 +364,14 @@ struct ElfProgram {
     entry_code: Option<Vec<u8>>,
     /// The names and values of the `ABS` symbols in the symbol table.
     abs_symbols: Vec<(String, u32)>,
+    /// The `ABI=` of an Xtensa file's `.xtensa.info` note, which the
+    /// toolchain writes in every object: 0 for the windowed ABI, 1 for
+    /// call0.
+    xtensa_abi: Option<u32>,
 }
+
+/// `.xtensa.info`'s `ABI=` value for the call0 ABI.
+const XTENSA_ABI_CALL0: u32 = 1;
 
 /// Limits on what is read from a (possibly malformed) ELF file.
 const MAX_SEGMENTS: usize = 64;
@@ -396,6 +403,8 @@ fn read_elf_program(view: &BinaryView) -> Option<ElfProgram> {
         segments: Vec::new(),
         entry_code: None,
         abs_symbols: read_abs_symbols(view, &header),
+        xtensa_abi: read_section(view, &header, ".xtensa.info")
+            .and_then(|note| xtensa_info_abi(&note)),
     };
     for i in 0..phnum.min(MAX_SEGMENTS) {
         let ph = view.read_vec(phoff + (i * phentsize) as u64, 32);
@@ -469,6 +478,46 @@ fn read_abs_symbols(view: &BinaryView, header: &[u8]) -> Vec<(String, u32)> {
         .collect()
 }
 
+/// The contents of the section named `name`, if the file has one (and it
+/// is no more than 64 KiB).
+fn read_section(view: &BinaryView, header: &[u8], name: &str) -> Option<Vec<u8>> {
+    const MAX_SIZE: usize = 64 << 10;
+    let (shoff, shentsize, shnum, shstrndx) = (
+        u32_at(header, 0x20) as u64,
+        u16_at(header, 0x2e),
+        u16_at(header, 0x30),
+        u16_at(header, 0x32),
+    );
+    if shoff == 0 || shentsize < 40 || shnum > MAX_SECTIONS || shstrndx >= shnum {
+        return None;
+    }
+    let section = |i: usize| {
+        let sh = view.read_vec(shoff + (i * shentsize) as u64, 40);
+        (sh.len() == 40).then_some(sh)
+    };
+    let strtab = section(shstrndx)?;
+    let (str_offset, str_size) = (u32_at(&strtab, 16) as u64, u32_at(&strtab, 20) as usize);
+    if str_size > MAX_STRTAB {
+        return None;
+    }
+    let names = view.read_vec(str_offset, str_size);
+    let sh = (0..shnum).filter_map(section).find(|sh| {
+        names
+            .get(u32_at(sh, 0) as usize..)
+            .is_some_and(|n| n.starts_with(name.as_bytes()) && n.get(name.len()) == Some(&0))
+    })?;
+    let (offset, size) = (u32_at(&sh, 16) as u64, u32_at(&sh, 20) as usize);
+    (size <= MAX_SIZE).then(|| view.read_vec(offset, size))
+}
+
+/// The `ABI=` value in the contents of an `.xtensa.info` note (whose
+/// description is lines such as `USE_ABSOLUTE_LITERALS=0` and `ABI=0`).
+fn xtensa_info_abi(note: &[u8]) -> Option<u32> {
+    note.split(|&c| c == b'\n' || c == 0)
+        .find_map(|line| line.strip_prefix(b"ABI="))
+        .and_then(|value| std::str::from_utf8(value).ok()?.trim().parse().ok())
+}
+
 /// `EF_RISCV_FLOAT_ABI`: the float ABI bits of a RISC-V ELF's `e_flags`;
 /// zero for the soft-float ABI that all supported Espressif chips use.
 const EF_RISCV_FLOAT_ABI: u32 = 0x6;
@@ -500,6 +549,22 @@ fn recognize_elf(view: &BinaryView, family: Family) -> Option<Ref<Platform>> {
     if !is_espressif_elf(family, &program) {
         tracing::debug!("{} ELF is not Espressif firmware", family.name());
         return None;
+    }
+    if family == Family::Xtensa && program.segments.is_empty() {
+        // A relocatable object (or a static library's member) has no
+        // addresses to tell the chips apart by. Its ABI tells call0 code,
+        // which only the ESP8266 runs, from the windowed code of the other
+        // cores, which are taken for the most common, the ESP32.
+        let chip = if program.xtensa_abi == Some(XTENSA_ABI_CALL0) {
+            Chip::Esp8266
+        } else {
+            Chip::Esp32
+        };
+        tracing::info!(
+            "Xtensa ELF without segments (an object?) taken for {} code",
+            chip.display_name()
+        );
+        return Platform::by_name(chip.platform_name());
     }
     let hint = program
         .entry_code
@@ -614,6 +679,18 @@ mod tests {
         // The Xtensa chips go by region.
         assert!(!Chip::Esp32.is_rom_function(rom_symbol(Chip::Esp32, "_ctype_")));
         assert!(!Chip::Esp32S2.is_rom_function(rom_symbol(Chip::Esp32S2, "_ctype_")));
+    }
+
+    #[test]
+    fn xtensa_info() {
+        // The .xtensa.info note of an object built for the ESP8266.
+        let note = b"\x0c\0\0\0\x20\0\0\0\x01\0\0\0Xtensa_Info\0\
+            USE_ABSOLUTE_LITERALS=0\nABI=1\n\0\0";
+        assert_eq!(xtensa_info_abi(note), Some(XTENSA_ABI_CALL0));
+        assert_eq!(xtensa_info_abi(b"ABI=0\n"), Some(0));
+        assert_eq!(xtensa_info_abi(b"USE_ABSOLUTE_LITERALS=0\n"), None);
+        assert_eq!(xtensa_info_abi(b"ABI=x\n"), None);
+        assert_eq!(xtensa_info_abi(b""), None);
     }
 
     #[test]

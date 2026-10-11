@@ -5,19 +5,16 @@
 //!
 //! Every patch is checked by decoding the patched bytes before they are
 //! written, so an encoding mistake makes the patch fail rather than produce
-//! the wrong instruction.
+//! the wrong instruction (see `crate::xtensa::encode`).
 
 use xtensa_isa::{ControlFlow, Features, Instruction, Isa, Opcode, Operand};
+
+use crate::xtensa::encode::{self, MOVI, verified, write};
 
 /// `nop` (RRR: op0 = 0, op1 = 0, op2 = 0, r = 2, s = 0, t = 0xf).
 pub const NOP: [u8; 3] = [0xf0, 0x20, 0x00];
 /// `nop.n` (RRRN: op0 = 0xd, r = 0xf, s = 0, t = 3).
 pub const NOP_N: [u8; 2] = [0x3d, 0xf0];
-
-/// The range of `movi`'s 12-bit signed immediate.
-const MOVI_RANGE: std::ops::RangeInclusive<i32> = -2048..=2047;
-/// The range of `j`'s 18-bit signed offset.
-const J_RANGE: std::ops::RangeInclusive<i32> = -(1 << 17)..=(1 << 17) - 1;
 
 /// The condition with the opposite sense, and the bit of the instruction
 /// word that selects between the two.
@@ -58,7 +55,7 @@ fn inverse(op: Opcode) -> Option<(Opcode, u32)> {
 }
 
 fn decode(isa: &Isa, data: &[u8], addr: u64) -> Option<Instruction> {
-    isa.decode(data, addr as u32).ok()
+    encode::decode(isa, data, addr as u32)
 }
 
 /// The conditional branch at the start of `data` and its target. Loop
@@ -68,30 +65,6 @@ fn branch(isa: &Isa, data: &[u8], addr: u64) -> Option<(Instruction, u32)> {
     match insn.control_flow() {
         ControlFlow::Branch { target } if inverse(insn.opcode()).is_some() => Some((insn, target)),
         _ => None,
-    }
-}
-
-/// The instruction word `word`, `len` bytes long, if it decodes at `addr` to
-/// an instruction satisfying `check`.
-fn verified(
-    isa: &Isa,
-    word: u32,
-    len: usize,
-    addr: u64,
-    check: impl FnOnce(&Instruction) -> bool,
-) -> Option<Vec<u8>> {
-    let bytes = word.to_le_bytes()[..len].to_vec();
-    let insn = decode(isa, &bytes, addr)?;
-    (insn.len() == len && check(&insn)).then_some(bytes)
-}
-
-fn write(data: &mut [u8], bytes: Option<Vec<u8>>) -> bool {
-    match bytes {
-        Some(bytes) if data.len() >= bytes.len() => {
-            data[..bytes.len()].copy_from_slice(&bytes);
-            true
-        }
-        _ => false,
     }
 }
 
@@ -115,7 +88,7 @@ pub fn invert_branch(isa: &Isa, data: &mut [u8], addr: u64) -> bool {
     let Some((inverse, bit)) = inverse(insn.opcode()) else {
         return false;
     };
-    let patched = verified(isa, insn.raw() ^ bit, insn.len(), addr, |new| {
+    let patched = verified(isa, insn.raw() ^ bit, insn.len(), addr as u32, |new| {
         new.opcode() == inverse
             && new.control_flow() == (ControlFlow::Branch { target })
             && operands_kept(&insn, new)
@@ -142,16 +115,7 @@ pub fn always_branch(isa: &Isa, data: &mut [u8], addr: u64) -> bool {
     if insn.len() != 3 {
         return false;
     }
-    // j (CALL format: op0 = 6, n = 0): target = pc + 4 + offset18.
-    let offset = target.wrapping_sub((addr as u32).wrapping_add(4)) as i32;
-    if !J_RANGE.contains(&offset) {
-        return false;
-    }
-    let word = ((offset as u32) & 0x3_ffff) << 6 | 0x6;
-    let patched = verified(isa, word, 3, addr, |new| {
-        new.opcode() == Opcode::J && new.control_flow() == (ControlFlow::Jump { target })
-    });
-    write(data, patched)
+    write(data, encode::jump(isa, addr as u32, target))
 }
 
 /// Fills `data` with `nop` and `nop.n`. Any length from 2 bytes works with
@@ -202,13 +166,15 @@ pub fn skip_and_return_value(isa: &Isa, data: &mut [u8], addr: u64, value: u64) 
     let Ok(value) = i32::try_from(value as i64).or(u32::try_from(value).map(|v| v as i32)) else {
         return false;
     };
-    if insn.len() != 3 || !MOVI_RANGE.contains(&value) {
+    if insn.len() != 3 || !MOVI.contains(&value) {
         return false;
     }
     // movi at, imm12 (RRI8: op0 = 2, r = 0xa, s = imm12[11:8], imm8 = imm12[7:0]).
-    let imm = value as u32 & 0xfff;
-    let word = (imm & 0xff) << 16 | 0xa << 12 | (imm >> 8) << 8 | reg << 4 | 0x2;
-    let patched = verified(isa, word, 3, addr, |new| {
+    let Ok(word) = encode::set_field(Opcode::Movi, 0xa << 12 | reg << 4 | 0x2, 0, value as u32)
+    else {
+        return false;
+    };
+    let patched = verified(isa, word, 3, addr as u32, |new| {
         new.opcode() == Opcode::Movi
             && new.operands() == [Operand::Ar(reg as u8), Operand::Imm(value)]
     });
