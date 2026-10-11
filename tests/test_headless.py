@@ -808,10 +808,11 @@ check_gp_set_once(image, elf_symbols(elf)["__global_pointer$"], "esp32c3 image")
 print("RISC-V ELF files:")
 
 
-def riscv_elf(vaddr, flags=0x1, abs_symbols=(), memsz=None):
+def riscv_elf(vaddr, flags=0x1, abs_symbols=(), memsz=None, machine=243):
     """A minimal executable RV32 ELF: `li a0, 1; ret` loaded at `vaddr`,
     with `e_flags` = `flags` (0x1 = RVC, soft-float) and a symbol table of
-    `ABS` symbols. `memsz` makes the segment that much bigger in memory."""
+    `ABS` symbols. `memsz` makes the segment that much bigger in memory.
+    `machine` = 94 makes it an Xtensa file, with the same bytes."""
     code = struct.pack("<II", 0x00100513, 0x00008067)
     strtab = b"\0"
     syms = bytes(16)
@@ -825,7 +826,7 @@ def riscv_elf(vaddr, flags=0x1, abs_symbols=(), memsz=None):
     shstrtab_off = strtab_off + len(strtab)
     shoff = (shstrtab_off + len(shstrtab) + 3) & ~3
     header = b"\x7fELF\x01\x01\x01" + bytes(9) + struct.pack(
-        "<HHIIIIIHHHHHH", 2, 243, 1, vaddr, 52, shoff, flags, 52, 32, 1, 40, 5, 4)
+        "<HHIIIIIHHHHHH", 2, machine, 1, vaddr, 52, shoff, flags, 52, 32, 1, 40, 5, 4)
     phdr = struct.pack("<IIIIIIII", 1, text_off, vaddr, vaddr, len(code), memsz or len(code), 5, 4)
     sections = bytes(40) + b"".join(struct.pack("<IIIIIIIIII", *s) for s in [
         (1, 1, 6, vaddr, text_off, len(code), 0, 0, 4, 0),
@@ -1105,6 +1106,20 @@ check(sym is not None and sym.address == 0x3FCDF3CC and sym.type == bn.SymbolTyp
       f"C2 ELF: revision-specific ROM data it names is defined ({sym})")
 check(bv.get_symbol_by_raw_name("AES_FSb_ptr") is None,
       "C2 ELF: revision-specific ROM symbols it lacks are not defined")
+bv.file.close()
+# ROM data that the ROM tables lack but the ELF names is defined where the
+# ESP32-S3 sees its ROM on the data bus (0x3FF00000..0x3FF20000): _ctype_ is
+# in the S3 ROM's .rodata. Past the end of that range is not ROM.
+s3_rom = [("_ctype_", 0x3FF191FC), ("not_rom", 0x3FF20000)]
+path = os.path.join(user_dir, "s3_rom_data.elf")
+with open(path, "wb") as f:
+    f.write(riscv_elf(0x42000020, flags=0x300, abs_symbols=s3_rom, machine=94))
+bv = bn.load(path)
+check(bv.platform.name == "esp32s3", f"an Xtensa ELF in the S3's flash is ESP32-S3 code ({bv.platform})")
+sym = bv.get_symbol_by_raw_name("_ctype_")
+check(sym is not None and sym.address == 0x3FF191FC and sym.type == bn.SymbolType.DataSymbol,
+      f"S3 ELF: ROM data on the data bus that it names is defined ({sym})")
+check(bv.get_symbol_by_raw_name("not_rom") is None, "S3 ELF: past the ROM's data bus range is not ROM")
 bv.file.close()
 
 print("Malformed and unusual images:")
