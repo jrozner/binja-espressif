@@ -3,8 +3,9 @@
 A Binary Ninja architecture plugin for the Xtensa cores in Espressif's
 **ESP8266**, **ESP32**, **ESP32-S2** and **ESP32-S3**, written in Rust against
 the [binaryninja-api](https://github.com/Vector35/binaryninja-api): `main`
-builds against its `dev` branch, releases against the latest stable release
-(6.0).
+and releases build against its `dev` branch, for the Binary Ninja dev
+channel. The code also builds against the latest stable release (6.0), and
+release builds for stable will follow later.
 Decoding is done by the [`xtensa`](xtensa/) disassembler crate in `xtensa/`,
 which is verified against GNU objdump.
 
@@ -318,10 +319,13 @@ installs is a small Python loader (`__init__.py` and
 the matching GitHub release into your
 [user plugin folder](https://docs.binary.ninja/guide/index.html#user-folder).
 Prebuilt libraries exist for Linux x86_64, Windows x86_64 and macOS
-(universal), built for the core ABI of the stable Binary Ninja named in
-`scripts/use_stable_api.sh`. For any other platform, or a dev build of
-Binary Ninja whose core ABI differs, the loader logs what is available and
-does nothing; [build from source](#building-from-source) instead.
+(universal). For now they are built for the core ABI of the Binary Ninja
+**dev** channel at release time (the binaryninja-api revision pinned in
+`Cargo.toml`), so they need a dev build of Binary Ninja; stable is not
+supported yet. For any other platform, or a Binary Ninja whose core ABI
+range doesn't include the release's (such as stable, or a much newer dev
+build), the loader logs what is available and does nothing;
+[build from source](#building-from-source) instead.
 
 1. Install **Espressif Xtensa** in the extension manager.
 2. Nothing is downloaded without your consent:
@@ -386,10 +390,10 @@ it was built against (`BN_MINIMUM_CORE_ABI_VERSION` to
 `BN_CURRENT_CORE_ABI_VERSION` in `binaryninjacore.h`): a build for a 6.0
 stable core (ABI 187) is refused by a 6.1 dev core (ABI 188-189), and the
 other way round. `Cargo.toml` on `main` pins a `dev` revision of the API, so
-a plain `cargo build` is for a dev Binary Ninja. Releases are built against
-the stable tag named in `scripts/use_stable_api.sh`, which rewrites both pins
-in `Cargo.toml` to that tag and updates `Cargo.lock`; run it (and don't
-commit the result) to build for a stable Binary Ninja:
+a plain `cargo build` (like a release build) is for a dev Binary Ninja.
+`scripts/use_stable_api.sh` rewrites both pins in `Cargo.toml` to the
+stable tag it names and updates `Cargo.lock`; run it (and don't commit the
+result) to build for a stable Binary Ninja:
 
 ```sh
 scripts/use_stable_api.sh
@@ -444,17 +448,32 @@ by `.github/workflows/release.yml` (manual only) in two runs:
 
 1. **Build.** Run the Release workflow on `main` (or another branch) with
    mode `build`, and optionally the version being released (default:
-   `plugin.json`'s):
+   `plugin.json`'s) and the API to build against:
 
    ```sh
    gh workflow run release.yml --ref main -f mode=build -f version=0.2.0
    ```
 
-   It builds the dispatched commit for Linux, Windows and macOS against the
-   stable API, uploads the libraries as artifacts of the run (kept 90 days),
-   and generates the loader's manifest: the version, the build commit, the
-   run ID, and each library's name, core ABI, size and SHA-256. The run
-   summary shows it, and the `manifest` artifact holds it.
+   The `api` input is `dev` by default: the binaryninja-api revision pinned
+   in `Cargo.toml`, for the Binary Ninja dev channel. `-f api=stable` builds
+   against the stable release named in `scripts/use_stable_api.sh` instead;
+   releases will move to (or add) stable later. Either way, set
+   `plugin.json`'s `minimumbinaryninjaversion` in the build commit to the
+   oldest Binary Ninja build the libraries load in (the extension manager
+   hides the plugin from older ones): currently 10874, the dev build whose
+   core ABI (189, accepting 188-189) matches the pinned revision. A stable
+   build needs it back at the stable build number (10601 for 6.0).
+
+   It builds the dispatched commit for Linux, Windows and macOS, uploads
+   the libraries as artifacts of the run (kept 90 days), and generates the
+   loader's manifest: the version, the build commit, the run ID, the API
+   built against (`build.api` and `build.api_source`, for the record), and
+   each library's name, core ABI, size and SHA-256. The run summary shows
+   it and each platform's core ABI, and the `manifest` artifact holds it.
+   Each library's name carries its core ABI
+   (`binja_xtensa-abi189-windows-x86_64.dll`), and the loader picks the one
+   the running core accepts, so the publish run doesn't need to know the
+   API.
 2. **Commit and tag.** On top of the build commit, save the manifest as
    `binja_xtensa_loader/manifest.json`, set `plugin.json`'s `version` to
    the release version if it isn't already, and change nothing else.
@@ -479,6 +498,161 @@ by `.github/workflows/release.yml` (manual only) in two runs:
 releases, `main`'s manifest stays that of the last release; if
 `plugin.json`'s version moves ahead of it, the loader of a checkout of
 `main` refuses to install anything, as it isn't a release.
+
+**Pre-releases.** A version with a pre-release suffix, such as
+`0.2.0-rc.1` (tag `v0.2.0-rc.1`), goes through the same steps, and its
+publish run needs the `prerelease` input (`-f prerelease=true`); a final
+version's must not have it. The release is then a GitHub pre-release and
+is not marked latest. That matters beyond testing: extensions.binary.ninja
+reads `plugin.json` at the latest release, skips a version it already has,
+and ignores a pre-release suffix when comparing versions, so an rc it
+picked up could make it skip the final release of the same version.
+
+To release exactly the libraries a pre-release was tested with, reuse its
+build run: on top of the same build commit, commit its manifest with only
+`version` changed (say to `0.2.0`) and `plugin.json`'s version to match,
+tag that `v0.2.0` and publish it without `prerelease` (within the 90 days
+the run's artifacts are kept).
+
+## Testing a release privately
+
+Before the plugin is listed on extensions.binary.ninja, a release can be
+installed through the extension manager from a repository of your own.
+Release libraries are built for the core ABI of the Binary Ninja dev
+channel, so test with a **dev** Binary Ninja whose core accepts the
+release's ABI: 189 at the pinned revision, which dev builds from 10874
+accept (their core accepts ABI 188-189). A newer dev build may have moved
+on: if its minimum core ABI is above the release's, the loader logs that no
+prebuilt library matches (listing the platforms and ABIs the release has)
+and installs nothing. Then update the `rev` pins in `Cargo.toml` to the
+binaryninja-api revision of that build (`api_REVISION.txt` in the Binary
+Ninja install), set `minimumbinaryninjaversion` to match, and cut a new rc.
+A stable Binary Ninja finds no library to install.
+
+1. **Cut a pre-release** (see [Releasing](#releasing)):
+
+   ```sh
+   gh workflow run release.yml --ref main -f mode=build -f version=0.1.0-rc.1 -f api=dev
+   ```
+
+   (`api=dev` is the default.) On top of the build commit, on a branch rather than `main` (so `main`
+   keeps the final version), commit the run's manifest as
+   `binja_xtensa_loader/manifest.json` with `plugin.json`'s version set to
+   `0.1.0-rc.1`, tag that commit `v0.1.0-rc.1`, push the tag, and publish:
+
+   ```sh
+   gh workflow run release.yml --ref v0.1.0-rc.1 -f mode=publish -f prerelease=true
+   ```
+
+2. **Make a repository** listing that release. Binary Ninja reads
+   third-party repositories in the format of the extensions.binary.ninja API
+   (as served by Binary Ninja's `examples/python/mock_extension_server.py`),
+   not the `plugins.json` of Vector35/community-plugins, which current
+   versions reject. `scripts/test_extension_repo.py` writes it as static
+   files from `plugin.json` at the tag, with the tag's source archive on
+   GitHub as the download, the way the extension server would list it.
+
+   The simplest host is a **public** GitHub repository (or a branch of
+   one), such as
+   [jrozner/binja-extensions-test](https://github.com/jrozner/binja-extensions-test):
+   with `--github OWNER/REPO[:BRANCH]` (branch `main` by default), the
+   files are written for the root of that branch, served by
+   raw.githubusercontent.com:
+
+   ```sh
+   git fetch --tags
+   git clone https://github.com/jrozner/binja-extensions-test ../binja-extensions-test
+   scripts/test_extension_repo.py v0.1.0-rc.1 --github jrozner/binja-extensions-test -o ../binja-extensions-test
+   git -C ../binja-extensions-test add v2/manifests extensions.json versions.json
+   git -C ../binja-extensions-test commit -m "List binja-xtensa 0.1.0-rc.1"
+   git -C ../binja-extensions-test push
+   ```
+
+   The repository URL is then
+   `https://raw.githubusercontent.com/jrozner/binja-extensions-test/main`. A
+   private repository does not work, as Binary Ninja fetches without
+   credentials. raw.githubusercontent.com caches files for about 5 minutes,
+   so after pushing an update (such as the final release, below), wait that
+   long before Binary Ninja checks for updates.
+
+   To keep it on the test machine instead, generate it with the URL it
+   will be served from and serve the directory locally:
+
+   ```sh
+   scripts/test_extension_repo.py v0.1.0-rc.1 --base-url http://127.0.0.1:8000 -o bx-repo
+   python3 -m http.server 8000 --bind 127.0.0.1 --directory bx-repo
+   ```
+
+   Any host that serves the files at their paths works with `--base-url`
+   (not a gist: Binary Ninja fetches `<base URL>/v2/manifests`).
+
+3. **Start a dev Binary Ninja with a throwaway user folder**, holding only
+   your license and the repository URL. Binary Ninja uses the folder named
+   by `BN_USER_DIRECTORY` in place of its
+   [user folder](https://docs.binary.ninja/guide/index.html#user-folder),
+   whose `license.dat` you copy. Quit Binary Ninja first, so the new
+   instance starts with this environment.
+
+   macOS (Terminal):
+
+   ```sh
+   mkdir bn-test && cp ~/Library/Application\ Support/Binary\ Ninja/license.dat bn-test/
+   echo '{"extensionManager.unofficialUrls": ["https://raw.githubusercontent.com/jrozner/binja-extensions-test/main"]}' > bn-test/settings.json
+   BN_USER_DIRECTORY=$PWD/bn-test /Applications/Binary\ Ninja.app/Contents/MacOS/binaryninja
+   ```
+
+   Windows (PowerShell):
+
+   ```powershell
+   mkdir bn-test; copy "$env:APPDATA\Binary Ninja\license.dat" bn-test\
+   Set-Content bn-test\settings.json '{"extensionManager.unofficialUrls": ["https://raw.githubusercontent.com/jrozner/binja-extensions-test/main"]}'
+   $env:BN_USER_DIRECTORY = "$PWD\bn-test"
+   & "C:\Program Files\Vector35\BinaryNinja\binaryninja.exe"
+   ```
+
+   Windows (cmd):
+
+   ```bat
+   mkdir bn-test && copy "%APPDATA%\Binary Ninja\license.dat" bn-test\
+   echo {"extensionManager.unofficialUrls": ["https://raw.githubusercontent.com/jrozner/binja-extensions-test/main"]} > bn-test\settings.json
+   set "BN_USER_DIRECTORY=%CD%\bn-test"
+   "C:\Program Files\Vector35\BinaryNinja\binaryninja.exe"
+   ```
+
+   A per-user Windows install is in `%LOCALAPPDATA%\Vector35\BinaryNinja`
+   instead. On Linux, the license is in `~/.binaryninja` and the binary is
+   wherever you extracted Binary Ninja (`BN_USER_DIRECTORY=$PWD/bn-test
+   ~/binaryninja/binaryninja`). The variable applies only to what is
+   started from that shell. With a local server, the URL is
+   `http://127.0.0.1:8000`. The setting is *Unofficial 3rd Party Plugin
+   Repository URLs* in Settings, too.
+
+4. **Install** *Espressif Xtensa* (version `0.1.0-rc.1`, from the
+   `binja-xtensa-test` repository) in the extension manager and restart.
+
+Then check:
+
+- The loader asks to download the library for this platform; accept it.
+  The log names the library (`binja_xtensa-abi189-<platform>`) and its
+  verified SHA-256, and `binja_xtensa-native.so` (`.dll`, `.dylib`) is in
+  `bn-test/plugins`. If it says no prebuilt library matches instead, your
+  dev build's core ABI has moved on (see above).
+- After a restart, the library loads without errors in the log and an
+  ESP32 ELF or image opens with the Xtensa architecture.
+- The ROM image prompt appears for a file that uses it, and
+  **Plugins > Espressif > Download ROM Images** maps it.
+- A flash dump opens in the container browser with its partitions, and
+  headless, `files.espressif.partition` picks one.
+- **Plugins > Espressif > Remove Native Library** removes the library
+  (after a restart, the architectures are gone and the loader doesn't ask
+  again), and uninstalling the plugin in the extension manager removes the
+  loader.
+
+To try the update to the final release, regenerate the repository for
+`v0.1.0` once it is published (and push it, then wait out the cache): the
+extension manager offers it as an update, and the loader then asks to replace the library if it changed (not
+if the final release reuses the pre-release's build). Delete `bn-test` when
+done.
 
 ## Testing
 

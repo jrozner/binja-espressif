@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Points binaryninja and binaryninjacore-sys at the stable binaryninja-api
 # release, in place of the dev revision Cargo.toml pins on main, and updates
-# Cargo.lock to match. CI's stable-api job and the release workflow run this
-# before building; STABLE_TAG below is the one place the stable release is
-# named.
+# Cargo.lock to match. CI's stable-api job and the release workflow (with
+# api=stable) run this before building; STABLE_TAG below is the one place the
+# stable release is named.
 #
 # A native plugin loads only in a Binary Ninja whose core ABI matches the API
-# it was built against, so release builds, for the stable Binary Ninja that
-# most users run, have to be built against the stable API. Cargo cannot
+# it was built against, so a build for a stable Binary Ninja has to be built
+# against the stable API. Cargo cannot
 # [patch] a git dependency onto another revision of the same repository, so
 # the pins are rewritten instead. Don't commit the result.
 #

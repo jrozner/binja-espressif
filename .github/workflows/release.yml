@@ -5,11 +5,16 @@
 #
 # 1. mode=build, dispatched on a branch (normally main). Builds the
 #    libraries of the dispatched commit for Linux, Windows and macOS
-#    (universal) against the stable binaryninja-api release named in
-#    scripts/use_stable_api.sh, uploads them as workflow artifacts, and
-#    generates the loader's manifest: version, build commit, this run's ID,
+#    (universal) against the binaryninja-api chosen by the api input,
+#    uploads them as workflow artifacts, and generates the loader's
+#    manifest: version, build commit, this run's ID, the API built against,
 #    and each library's name, core ABI, size and SHA-256. The manifest is
 #    shown in the run summary and uploaded as the `manifest` artifact.
+#
+#    api=dev (the default) builds against the dev revision Cargo.toml pins,
+#    for the Binary Ninja dev channel; api=stable builds against the stable
+#    release named in scripts/use_stable_api.sh. The core ABI is in each
+#    asset's name, so the publish run needs no api input.
 #
 # 2. The maintainer commits that manifest as binja_xtensa_loader/manifest.json
 #    on top of the build commit (with plugin.json's version bumped, if it
@@ -25,6 +30,12 @@
 # The loader verifies every download against the manifest in the source the
 # extension manager installed (the tag's), never against anything fetched
 # from the release.
+#
+# Pre-releases: a version with a pre-release suffix (0.2.0-rc.1, tag
+# v0.2.0-rc.1) goes through the same two runs, and its publish run must have
+# the prerelease input set (and a final version's must not): the release is
+# then marked as a pre-release and not as latest, so it is not what
+# releases/latest returns. See "Testing a release privately" in the README.
 #
 # Assets, one per platform and core ABI:
 #
@@ -51,9 +62,22 @@ on:
           - build
           - publish
       version:
-        description: "build only: the version being released (default: plugin.json's version), e.g. 0.2.0"
+        description: "build only: the version being released (default: plugin.json's version), e.g. 0.2.0 or 0.2.0-rc.1"
         required: false
         type: string
+      api:
+        description: "build only: the binaryninja-api to build against. dev: the revision Cargo.toml pins (Binary Ninja dev channel). stable: the release in scripts/use_stable_api.sh."
+        required: false
+        type: choice
+        default: dev
+        options:
+          - dev
+          - stable
+      prerelease:
+        description: "publish only: publish a pre-release (required for, and only allowed for, a tag like v0.2.0-rc.1); it is not marked latest"
+        required: false
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -77,6 +101,10 @@ jobs:
             platform: macos-universal
             targets: aarch64-apple-darwin x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
+    # Every platform builds the same API, so whichever job sets it last is
+    # as good as any.
+    outputs:
+      api_source: ${{ steps.package.outputs.api_source }}
     steps:
       # The dispatched commit, pinned by SHA so every job builds the same one.
       - uses: actions/checkout@v7
@@ -103,9 +131,10 @@ jobs:
           fi
           ninja --version
 
-      # Release binaries target the stable Binary Ninja, not the dev API
-      # main is pinned to.
+      # api=dev builds Cargo.toml's pin as it is. The input reaches the
+      # shell only through the environment.
       - name: Use the stable API
+        if: inputs.api == 'stable'
         shell: bash
         run: scripts/use_stable_api.sh
 
@@ -116,8 +145,8 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-${{ github.job }}-${{ matrix.platform }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-${{ github.job }}-${{ matrix.platform }}-
+          key: ${{ runner.os }}-cargo-${{ github.job }}-${{ matrix.platform }}-${{ inputs.api }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-${{ github.job }}-${{ matrix.platform }}-${{ inputs.api }}-
 
       - name: Build
         shell: bash
@@ -127,16 +156,28 @@ jobs:
           done
 
       # The core ABI the plugin declares (CorePluginABIVersion) is
-      # BN_CURRENT_CORE_ABI_VERSION of the stable binaryninjacore.h.
+      # BN_CURRENT_CORE_ABI_VERSION of the binaryninjacore.h built against.
       - name: Package
+        id: package
         shell: bash
+        env:
+          API: ${{ inputs.api }}
         run: |
-          abi=$(cargo metadata --format-version 1 | python3 -c '
+          cargo metadata --format-version 1 | python3 -c '
           import json, os, sys
           meta = json.load(sys.stdin)
           sys_crate = next(p for p in meta["packages"] if p["name"] == "binaryninjacore-sys")
           header = os.path.join(os.path.dirname(sys_crate["manifest_path"]), "..", "..", "binaryninjacore.h")
-          print(next(l.split()[2] for l in open(header) if l.startswith("#define BN_CURRENT_CORE_ABI_VERSION ")))')
+          print(next(l.split()[2] for l in open(header) if l.startswith("#define BN_CURRENT_CORE_ABI_VERSION ")))
+          print(sys_crate["source"])' | tr -d '\r' > api.txt
+          { read -r abi; read -r source; } < api.txt
+          rm api.txt
+          if ! [[ "$abi" =~ ^[0-9]+$ ]] || [ -z "$source" ]; then
+            echo "::error::could not read the core ABI and binaryninja-api source (got '$abi', '$source')"
+            exit 1
+          fi
+          echo "api_source=$source" >> "$GITHUB_OUTPUT"
+          echo "${{ matrix.platform }}: core ABI $abi, binaryninja-api $API ($source)" >> "$GITHUB_STEP_SUMMARY"
           name="binja_xtensa-abi${abi}-${{ matrix.platform }}"
           mkdir -p dist
           case "$RUNNER_OS" in
@@ -180,19 +221,27 @@ jobs:
       - name: Generate the manifest
         env:
           VERSION_INPUT: ${{ inputs.version }}
+          API: ${{ inputs.api }}
+          API_SOURCE: ${{ needs.build.outputs.api_source }}
         run: |
           version=${VERSION_INPUT:-$(python3 -c 'import json; print(json.load(open("plugin.json"))["version"])')}
           scripts/release_manifest.py generate dist \
             --version "$version" --repository "$GITHUB_REPOSITORY" \
-            --commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" > manifest.json
+            --commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
+            --api "$API" --api-source "$API_SOURCE" > manifest.json
           {
             echo "## Loader manifest for v$version"
             echo
-            echo "Built from \`$GITHUB_SHA\`. To release:"
+            echo "Built from \`$GITHUB_SHA\` against the $API binaryninja-api (\`$API_SOURCE\`). To release:"
             echo
             echo "1. On top of \`$GITHUB_SHA\`, save this as \`binja_xtensa_loader/manifest.json\` (or download the \`manifest\` artifact) and set \`plugin.json\`'s version to \`$version\`; change nothing else."
-            echo "2. Commit, push, tag the commit \`v$version\` and push the tag."
-            echo "3. Run this workflow on the tag \`v$version\` with mode \`publish\`."
+            if [[ "$version" == *-* ]]; then
+              echo "2. Commit on a branch (not \`main\`), tag the commit \`v$version\` and push the tag."
+              echo "3. Run this workflow on the tag \`v$version\` with mode \`publish\` and \`prerelease\` checked."
+            else
+              echo "2. Commit, push, tag the commit \`v$version\` and push the tag."
+              echo "3. Run this workflow on the tag \`v$version\` with mode \`publish\`."
+            fi
             echo
             echo '```json'
             cat manifest.json
@@ -216,11 +265,14 @@ jobs:
     env:
       TAG: ${{ github.ref_name }}
       REF_TYPE: ${{ github.ref_type }}
+      PRERELEASE: ${{ inputs.prerelease }}
     steps:
+      # check-tag checks the tag's version in full, including that it is a
+      # pre-release version exactly when the prerelease input is set.
       - name: Check the dispatched ref is a version tag
         run: |
-          if [ "$REF_TYPE" != tag ] || ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
-            echo "::error::publish must be dispatched on a vX.Y or vX.Y.Z tag, not $REF_TYPE '$TAG'"
+          if [ "$REF_TYPE" != tag ] || ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::publish must be dispatched on a vX.Y, vX.Y.Z or vX.Y.Z-<pre-release> tag, not $REF_TYPE '$TAG'"
             exit 1
           fi
 
@@ -233,7 +285,9 @@ jobs:
       - name: Check plugin.json and the manifest are for the tag
         id: manifest
         run: |
-          scripts/release_manifest.py check-tag "$TAG" > build.env
+          prerelease=()
+          if [ "$PRERELEASE" = true ]; then prerelease=(--prerelease); fi
+          scripts/release_manifest.py check-tag "$TAG" "${prerelease[@]}" > build.env
           cat build.env >> "$GITHUB_OUTPUT"
           cat build.env
           rm build.env
@@ -283,7 +337,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         # --verify-tag makes gh fail if the tag doesn't exist on GitHub
-        # instead of creating it from the default branch.
+        # instead of creating it from the default branch. A pre-release is
+        # never marked latest.
         run: |
+          flags=()
+          if [ "$PRERELEASE" = true ]; then flags=(--prerelease --latest=false); fi
           gh release create "$TAG" dist/* \
-            --title "$TAG" --generate-notes --verify-tag
+            --title "$TAG" --generate-notes --verify-tag "${flags[@]}"

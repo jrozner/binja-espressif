@@ -26,6 +26,12 @@ from typing import Callable, Iterable, List, Optional, Tuple
 
 MANIFEST_SCHEMA = 1
 
+# The binaryninja-api a release was built against (the manifest's optional
+# build.api, recorded by the release workflow; informational, as each
+# asset's name carries its core ABI): the dev revision Cargo.toml pins, or
+# the stable release in scripts/use_stable_api.sh.
+API_CHANNELS = ("dev", "stable")
+
 # Release asset platforms and their library extensions.
 PLATFORM_EXTENSIONS = {
     "linux-x86_64": ".so",
@@ -36,7 +42,10 @@ LIBRARY_EXTENSIONS = (".so", ".dll", ".dylib")
 
 # binja_xtensa-abi<N>-<platform>.<ext>, as release.yml names the assets.
 ASSET_NAME = re.compile(r"^binja_xtensa-abi(?P<abi>[0-9]+)-(?P<platform>[a-z0-9_]+-[a-z0-9_]+)(?P<ext>\.[a-z]+)$")
-VERSION = re.compile(r"^[0-9]+\.[0-9]+(\.[0-9]+)?$")
+# X.Y or X.Y.Z, optionally with a semver pre-release suffix (0.2.0-rc.1),
+# which release.yml publishes as a GitHub pre-release. No build metadata (+).
+VERSION = re.compile(r"^(?P<release>[0-9]+\.[0-9]+(?:\.[0-9]+)?)(?:-(?P<prerelease>[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?\Z")
+VERSION_FORMAT = "X.Y or X.Y.Z, optionally followed by -<pre-release> such as -rc.1"
 REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -149,7 +158,7 @@ def parse_manifest(text) -> Manifest:
     _require(data.get("schema") == MANIFEST_SCHEMA, "unsupported manifest schema {!r}".format(data.get("schema")))
     version = data.get("version")
     _require(isinstance(version, str) and VERSION.match(version) is not None,
-             "manifest version {!r} is not X.Y or X.Y.Z".format(version))
+             "manifest version {!r} is not {}".format(version, VERSION_FORMAT))
     repository = data.get("repository")
     _require(isinstance(repository, str) and REPOSITORY.match(repository) is not None,
              "manifest repository {!r} is not owner/name".format(repository))
@@ -167,8 +176,21 @@ def parse_manifest(text) -> Manifest:
                  "manifest build.commit is not a full commit hash")
         _require(isinstance(build.get("run_id"), int) and not isinstance(build.get("run_id"), bool),
                  "manifest build.run_id is not an integer")
+        # Optional, and absent from manifests written before it was added.
+        _require(build.get("api") is None or build["api"] in API_CHANNELS,
+                 "manifest build.api {!r} is not one of {}".format(build.get("api"), ", ".join(API_CHANNELS)))
+        _require(build.get("api_source") is None or isinstance(build["api_source"], str),
+                 "manifest build.api_source is not a string")
     _require(not assets or build is not None, "manifest lists assets but no build")
     return Manifest(version=version, repository=repository, assets=assets, build=build)
+
+
+def is_prerelease(version: str) -> bool:
+    """Whether `version` (which must match VERSION) has a pre-release suffix."""
+    m = VERSION.match(version)
+    if m is None:
+        raise ManifestError("version {!r} is not {}".format(version, VERSION_FORMAT))
+    return m.group("prerelease") is not None
 
 
 def load_manifest(path: str) -> Manifest:

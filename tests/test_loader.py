@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Unit tests of the Python loader's logic (binja_xtensa_loader/core.py) and
-the release manifest tooling. Standard library only; no Binary Ninja needed.
+the release tooling (release_manifest.py, test_extension_repo.py). Standard
+library only; no Binary Ninja needed.
 
 Usage: tests/test_loader.py [-v]
 """
@@ -35,6 +36,9 @@ def sha(data):
 
 def asset_entry(name, data=LIB):
     return {"name": name, "sha256": sha(data), "size": len(data)}
+
+
+SOURCE = "git+https://github.com/Vector35/binaryninja-api.git?rev={0}#{0}".format("f" * 40)
 
 
 def manifest_text(assets, version="0.2.0", build=True):
@@ -110,11 +114,50 @@ class TestManifest(unittest.TestCase):
                 with self.assertRaises(core.ManifestError):
                     core.parse_manifest(text)
 
+    def test_versions(self):
+        for version in ["1.0", "0.1.0", "10.20.30", "0.1.0-rc.1", "0.1.0-rc1", "1.0-beta", "0.2.0-alpha.1.x-y"]:
+            with self.subTest(version):
+                self.assertIsNotNone(core.VERSION.match(version))
+                core.parse_manifest(manifest_text([], version=version, build=False))
+        for version in ["1", "v0.1.0", "0.1.0-", "0.1.0-rc..1", "0.1.0-rc.1.", "0.1.0+build", "0.1.0-rc.1+b",
+                        "0.1.0-rc_1", "0.1.0\n", "0.1.0-rc.1\n", " 0.1.0", "0.1.0.0"]:
+            with self.subTest(version):
+                self.assertIsNone(core.VERSION.match(version))
+                with self.assertRaises(core.ManifestError):
+                    core.parse_manifest(manifest_text([], version=version, build=False))
+        self.assertFalse(core.is_prerelease("0.1.0"))
+        self.assertFalse(core.is_prerelease("1.0"))
+        self.assertTrue(core.is_prerelease("0.1.0-rc.1"))
+        with self.assertRaises(core.ManifestError):
+            core.is_prerelease("0.1.0+x")
+
+    def test_prerelease_manifest(self):
+        m = core.parse_manifest(manifest_text([asset_entry("binja_xtensa-abi187-linux-x86_64.so")],
+                                              version="0.1.0-rc.1"))
+        self.assertEqual(m.tag, "v0.1.0-rc.1")
+        self.assertEqual(
+            m.asset_url(m.assets[0]),
+            "https://github.com/jrozner/binja-xtensa/releases/download/v0.1.0-rc.1/binja_xtensa-abi187-linux-x86_64.so")
+
     def test_bad_build(self):
         data = json.loads(manifest_text([asset_entry("binja_xtensa-abi187-linux-x86_64.so")]))
         data["build"]["commit"] = "abc"
         with self.assertRaises(core.ManifestError):
             core.parse_manifest(json.dumps(data))
+
+    def test_build_api(self):
+        # Optional: manifests from before it was recorded have no api.
+        data = json.loads(manifest_text([asset_entry("binja_xtensa-abi189-linux-x86_64.so")]))
+        self.assertNotIn("api", core.parse_manifest(json.dumps(data)).build)
+        for api in core.API_CHANNELS:
+            data["build"].update(api=api, api_source=SOURCE)
+            m = core.parse_manifest(json.dumps(data))
+            self.assertEqual((m.build["api"], m.build["api_source"]), (api, SOURCE))
+            self.assertEqual(core.parse_manifest(core.manifest_json(m)).build, m.build)
+        for bad in [{"api": "nightly"}, {"api": 1}, {"api": "dev", "api_source": 1}]:
+            data["build"] = {"commit": "a" * 40, "run_id": 1234, **bad}
+            with self.assertRaises(core.ManifestError, msg=bad):
+                core.parse_manifest(json.dumps(data))
 
 
 class TestSelection(unittest.TestCase):
@@ -372,6 +415,22 @@ class TestConsent(unittest.TestCase):
         self.assertIn("Install or Update Native Library", p.message)
         # A new version asks again.
         self.assertEqual(self.plan(declined="0" * 64).action, core.Action.PROMPT)
+
+    def test_final_after_prerelease(self):
+        # The final release's library differs from the rc's, so an installed
+        # or declined rc library doesn't stop the final being offered.
+        rc = core.parse_manifest(manifest_text([asset_entry(self.asset.name, LIB + b"rc")], version="0.2.0-rc.1"))
+        rc_asset = rc.assets[0]
+        d = tempfile.mkdtemp(prefix="bn-xtensa-loader-test-")
+        self.addCleanup(shutil.rmtree, d, True)
+        path = os.path.join(d, "binja_xtensa-native.so")
+        with open(path, "wb") as f:
+            f.write(LIB + b"rc")
+        self.assertEqual(core.installed_state(path, rc_asset), core.State.CURRENT)
+        state = core.installed_state(path, self.asset)
+        self.assertEqual(state, core.State.OUTDATED)
+        self.assertEqual(self.plan(state=state, native_loaded=True).action, core.Action.PROMPT)
+        self.assertEqual(self.plan(declined=rc_asset.sha256).action, core.Action.PROMPT)
 
     def test_headless_never_downloads_without_setting(self):
         for state in (core.State.MISSING, core.State.OUTDATED):
@@ -690,6 +749,28 @@ class TestPluginGlue(TempDirTest):
         self.assertIn("turning it off failed", self.bn.messages[-1][0])
         self.assertNotIn("now off", self.bn.messages[-1][0])
 
+    def test_prerelease_then_final(self):
+        def release(version, data):
+            with open(self.plugin.MANIFEST, "w") as f:
+                f.write(manifest_text([asset_entry(self.asset_name, data)], version=version))
+            with open(self.plugin.PLUGIN_JSON, "w") as f:
+                json.dump({"version": version}, f)
+            self.server.files = {self.asset_name: data}
+
+        self.bn.ui = True
+        release("0.2.0-rc.1", LIB + b"rc")
+        self.bn.answers = [self.bn.yes]
+        self.plugin.startup_check()
+        self.assertEqual(read(self.installed), LIB + b"rc")
+        self.assertIn("is not installed", self.prompts()[-1])
+
+        release("0.2.0", LIB)
+        self.bn.answers = [self.bn.yes]
+        self.plugin.startup_check()
+        self.assertEqual(len(self.prompts()), 2)
+        self.assertIn("is out of date", self.prompts()[-1])
+        self.assertEqual(read(self.installed), LIB)
+
     def test_install_command_refuses_second_copy(self):
         self.bn.ui = True
         open(os.path.join(self.plugins, "libbinja_xtensa" + core.PLATFORM_EXTENSIONS[self.platform]), "wb").close()
@@ -708,11 +789,12 @@ class TestReleaseTooling(TempDirTest):
                 f.write(data)
         out = subprocess.run(
             [sys.executable, os.path.join(ROOT, "scripts", "release_manifest.py"), "generate", dist,
-             "--version", "1.2.3", "--repository", "jrozner/binja-xtensa", "--commit", "b" * 40, "--run-id", "42"],
+             "--version", "1.2.3", "--repository", "jrozner/binja-xtensa", "--commit", "b" * 40, "--run-id", "42",
+             "--api", "dev", "--api-source", SOURCE],
             check=True, stdout=subprocess.PIPE).stdout
         m = core.parse_manifest(out)
         self.assertEqual(m.version, "1.2.3")
-        self.assertEqual(m.build, {"commit": "b" * 40, "run_id": 42})
+        self.assertEqual(m.build, {"commit": "b" * 40, "run_id": 42, "api": "dev", "api_source": SOURCE})
         self.assertEqual({a.name: a.sha256 for a in m.assets}, {
             "binja_xtensa-abi187-linux-x86_64.so": sha(b"linux"),
             "binja_xtensa-abi187-windows-x86_64.dll": sha(b"windows")})
@@ -740,15 +822,274 @@ class TestReleaseTooling(TempDirTest):
             f.write(b"extra")
         self.assertNotEqual(verify(), 0)
 
+    def test_generate_api(self):
+        dist = os.path.join(self.dir, "dist")
+        os.mkdir(dist)
+        with open(os.path.join(dist, "binja_xtensa-abi187-linux-x86_64.so"), "wb") as f:
+            f.write(b"linux")
+
+        def generate(*api):
+            return run_script("release_manifest.py", "generate", dist, "--version", "1.2.3",
+                              "--repository", "jrozner/binja-xtensa", "--commit", "b" * 40, "--run-id", "42", *api)
+
+        r = generate("--api", "stable")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(core.parse_manifest(r.stdout).build, {"commit": "b" * 40, "run_id": 42, "api": "stable"})
+        self.assertNotEqual(generate().returncode, 0)
+        self.assertNotEqual(generate("--api", "nightly").returncode, 0)
+
     def test_generate_rejects_unknown_files(self):
         dist = os.path.join(self.dir, "dist")
         os.mkdir(dist)
         open(os.path.join(dist, "libbinja_xtensa.so"), "wb").close()
         r = subprocess.run(
             [sys.executable, os.path.join(ROOT, "scripts", "release_manifest.py"), "generate", dist,
-             "--version", "1.2.3", "--repository", "jrozner/binja-xtensa", "--commit", "b" * 40, "--run-id", "42"],
+             "--version", "1.2.3", "--repository", "jrozner/binja-xtensa", "--commit", "b" * 40, "--run-id", "42",
+             "--api", "dev"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.assertNotEqual(r.returncode, 0)
+
+
+def run_script(name, *args, cwd=None):
+    return subprocess.run([sys.executable, os.path.join(ROOT, "scripts", name)] + list(args), cwd=cwd,
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+
+
+class TestReleaseTags(TempDirTest):
+    """release_manifest.py check-tag and check-tree, which publish runs."""
+
+    def release_files(self, root, version, assets=True):
+        os.makedirs(os.path.join(root, "binja_xtensa_loader"), exist_ok=True)
+        with open(os.path.join(root, "binja_xtensa_loader", "manifest.json"), "w") as f:
+            f.write(manifest_text([asset_entry("binja_xtensa-abi187-linux-x86_64.so")] if assets else [],
+                                  version=version, build=assets))
+        with open(os.path.join(root, "plugin.json"), "w") as f:
+            json.dump({"name": "Espressif Xtensa", "version": version}, f)
+
+    def check_tag(self, tag, *flags):
+        return run_script("release_manifest.py", "check-tag", tag, "--root", self.dir, *flags)
+
+    def test_check_tag(self):
+        for version, tag, flags, ok in [
+            ("0.2.0", "v0.2.0", (), True),
+            ("0.2", "v0.2", (), True),
+            ("0.2.0-rc.1", "v0.2.0-rc.1", ("--prerelease",), True),
+            ("0.2.0-beta", "v0.2.0-beta", ("--prerelease",), True),
+            # A pre-release version must be published as a pre-release, and
+            # only a pre-release version may be.
+            ("0.2.0-rc.1", "v0.2.0-rc.1", (), False),
+            ("0.2.0", "v0.2.0", ("--prerelease",), False),
+            # The tag, plugin.json and the manifest must agree.
+            ("0.2.0", "v0.2.0-rc.1", ("--prerelease",), False),
+            ("0.2.0-rc.1", "v0.2.0", (), False),
+            ("0.2.0-rc.1", "v0.2.0-rc.2", ("--prerelease",), False),
+            # Not release tags.
+            ("0.2.0", "0.2.0", (), False),
+            ("0.2.0+b", "v0.2.0+b", (), False),
+            ("0.2.0-rc.1", "release-0.2.0-rc.1", ("--prerelease",), False),
+        ]:
+            with self.subTest(tag=tag, version=version, flags=flags):
+                self.release_files(self.dir, version)
+                r = self.check_tag(tag, *flags)
+                self.assertEqual(r.returncode == 0, ok, r.stderr)
+                if ok:
+                    self.assertEqual(r.stdout, "commit={}\nrun_id=1234\n".format("a" * 40))
+
+    def test_check_tag_manifest_mismatch(self):
+        self.release_files(self.dir, "0.2.0-rc.1")
+        with open(os.path.join(self.dir, "plugin.json"), "w") as f:
+            json.dump({"version": "0.2.0-rc.2"}, f)
+        self.assertNotEqual(self.check_tag("v0.2.0-rc.2", "--prerelease").returncode, 0)
+        self.release_files(self.dir, "0.2.0-rc.1", assets=False)
+        r = self.check_tag("v0.2.0-rc.1", "--prerelease")
+        self.assertIn("lists no assets", r.stderr)
+
+    def test_check_tree_prerelease_tag(self):
+        if shutil.which("git") is None:
+            self.skipTest("git is not installed")
+
+        def git(*args):
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false",
+                            "-c", "tag.gpgsign=false"] + list(args), cwd=self.dir, check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        git("init", "-q")
+        self.release_files(self.dir, "0.2.0", assets=False)
+        with open(os.path.join(self.dir, "src.rs"), "w") as f:
+            f.write("fn main() {}\n")
+        git("add", "-A")
+        git("commit", "-q", "-m", "build")
+        build = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.dir, check=True, stdout=subprocess.PIPE,
+                               universal_newlines=True).stdout.strip()
+        self.release_files(self.dir, "0.2.0-rc.1")
+        git("commit", "-q", "-am", "release")
+        git("tag", "v0.2.0-rc.1")
+        r = run_script("release_manifest.py", "check-tree", build, "v0.2.0-rc.1", "--root", self.dir)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+        with open(os.path.join(self.dir, "src.rs"), "a") as f:
+            f.write("// changed after the build\n")
+        git("commit", "-q", "-am", "more")
+        git("tag", "v0.2.0-rc.2")
+        r = run_script("release_manifest.py", "check-tree", build, "v0.2.0-rc.2", "--root", self.dir)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("src.rs", r.stderr)
+
+
+class TestTestExtensionRepo(TempDirTest):
+    """scripts/test_extension_repo.py, the repository for testing a release."""
+
+    def setUp(self):
+        super().setUp()
+        with open(os.path.join(ROOT, "plugin.json")) as f:
+            self.plugin = json.load(f)
+        self.plugin["version"] = "0.1.0-rc.1"
+        self.plugin_json = os.path.join(self.dir, "plugin.json")
+        self.write_plugin()
+        self.out = os.path.join(self.dir, "repo")
+
+    def write_plugin(self):
+        with open(self.plugin_json, "w") as f:
+            json.dump(self.plugin, f)
+
+    def generate(self, tag, *args, base="http://127.0.0.1:8000"):
+        where = ("--base-url", base) if base is not None else ()
+        return run_script("test_extension_repo.py", tag, *where, "--plugin-json", self.plugin_json,
+                          "-o", self.out, "--created", "1791700000", *args)
+
+    def load(self, name):
+        with open(os.path.join(self.out, *name.split("/"))) as f:
+            return json.load(f)
+
+    def test_repository(self):
+        r = self.generate("v0.1.0-rc.1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("\n  http://127.0.0.1:8000\n", r.stdout)
+        # What Binary Ninja fetches for an extensionManager.unofficialUrls
+        # entry: <URL>/v2/manifests, then each manifest's extensions_url, then
+        # each extension's versions_url (as examples/python/mock_extension_server.py serves them).
+        manifests = self.load("v2/manifests")
+        self.assertEqual(len(manifests), 1)
+        self.assertEqual(sorted(manifests[0]), ["extensions_url", "id", "name"])
+        self.assertEqual(manifests[0]["extensions_url"], "http://127.0.0.1:8000/extensions.json")
+
+        extensions = self.load("extensions.json")
+        self.assertEqual({k: v for k, v in extensions.items() if k != "results"},
+                         {"count": 1, "next": None, "previous": None})
+        ext = extensions["results"][0]
+        self.assertEqual(sorted(ext), [
+            "author_name", "categories", "homepage", "id", "is_paid", "latest_version_id", "license",
+            "license_name", "name", "official", "path", "short_description", "state", "type", "using_apis",
+            "versions_url", "view_only"])
+        self.assertEqual(ext["name"], self.plugin["name"])
+        self.assertEqual(ext["author_name"], self.plugin["author"])
+        self.assertEqual(ext["short_description"], self.plugin["description"])
+        self.assertEqual(ext["categories"], [{"id": 2, "name": "architecture"}, {"id": 3, "name": "binaryview"}])
+        self.assertEqual(ext["homepage"], "https://github.com/jrozner/binja-xtensa")
+        self.assertEqual(ext["path"], "jrozner_binjaxtensa")
+        self.assertEqual(ext["using_apis"], ["python3"])
+        self.assertEqual((ext["type"], ext["state"], ext["official"], ext["is_paid"], ext["view_only"]),
+                         (0, 0, False, False, False))
+        self.assertEqual((ext["license_name"], ext["license"]),
+                         (self.plugin["license"]["name"], self.plugin["license"]["text"]))
+        self.assertEqual(ext["versions_url"], "http://127.0.0.1:8000/versions.json")
+
+        versions = self.load("versions.json")
+        self.assertEqual(versions["count"], 1)
+        version = versions["results"][0]
+        self.assertEqual(version["id"], ext["latest_version_id"])
+        self.assertEqual(version["version_string"], "0.1.0-rc.1")
+        self.assertEqual(version["long_description"], self.plugin["longdescription"])
+        self.assertEqual(version["minimum_client_version"], self.plugin["minimumbinaryninjaversion"])
+        self.assertEqual(version["created"], "2026-10-11T06:26:40+00:00")
+        self.assertEqual((version["dependencies"], version["changelog"], version["subdir"]), ({}, "", ""))
+        url = "https://github.com/jrozner/binja-xtensa/archive/refs/tags/v0.1.0-rc.1.zip"
+        self.assertEqual(sorted(p["platform"]["name"] for p in version["platform_versions"]),
+                         ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64", "win-arm64", "win-x64"])
+        for p in version["platform_versions"]:
+            self.assertEqual((p["download_url"], p["untracked_download_url"]), (url, url))
+
+    def test_new_version_is_a_new_id(self):
+        self.assertEqual(self.generate("v0.1.0-rc.1").returncode, 0)
+        rc = self.load("extensions.json")["results"][0]
+        self.plugin["version"] = "0.1.0"
+        self.write_plugin()
+        self.assertEqual(self.generate("v0.1.0").returncode, 0)
+        final = self.load("extensions.json")["results"][0]
+        self.assertEqual(rc["id"], final["id"])
+        self.assertNotEqual(rc["latest_version_id"], final["latest_version_id"])
+
+    def test_options(self):
+        r = self.generate("v0.1.0-rc.1", "--repo", "someone/fork", "--package-url", "http://127.0.0.1:8000/p.zip",
+                          base="https://example.com/test/")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        ext = self.load("extensions.json")["results"][0]
+        self.assertEqual(ext["path"], "someone_fork")
+        self.assertEqual(ext["homepage"], "https://github.com/someone/fork")
+        self.assertEqual(ext["versions_url"], "https://example.com/test/versions.json")
+        self.assertEqual(self.load("v2/manifests")[0]["extensions_url"], "https://example.com/test/extensions.json")
+        version = self.load("versions.json")["results"][0]
+        self.assertEqual({p["download_url"] for p in version["platform_versions"]}, {"http://127.0.0.1:8000/p.zip"})
+        self.assertIn("\n  https://example.com/test\n", r.stdout)
+
+    def test_github(self):
+        raw = "https://raw.githubusercontent.com/"
+        for spec, base in [("jrozner/binja-extensions-test", raw + "jrozner/binja-extensions-test/main"),
+                           ("someone/repo.name:rc/test-1", raw + "someone/repo.name/rc/test-1"),
+                           ("someone/repo:release/1.0+rc1@x#y", raw + "someone/repo/release/1.0%2Brc1%40x%23y")]:
+            with self.subTest(spec=spec):
+                r = self.generate("v0.1.0-rc.1", "--github", spec, base=None)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertIn("\n  {}\n".format(base), r.stdout)
+                self.assertIn(spec, r.stdout)
+                self.assertEqual(self.load("v2/manifests")[0]["extensions_url"], base + "/extensions.json")
+                self.assertEqual(self.load("extensions.json")["results"][0]["versions_url"], base + "/versions.json")
+                # The package is still the tag's archive of --repo, not of the hosting repository.
+                version = self.load("versions.json")["results"][0]
+                self.assertEqual({p["download_url"] for p in version["platform_versions"]},
+                                 {"https://github.com/jrozner/binja-xtensa/archive/refs/tags/v0.1.0-rc.1.zip"})
+
+    def test_github_rejects(self):
+        for args in [("--github", "binja-extensions-test"),
+                     ("--github", "https://github.com/jrozner/binja-extensions-test"),
+                     ("--github", "jrozner/binja-extensions-test:"),
+                     ("--github", "jrozner/binja-extensions-test:../x"),
+                     ("--github", "jrozner/binja-extensions-test:main/"),
+                     ("--github", "jrozner/binja-extensions-test:a?b"),
+                     ("--github", "jrozner/binja-extensions-test:a b"),
+                     ("--github", "jrozner/binja-extensions-test:-x"),
+                     ("--github", "jrozner/binja-extensions-test:x/.y"),
+                     ("--github", "jrozner/binja-extensions-test:x.lock"),
+                     ("--github", "jrozner/binja-extensions-test:a@{1}"),
+                     ("--github", "jrozner/binja-extensions-test", "--base-url", "http://127.0.0.1:8000"),
+                     ()]:  # neither
+            with self.subTest(args=args):
+                r = self.generate("v0.1.0-rc.1", *args, base=None)
+                self.assertNotEqual(r.returncode, 0)
+                self.assertFalse(os.path.exists(self.out))
+
+    def test_platforms(self):
+        self.plugin["platforms"] = ["Linux"]
+        self.write_plugin()
+        self.assertEqual(self.generate("v0.1.0-rc.1").returncode, 0)
+        version = self.load("versions.json")["results"][0]
+        self.assertEqual(sorted(p["platform"]["name"] for p in version["platform_versions"]),
+                         ["linux-arm64", "linux-x64"])
+
+    def test_rejects(self):
+        for tag, args, base in [("v0.1.0", (), None),  # not plugin.json's version
+                                ("0.1.0-rc.1", (), None),
+                                ("v0.1.0-rc.1", ("--repo", "https://github.com/jrozner/binja-xtensa"), None),
+                                ("v0.1.0-rc.1", (), "127.0.0.1:8000"),
+                                ("v0.1.0-rc.1", (), "file:///tmp/repo")]:
+            with self.subTest(tag=tag, args=args, base=base):
+                r = self.generate(tag, *args, base=base or "http://127.0.0.1:8000")
+                self.assertNotEqual(r.returncode, 0)
+                self.assertFalse(os.path.exists(self.out))
+        self.plugin["description"] = "x" * 257
+        self.write_plugin()
+        r = self.generate("v0.1.0-rc.1")
+        self.assertIn("description", r.stderr)
 
 
 if __name__ == "__main__":
