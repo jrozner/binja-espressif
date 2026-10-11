@@ -4,7 +4,8 @@
 Loads the test ELFs (tests/data/*.elf, see scripts/build_test_elfs.sh) and
 firmware images synthesized from them, and checks platform detection, the
 calling conventions, call-site arguments, zero-overhead loop recovery and the
-ESP image loader.
+ESP image loader. Relocatable objects (tests/data/obj) are checked against
+the relocations objdump lists for them.
 
 Usage: tests/test_headless.py [path/to/libbinja_xtensa.so]
 
@@ -828,6 +829,161 @@ if addr is not None:
 addr, text = first_insn(bv, lambda m: m == "entry")
 check(addr is not None and not bv.is_invert_branch_patch_available(addr)
       and not bv.is_never_branch_patch_available(addr), "entry is not a branch to patch")
+
+
+print("Relocatable objects:")
+OBJ = os.path.join(DATA, "obj")
+
+
+def elf_sections(path):
+    """An ELF32 file's contents, its sections (name -> (file offset, size,
+    type)) and the names of its undefined symbols."""
+    data = open(path, "rb").read()
+    shoff, = struct.unpack_from("<I", data, 0x20)
+    shentsize, shnum, shstrndx = struct.unpack_from("<HHH", data, 0x2E)
+    headers = [struct.unpack_from("<IIIIIIIIII", data, shoff + i * shentsize) for i in range(shnum)]
+
+    def string(table, off):
+        start = headers[table][4] + off
+        return data[start:data.index(b"\0", start)].decode()
+
+    sections = {string(shstrndx, sh[0]): (sh[4], sh[5], sh[1]) for sh in headers}
+    undefined = set()
+    for sh in headers:
+        if sh[1] == 2:  # SHT_SYMTAB
+            for off in range(sh[4] + 16, sh[4] + sh[5], 16):
+                name, _, _, _, _, shndx = struct.unpack_from("<IIIBBH", data, off)
+                if shndx == 0 and name:
+                    undefined.add(string(sh[6], name))
+    return data, sections, undefined
+
+
+def objdump_relocs(path):
+    """(section, offset, type, symbol, addend) of every relocation objdump -r
+    lists (tests/data/obj/*.relocs, see scripts/build_test_elfs.sh)."""
+    out, section = [], None
+    for line in open(path):
+        if line.startswith("RELOCATION RECORDS FOR ["):
+            section = line[len("RELOCATION RECORDS FOR ["):line.index("]")]
+            continue
+        fields = line.split()
+        if len(fields) != 3 or not fields[1].startswith("R_XTENSA_"):
+            continue
+        value, addend = fields[2], 0
+        for sign in "+-":
+            if sign in value[1:]:
+                value, n = value.rsplit(sign, 1)
+                addend = int(n, 16) * (1 if sign == "+" else -1)
+        out.append((section, int(fields[0], 16), fields[1], value, addend))
+    return out
+
+
+ADDRESS_TOKENS = (bn.InstructionTextTokenType.CodeRelativeAddressToken,
+                  bn.InstructionTextTokenType.PossibleAddressToken)
+
+
+def operand_target(bv, addr):
+    """The code target or literal address of the instruction at `addr`."""
+    tokens, _ = bv.arch.get_instruction_text(bv.read(addr, 4), addr)
+    values = [t.value for t in tokens if t.type in ADDRESS_TOKENS]
+    return values[-1] if values else None
+
+
+def check_object(name, platform):
+    path = os.path.join(OBJ, f"{name}.o")
+    raw, sections, undefined = elf_sections(path)
+    bv = bn.load(path, options={"loader.platform": platform} if platform else {})
+    chip = platform or ("esp8266" if name.startswith("esp8266") else "esp32")
+    check(bv.view_type == "ELF" and bv.platform.name == chip, f"{name}: loads as {bv.platform}")
+
+    def symbol_address(sym):
+        if sym in bv.sections:
+            return bv.sections[sym].start
+        s = bv.get_symbol_by_raw_name(sym)
+        return s.address if s else None
+
+    counts, bad = {}, []
+    for section, offset, kind, sym, addend in objdump_relocs(os.path.join(OBJ, f"{name}.relocs")):
+        if section not in bv.sections:
+            continue  # not loaded: .xt.prop, .xt.lit
+        addr = bv.sections[section].start + offset
+        target = (symbol_address(sym) + addend) & 0xFFFFFFFF
+        if kind == "R_XTENSA_SLOT0_OP":
+            got, want = operand_target(bv, addr), target
+        elif kind == "R_XTENSA_32":
+            # The word's original contents are part of the addend.
+            inplace, = struct.unpack_from("<I", raw, sections[section][0] + offset)
+            got, want = bv.read_int(addr, 4, False), (inplace + target) & 0xFFFFFFFF
+        else:
+            continue
+        counts[kind] = counts.get(kind, 0) + 1
+        if got != want:
+            bad.append(f"{section}+{offset:#x} {kind} {sym}{addend:+#x}: {got and hex(got)} != {want:#x}")
+    check(not bad and counts.get("R_XTENSA_SLOT0_OP") and counts.get("R_XTENSA_32"),
+          f"{name}: {counts} relocations match objdump" + (f" ({len(bad)} differ: {bad[:3]})" if bad else ""))
+
+    # Undefined symbols are external, and code refers to them by name: by a
+    # direct call, or (with -mlongcalls) a call through a literal.
+    extern = bv.get_section_by_name(".extern")
+    externs = [bv.get_symbol_by_raw_name(u) for u in sorted(undefined)]
+    check(externs and all(s is not None and s.type == bn.SymbolType.ExternalSymbol
+                          and extern.start <= s.address < extern.end for s in externs),
+          f"{name}: undefined symbols ({', '.join(sorted(undefined)[:3])}, ...) are external")
+    start = func(bv, "start")
+    text = hlil_text(start) if start else ""
+    calls = ["memcpy(", "add3(1, 2, 3)", "many(1, 2, 3, 4, 5, 6, 7, 8)", "fp(4, 5, 6)"]
+    # The ESP8266's cas tail-calls libgcc's compare-and-swap through a
+    # literal; external, it says nothing of cas's parameters.
+    if chip != "esp8266":
+        calls.append("cas(&sink, 1, 2)")
+    for call in calls:
+        check(call in text, f"{name}: start calls {call}...")
+    if "longcalls" not in name and "idf" not in name:
+        lines = [str(line).split() for bb in start.basic_blocks for line in bb.get_disassembly_text()] if start else []
+        check(any(words[:1] in (["call0"], ["call8"]) and words[-1] == "memcpy" for words in lines),
+              f"{name}: the direct call to memcpy shows its name")
+    return bv
+
+
+for chip in ["esp32", "esp32s2", "esp32s3", "esp8266"]:
+    for variant in ["", "-longcalls"]:
+        check_object(f"{chip}{variant}", None if chip in ("esp32", "esp8266") else chip)
+bv = check_object("esp32-idf", None)
+check(".literal.start" in bv.sections and bv.sections[".literal.start"].start < bv.sections[".text.start"].start,
+      "esp32-idf: per-function literal sections lie before their code")
+
+# reloc_edge.S: relocations needing an encoding the instruction lacks are left
+# as assembled, the control cases relocated.
+path = os.path.join(OBJ, "reloc_edge.o")
+raw, sections, _ = elf_sections(path)
+bv = bn.load(path)
+text_off = sections[".text.edge"][0]
+edge = bv.sections[".text.edge"].start
+late = bv.sections[".late"].start
+far = bv.sections[".far"].start
+check(bv.sections[".early"].start < edge < late < far, "reloc_edge: sections laid out in header order")
+for off, what in [(0x3, "l32r of a later literal"), (0x6, "misaligned call8"), (0x9, "call8 out of range"),
+                  (0xc, "j out of range"), (0xf, "beqz out of range"), (0x12, "backwards bnez.n")]:
+    size = 2 if off == 0x12 else 3
+    check(bv.read(edge + off, size) == raw[text_off + off:text_off + off + size], f"reloc_edge: {what} left as assembled")
+check(operand_target(bv, edge + 0x14) == bv.sections[".early"].start, "reloc_edge: l32r of an earlier literal relocated")
+check(operand_target(bv, edge + 0x17) == late + 4, "reloc_edge: call8 in range relocated")
+
+# A static library's members open through Binary Ninja's AR container
+# transform (bn.load does not open an archive by itself).
+from binaryninja import transform  # noqa: E402
+
+session = transform.TransformSession(os.path.join(OBJ, "libcorpus.a"))
+check(session.process() and session.root_context.available_transforms == ["AR"], "libcorpus.a: an AR container")
+members = {c.filename: c for c in session.root_context.children}
+check(sorted(members) == ["esp32-longcalls.o", "esp8266.o"], f"libcorpus.a: members {sorted(members)}")
+for member, chip in [("esp32-longcalls.o", "esp32"), ("esp8266.o", "esp8266")]:
+    if member in members:
+        bv = bn.load(members[member].input)
+        add3 = func(bv, "add3")
+        check(bv.platform.name == chip and bv.relocation_ranges and add3 is not None
+              and bv.get_functions_by_name("start") and "add3(1, 2, 3)" in hlil_text(func(bv, "start")),
+              f"libcorpus.a: {member} loads as {bv.platform} with its relocations applied")
 
 print()
 if failures:

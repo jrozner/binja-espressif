@@ -33,6 +33,30 @@ for chip in esp32 esp32s2 esp32s3 esp8266; do
     "${prefix}ld" -T "$chip.ld" "${defs[@]}" -o "$chip.elf" "$work/$chip.o"
 done
 
+# Relocatable objects for the ELF relocation handler, each with its
+# relocations as objdump lists them (the oracle tests/test_headless.py checks
+# Binary Ninja against): corpus.c with and without -mlongcalls on every
+# chip, once ESP-IDF style (-ffunction-sections -fdata-sections), and
+# reloc_edge.S, whose relocations mostly cannot be applied. objdump -r lists
+# the same records as objdump -dr, for data sections as well as code.
+mkdir -p obj
+objects() {
+    local chip=$1 name=$2 src=$3
+    shift 3
+    export XTENSA_GNU_CONFIG=$toolchain/lib/xtensa_$chip.so
+    "${prefix}gcc" -mdynconfig="$XTENSA_GNU_CONFIG" -O2 -ffreestanding -nostdlib "$@" -c "$src" -o "obj/$name.o"
+    "${prefix}objdump" -r "obj/$name.o" | sed 1,2d > "obj/$name.relocs"
+}
+for chip in esp32 esp32s2 esp32s3 esp8266; do
+    objects $chip $chip corpus.c
+    objects $chip $chip-longcalls corpus.c -mlongcalls
+done
+objects esp32 esp32-idf corpus.c -mlongcalls -ffunction-sections -fdata-sections
+objects esp32 reloc_edge reloc_edge.S
+# A static library, opened through Binary Ninja's AR container transform.
+rm -f obj/libcorpus.a
+"${prefix}ar" rcD obj/libcorpus.a obj/esp32-longcalls.o obj/esp8266.o
+
 prefix=$riscv/bin/riscv32-esp-elf-
 for chip in esp32c3 esp32c6; do
     case $chip in
