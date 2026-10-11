@@ -20,7 +20,7 @@ dependencies = [
 [[package]]
 name = "binaryninja"
 version = "0.1.0"
-source = "git+https://github.com/Vector35/binaryninja-api.git?branch=dev#e144e59e578aa49fe3b332e970093ba44b3362b0"
+source = "git+https://github.com/Vector35/binaryninja-api.git?rev=e144e59e578aa49fe3b332e970093ba44b3362b0#e144e59e578aa49fe3b332e970093ba44b3362b0"
 dependencies = [
  "binaryninjacore-sys",
  "bitflags",
@@ -35,7 +35,7 @@ dependencies = [
 [[package]]
 name = "binaryninjacore-sys"
 version = "0.1.0"
-source = "git+https://github.com/Vector35/binaryninja-api.git?branch=dev#e144e59e578aa49fe3b332e970093ba44b3362b0"
+source = "git+https://github.com/Vector35/binaryninja-api.git?rev=e144e59e578aa49fe3b332e970093ba44b3362b0#e144e59e578aa49fe3b332e970093ba44b3362b0"
 dependencies = [
  "bindgen",
  "cmake",
@@ -544,7 +544,7 @@ checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
 [[package]]
 name = "xtensa"
 version = "0.1.0"
-source = "git+https://github.com/jrozner/xtensa.git?branch=main#8a4d748d31e20ff669a1fa883a39c1e8473b21b8"
+source = "git+https://github.com/jrozner/xtensa.git?rev=8a4d748d31e20ff669a1fa883a39c1e8473b21b8#8a4d748d31e20ff669a1fa883a39c1e8473b21b8"
 
 [[package]]
 name = "zlib-rs"

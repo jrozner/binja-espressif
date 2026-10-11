@@ -698,11 +698,18 @@ impl<'a> Lifter<'a> {
                     return unimplemented(il);
                 };
                 let value = match insn.opcode() {
-                    O::Sll => il
-                        .lsl(4, self.ar(1), il.sub(4, self.c(32), self.reg(sar)))
+                    // Funnel shifts through 64 bits, as the hardware does,
+                    // so that a shift amount of 0 or 32 gives its result.
+                    O::Sll => {
+                        let hi = il.lsl(8, il.zx(8, self.ar(1)), il.const_int(1, 32));
+                        il.low_part(4, il.lsr(8, hi, self.reg(sar))).build()
+                    }
+                    O::Srl => il
+                        .low_part(4, il.lsr(8, il.zx(8, self.ar(1)), self.reg(sar)))
                         .build(),
-                    O::Srl => il.lsr(4, self.ar(1), self.reg(sar)).build(),
-                    O::Sra => il.asr(4, self.ar(1), self.reg(sar)).build(),
+                    O::Sra => il
+                        .low_part(4, il.asr(8, il.sx(8, self.ar(1)), self.reg(sar)))
+                        .build(),
                     // `src ar, as, as` is a rotate.
                     _ if ops[1] == ops[2] => il.ror(4, self.ar(1), self.reg(sar)).build(),
                     _ => {

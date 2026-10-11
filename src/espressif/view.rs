@@ -1,7 +1,5 @@
 //! A binary view for Espressif firmware images and flash dumps.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use binaryninja::Endianness;
 use binaryninja::binary_view::{
     BinaryView, BinaryViewBase, BinaryViewType, CustomBinaryView, CustomBinaryViewType,
@@ -89,11 +87,12 @@ impl CustomBinaryViewType for EspViewType {
             BNFreeSettings(handle);
             BnString::into_string(schema)
         };
-        static INSTANCES: AtomicUsize = AtomicUsize::new(0);
+        // One instance per open file: the core keeps named instances, and
+        // it asks for the load settings of a file more than once.
         let id = format!(
             "{}_load_settings_{}",
             Self::NAME,
-            INSTANCES.fetch_add(1, Ordering::Relaxed)
+            data.file().session_id().0
         );
         let settings = Settings::new_with_id(&id);
         settings.deserialize_schema(&defaults);
