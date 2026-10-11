@@ -32,6 +32,7 @@ use binaryninja::symbol::{SymbolBuilder, SymbolType};
 use binaryninja::workflow::{Activity, AnalysisContext, Workflow, activity};
 
 use crate::espressif::image::{self, RegionKind};
+use crate::espressif::rom_images::{self, RomElf, RomOf};
 use crate::espressif::{Chip, Cpu, rom_types};
 use crate::riscv;
 
@@ -87,11 +88,31 @@ fn apply(view: &BinaryView, chip: Chip) {
     let symbols = elf_symbols(&file);
     make_flash_data_read_only(view, chip);
     define_rom_symbols(view, chip, &symbols);
+    if let Some(rom) = own_rom(view, chip, &file) {
+        rom_types::type_rom_elf(view, chip, &rom);
+    }
     if let Cpu::RiscV(_) = chip.cpu()
         && let Some(gp) = symbols.iter().find(|s| s.name == "__global_pointer$")
     {
         riscv::set_global_pointer(view, gp.value);
     }
+}
+
+/// The chip's ROM, if the file is the chip's ROM ELF file (see
+/// [`rom_images::recognize`]). Only a view with a segment in the ROM's code,
+/// which firmware never has, is checked.
+fn own_rom(view: &BinaryView, chip: Chip, file: &[u8]) -> Option<RomElf> {
+    let ranges = chip.rom_code_ranges();
+    let in_rom = view.segments().iter().any(|s| {
+        let r = s.address_range();
+        ranges
+            .iter()
+            .any(|&(start, end)| r.start < end as u64 && (start as u64) < r.end)
+    });
+    if !in_rom || rom_images::recognize(file, chip.cpu().family()) != Some(RomOf::Chip(chip)) {
+        return None;
+    }
+    RomElf::parse(file, chip).ok()
 }
 
 /// Redefines the writable sections that lie in the chip's read-only flash

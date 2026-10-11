@@ -655,6 +655,75 @@ pub fn register_recognizer() {
     }
 }
 
+/// Types the ROM functions of the chip's ROM ELF file itself, `elf`, opened
+/// as the view. Its own segments hold the ROM, so no ROM region is added
+/// (see [`add_rom_region`]) and [`apply`] types none of them. Each function
+/// the ROM table names where the file names it too (or its jump table
+/// entry, `__call_<name>`) gets its prototype, pinned as with a ROM image
+/// (see [`pin_rom_function`]), and so does the function a jump table entry
+/// jumps to.
+pub fn type_rom_elf(view: &BinaryView, chip: Chip, elf: &RomElf) {
+    // A database keeps them.
+    if view.file().is_database_backed() {
+        return;
+    }
+    let (Some(platform), Some(lib)) = (view.default_platform(), library(chip)) else {
+        return;
+    };
+    let names_at = |addr: u32| -> Vec<String> {
+        let addr = addr as u64;
+        view.symbols_in_range(addr..addr + 1)
+            .iter()
+            .filter(|s| s.address() == addr)
+            .map(|s| s.raw_name().to_string_lossy().into_owned())
+            .collect()
+    };
+    let (table, revisions) = chip.rom_symbols();
+    let tables = std::iter::once(table).chain(revisions.iter().map(|&(_, t)| t));
+    let in_file = tables.flatten().copied().filter(|&(name, addr)| {
+        let jump = format!("__call_{name}");
+        chip.is_rom_function(addr) && names_at(addr).iter().any(|n| *n == name || *n == jump)
+    });
+    let functions = pick_typed(
+        in_file,
+        |name| {
+            lib.get_named_object(name.into())
+                .is_some_and(|t| t.type_class() == TypeClass::FunctionTypeClass)
+        },
+        |addr| names_at(addr).into_iter().next(),
+    );
+    if functions.is_empty() {
+        return;
+    }
+    if view.type_library_by_name(&lib.name()).is_none() {
+        view.add_type_library(&lib);
+    }
+    let function_at = |addr: u64| {
+        view.function_at(&platform, addr)
+            .or_else(|| view.add_auto_function_ext(addr, &platform, None, false))
+    };
+    let mut pinned = 0;
+    for (name, addr) in &functions {
+        let Some(func) = function_at(*addr as u64) else {
+            continue;
+        };
+        if pin_rom_function(view, &lib, &func, name, name) {
+            view.record_imported_object_library(&lib, name.as_str(), *addr as u64, &platform);
+            pinned += 1;
+        }
+        if let Some((imp_name, imp)) = elf.implementation(*addr)
+            && let Some(imp) = function_at(imp as u64)
+            && pin_rom_function(view, &lib, &imp, name, imp_name)
+        {
+            pinned += 1;
+        }
+    }
+    tracing::info!(
+        "typed {pinned} functions of the {} ROM ELF file",
+        chip.display_name()
+    );
+}
+
 /// From ROM symbols, in order of preference, the ones to type: one per
 /// address, with a type. A name `shown` gives for an address (the one the
 /// view shows) wins over the order, if it has a type.

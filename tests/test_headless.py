@@ -1666,6 +1666,12 @@ def rom_image_checks(tarball):
                   and len(bv.functions) > 500,
                   f"{name} opens as {chip} ({platform}, {bv.arch.name}, {len(bv.functions)} functions, "
                   f"ROM regions {rom_regions(bv)})")
+            # Its ROM functions have the ROM type library's prototypes, pinned
+            # (memset, and on the chips with a jump table, its entry too).
+            memsets = [(str(f.type), f.has_user_type) for f in bv.functions if f.name == "memset"]
+            check(memsets and all(t == "void*(void* arg1, int32_t arg2, uint32_t arg3)" and pinned
+                                  for t, pinned in memsets),
+                  f"{name}: memset has its prototype ({memsets})")
         else:
             check(platform not in supported, f"{name}, another chip's ROM, keeps {platform}")
         bv.file.close()
