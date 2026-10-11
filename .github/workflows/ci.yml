@@ -67,3 +67,40 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --no-default-features --all-targets -- -D warnings
+
+  # main builds against the binaryninja-api dev revision pinned in Cargo.toml;
+  # releases are built against the stable API. This checks that the code
+  # still builds and passes against stable.
+  stable-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Install Rust
+        run: |
+          rustup update stable --no-self-update && rustup default stable
+          rustup component add clippy
+
+      - name: Use the stable API
+        run: scripts/use_stable_api.sh
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-${{ github.job }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-${{ github.job }}-
+
+      - name: Build
+        run: cargo build --no-default-features
+
+      - name: Clippy
+        run: cargo clippy --no-default-features --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --no-default-features --lib
