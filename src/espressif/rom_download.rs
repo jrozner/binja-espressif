@@ -639,7 +639,9 @@ fn map_into(view: &BinaryView, chip: Chip) {
         // A view (a database, say) that holds this image's bytes but not
         // all its functions: one saved by a version that only named them,
         // or with `CREATE_FUNCTIONS` off then. Only the bytes say it is
-        // this image: another file of the same name may differ.
+        // this image: another file of the same name may differ. A file
+        // with the same bytes may name more functions: they are named too.
+        rom_types::name_image_functions(view, &found.elf);
         let created = rom_types::create_image_functions(view, &found.elf);
         if created > 0 {
             view.update_analysis();

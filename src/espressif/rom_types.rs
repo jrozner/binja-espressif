@@ -348,15 +348,7 @@ fn use_image(view: &BinaryView, chip: Chip, elf: &RomElf) {
             pinned += 1;
         }
     }
-    let mut named = 0;
-    for (name, addr) in elf.functions() {
-        let addr = *addr as u64;
-        if view.symbol_by_address(addr).is_none() {
-            let sym = SymbolBuilder::new(SymbolType::Function, name.as_str(), addr).create();
-            view.define_auto_symbol(&sym);
-            named += 1;
-        }
-    }
+    let named = name_image_functions(view, elf);
     let created = if rom_download::create_functions(view) {
         create_image_functions(view, elf)
     } else {
@@ -366,6 +358,21 @@ fn use_image(view: &BinaryView, chip: Chip, elf: &RomElf) {
         "pinned {pinned} typed {} ROM functions, named {named} others and created {created} functions from the ROM image",
         chip.display_name()
     );
+}
+
+/// Names each function the ROM image's symbol table names, where the view
+/// has no symbol, and returns how many it named.
+pub fn name_image_functions(view: &BinaryView, elf: &RomElf) -> usize {
+    let mut named = 0;
+    for (name, addr) in elf.functions() {
+        let addr = *addr as u64;
+        if view.symbol_by_address(addr).is_none() {
+            let sym = SymbolBuilder::new(SymbolType::Function, name.as_str(), addr).create();
+            view.define_auto_symbol(&sym);
+            named += 1;
+        }
+    }
+    named
 }
 
 /// Creates a function at each function the ROM image's symbol table names

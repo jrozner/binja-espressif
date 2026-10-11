@@ -1609,6 +1609,13 @@ def rom_image_checks(tarball):
     settings.set_bool("espressif.rom.createFunctions", False)
     bv = bn.load(elf)
     check_rom_image_functions(bv, "idf_esp32.elf", "esp32_rev0_rom.elf", 0x4000C44C, created=False)
+    # One ROM function without its name, as from a ROM ELF file that does
+    # not name it: the command names it from the image.
+    unnamed = next(a for a, n in rom_elf_functions("esp32_rev0_rom.elf").items()
+                   if bv.get_function_at(a) is None and bv.get_symbol_at(a) is not None
+                   and bv.get_symbol_at(a).name == n and bv.get_symbol_at(a).auto)
+    unnamed_name = bv.get_symbol_at(unnamed).name
+    bv.undefine_auto_symbol(bv.get_symbol_at(unnamed))
     db = os.path.join(user_dir, "rom_functions_off.bndb")
     bv.create_database(db)
     bv.file.close()
@@ -1623,6 +1630,9 @@ def rom_image_checks(tarball):
     wait_for(lambda: bv.analysis_progress.state == bn.AnalysisState.IdleState)
     check_rom_image_functions(bv, "a database saved with createFunctions off, after the command",
                               "esp32_rev0_rom.elf", 0x4000C44C)
+    named = bv.get_symbol_at(unnamed)
+    check(named is not None and named.name == unnamed_name,
+          f"the command names the image's functions the database does not ({named}, {unnamed_name})")
     bv.file.close()
     # But not from another image than the one it holds: here the v3.0 ROM
     # under the v0 ROM's file name.
