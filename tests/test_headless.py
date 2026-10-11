@@ -1646,6 +1646,30 @@ def rom_image_checks(tarball):
 
     ROM_ELF_DIRS.extend([elfs, os.path.join(user_dir, "espressif", "rom-elfs", release["tag"])])
 
+    # Espressif's ROM ELF files opened directly: each supported chip's (the
+    # lowest revision's) on its own platform, with no ROM region over its
+    # ROM; another chip's (the C61's passes the C5's checks, the P4's and
+    # S31's are hard-float) keeps Binary Ninja's platform.
+    supported = ("esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3", "esp32c6", "esp32h2", "esp32c5")
+    roms = {}
+    for name in os.listdir(elfs):
+        m = re.fullmatch(r"(\w+)_rev(\d+)_rom\.elf", name)
+        if m and (m.group(1) not in roms or int(m.group(2)) < roms[m.group(1)][0]):
+            roms[m.group(1)] = (int(m.group(2)), name)
+    check(set(supported) <= set(roms), f"the archive has every supported chip's ROM ELF file ({sorted(roms)})")
+    for chip, (_, name) in sorted(roms.items()):
+        bv = bn.load(os.path.join(elfs, name))
+        platform = bv.platform.name if bv.platform else None
+        if chip in supported:
+            arch = "rv32gc" if chip in RISCV_CHIPS else f"xtensa-{chip}"
+            check(bv.view_type == "ELF" and platform == chip and bv.arch.name == arch and not rom_regions(bv)
+                  and len(bv.functions) > 500,
+                  f"{name} opens as {chip} ({platform}, {bv.arch.name}, {len(bv.functions)} functions, "
+                  f"ROM regions {rom_regions(bv)})")
+        else:
+            check(platform not in supported, f"{name}, another chip's ROM, keeps {platform}")
+        bv.file.close()
+
     # A directory of ROM ELF files: the ROM region holds the chip's ROM, and
     # the typed ROM functions, their calls and databases are as without.
     settings.set_string("espressif.rom.elfDirectory", elfs)
@@ -1839,7 +1863,6 @@ def rom_image_checks(tarball):
         check_rom_types(bv, "esp32c3", elf_symbols(c3), "idf_esp32c3.elf after the download command",
                         "esp32c3_rev0_rom.elf")
         unpacked = sorted(os.listdir(os.path.join(cache, release["tag"]))) if os.path.exists(cache) else []
-        supported = ("esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3", "esp32c6", "esp32h2", "esp32c5")
         check(len(requests) == 2 and unpacked and all(re.fullmatch(r"(\w+)_rev\d+_rom\.elf", n).group(1) in supported
                                                       for n in unpacked),
               f"the command downloads and unpacks the supported chips' ROM ELF files ({unpacked})")
