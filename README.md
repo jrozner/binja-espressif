@@ -379,6 +379,11 @@ cargo build --release
 cp target/release/libbinja_xtensa.so ~/.binaryninja/plugins/   # .dylib / .dll elsewhere
 ```
 
+On Windows, run `git config --global core.longpaths true` first:
+binaryninja-api's `vendor/bindiff` submodule has paths longer than 260
+characters, which cargo refuses to check out otherwise. The release build
+sets it, and a short `CARGO_HOME`, for the same reason.
+
 `build.rs` compresses the SVD files in `svd/` into the plugin. They are
 vendored, each pinned to an upstream commit with its SHA-256 in
 `svd/SOURCES`; `scripts/fetch_svds.sh` downloads them again and checks them
@@ -470,6 +475,8 @@ by `.github/workflows/release.yml` (manual only) in two runs:
    built against (`build.api` and `build.api_source`, for the record), and
    each library's name, core ABI, size and SHA-256. The run summary shows
    it and each platform's core ABI, and the `manifest` artifact holds it.
+   The platforms build independently, so one failing doesn't cancel the
+   others, but the manifest is generated only when all three succeed.
    Each library's name carries its core ABI
    (`binja_xtensa-abi189-windows-x86_64.dll`), and the loader picks the one
    the running core accepts, so the publish run doesn't need to know the
