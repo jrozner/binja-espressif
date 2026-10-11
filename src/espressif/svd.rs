@@ -101,7 +101,7 @@ pub fn register_activity() {
             return;
         };
         let name = platform.name();
-        if let Some(chip) = Chip::ALL.into_iter().find(|c| c.platform_name() == name) {
+        if let Some(chip) = Chip::from_platform_name(&name) {
             configure(&view, chip);
         }
     });
