@@ -6,6 +6,7 @@
 pub mod cache;
 pub mod elf;
 pub mod image;
+pub mod rom_images;
 pub mod rom_symbols;
 pub mod rom_types;
 pub mod svd;
