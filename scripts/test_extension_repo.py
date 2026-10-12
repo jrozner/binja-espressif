@@ -56,9 +56,10 @@ MANIFESTS = "v2/manifests"
 EXTENSIONS = "extensions.json"
 VERSIONS = "versions.json"
 # The repository's name, which is also the folder Binary Ninja keeps its
-# plugins in (channels/<name>/). It predates the rename to binja-espressif
-# and stays, so an install made from this repository keeps its folder.
-MANIFEST_NAME = "binja-xtensa-test"
+# plugins in (channels/<name>/): that of jrozner/binja-extensions-test.
+# Before 0.1.0 it was binja-xtensa-test (see the README's "Testing a release
+# privately" for what that leaves behind).
+MANIFEST_NAME = "binja-extensions-test"
 # Download platforms of the extension server, by plugin.json platform.
 PLATFORMS = {
     "Darwin": ("darwin-x64", "darwin-arm64"),

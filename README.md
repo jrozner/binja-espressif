@@ -215,7 +215,7 @@ It provides:
   | ESP32-S2 | 458 of 884 (52%)    | 4         | 26 KiB  |
   | ESP32-S3 | 486 of 2035 (24%)   | 7         | 31 KiB  |
   | ESP32-C2 | 388 of 2621 (15%)   | 6         | 26 KiB  |
-  | ESP32-C3 | 393 of 1916 (21%)   | 6         | 27 KiB  |
+  | ESP32-C3 | 393 of 1916 (21%)   | 6         | 28 KiB  |
   | ESP32-C6 | 396 of 1209 (33%)   | 6         | 27 KiB  |
   | ESP32-H2 | 383 of 621 (62%)    | 6         | 25 KiB  |
   | ESP32-C5 | 407 of 1411 (29%)   | 6         | 27 KiB  |
@@ -494,6 +494,12 @@ and restart:
   turn up next to the current library, the loader removes it at startup.
 - A library you built yourself (`libbinja_xtensa.so`, `binja_xtensa.dll`)
   is left alone, as before.
+- The ROM type libraries have new GUIDs (they are named for
+  binja-espressif). A database saved by binja-xtensa names the old ones,
+  which no longer exist; the first time it is analyzed, it is brought up to
+  date with the new libraries (see **Mask ROM types** above), and keeps that
+  once saved. Until then Binary Ninja logs "Unable to deserialize type
+  library mapping information!" each time it is opened.
 
 ## Building from source
 
@@ -835,7 +841,7 @@ A stable Binary Ninja finds no library to install.
    Repository URLs* in Settings, too.
 
 4. **Install** *Espressif* (version `0.1.0-rc.1`, from the
-   `binja-xtensa-test` repository) in the extension manager and restart.
+   `binja-extensions-test` repository) in the extension manager and restart.
 
 Then check:
 
@@ -860,6 +866,19 @@ To try the update to the final release, regenerate the repository for
 extension manager offers it as an update, and the loader then asks to replace the library if it changed (not
 if the final release reuses the pre-release's build). Delete `bn-test` when
 done.
+
+**The repository was named `binja-xtensa-test` up to 0.1.0-rc.3**; the
+script now names it `binja-extensions-test`, as the GitHub repository is
+named. Binary Ninja keeps a repository's plugins in `channels/<name>/` of
+the user folder, and keeps listing a repository whose folder is there:
+once the regenerated files are served at the same URL, the extension
+manager lists both `binja-xtensa-test`, with what you installed from it
+still installed, and `binja-extensions-test`, each with the same plugins.
+To clean up, once: uninstall what you installed from `binja-xtensa-test`
+(Espressif Xtensa, or Espressif) in the extension manager, quit Binary
+Ninja, delete `channels/binja-xtensa-test/` from the user folder, and
+install Espressif from `binja-extensions-test`. The URL is the same, so
+`extensionManager.unofficialUrls` needs no change.
 
 ## Testing
 

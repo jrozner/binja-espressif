@@ -329,7 +329,7 @@ def rom_names(idf, chip, table, older=()):
 
 def setup_binaryninja(plugin):
     install = os.environ.get("BN_INSTALL_DIR", os.path.expanduser("~/binaryninja"))
-    user_dir = tempfile.mkdtemp(prefix="bn-xtensa-romtypes-")
+    user_dir = tempfile.mkdtemp(prefix="bn-espressif-romtypes-")
     atexit.register(shutil.rmtree, user_dir, True)
     os.makedirs(os.path.join(user_dir, "plugins"))
     os.symlink(plugin, os.path.join(user_dir, "plugins", os.path.basename(plugin)))
@@ -346,7 +346,7 @@ def setup_binaryninja(plugin):
 
 def parse_chip(bn, idf, chip, verbose):
     platform = bn.Platform[chip]
-    work = tempfile.mkdtemp(prefix="bn-xtensa-romtypes-config-")
+    work = tempfile.mkdtemp(prefix="bn-espressif-romtypes-config-")
     atexit.register(shutil.rmtree, work, True)
     dirs = include_dirs(idf, chip, work)
     options = parser_options(idf, chip)
@@ -445,7 +445,7 @@ def assign(names, code, functions, variables):
 def build_library(bn, chip, objects, types, used):
     platform = bn.Platform[chip]
     lib = bn.TypeLibrary.new(platform.arch, f"espressif-rom-{chip}")
-    lib.guid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://github.com/jrozner/binja-xtensa/rom-types/{chip}"))
+    lib.guid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://github.com/jrozner/binja-espressif/rom-types/{chip}"))
     # The only place the platform is named: the plugin loads the finalized
     # library and registers it as it is.
     lib.add_platform(platform)
