@@ -486,9 +486,11 @@ manager and restart. Until then:
   only one of them loads after the restart. If you decline, the old library
   stays and keeps working.
 - It logs that the old extension is still installed, and where, at every
-  start. The old loader stays quiet while the new library is loaded; should
-  it install `binja_xtensa-native.*` again, the new loader removes it at the
-  next start.
+  start (as does Binary Ninja, with "Setting:
+  espressif.loader.autoDownload already registered!", as both loaders
+  register it). The old loader stays quiet while the new library is loaded;
+  should it install `binja_xtensa-native.*` again, the new loader removes it
+  at the next start.
 - A library you built yourself (`libbinja_xtensa.so`, `binja_xtensa.dll`)
   is left alone, as before.
 
