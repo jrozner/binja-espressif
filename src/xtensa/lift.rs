@@ -480,6 +480,42 @@ impl<'a> Lifter<'a> {
         }
     }
 
+    /// Shows the analysis where the locals of a windowed function end, after
+    /// `entry` has allocated a `frame`-byte stack frame.
+    ///
+    /// The top 32 bytes of the frame (16 if it is smaller) are the register
+    /// save areas of the windowed ABI, which only the window overflow and
+    /// underflow handlers use: the base save area for `a0..a3` of an older
+    /// frame, and below it the extra save area where the function's own
+    /// `a4..a7` go when one of its `call8` callees spills them. GCC always
+    /// reserves these 32 bytes at the top of the frame and puts the locals
+    /// below them. Nothing the function itself does touches them, so the
+    /// core sees no stack access between the topmost local and the top of
+    /// the frame, and a local whose address is taken (passed to a callee
+    /// that takes a `uint32_t *out_size`, say) is widened to an array that
+    /// reaches the top of the frame (`uint32_t out_size[0x9]`). On other
+    /// architectures a saved register, such as RISC-V's `ra`, ends it.
+    ///
+    /// So the bottom word of the save areas is read into a temporary,
+    /// which nothing uses: the access gives the core a stack variable
+    /// there, which bounds the locals, and dead code elimination leaves it
+    /// out of the HLIL. It is not a read the processor makes. A store, or a
+    /// variable created through the API, does not do: a store would be a
+    /// write in the decompilation, and the core drops (or mistypes the
+    /// other variables over) the auto stack variables created during
+    /// analysis.
+    fn mark_save_area(&self, frame: i64) {
+        const SAVE_AREA: u32 = 0;
+        let size = match frame {
+            32.. => 32,
+            16..32 => 16,
+            _ => return,
+        };
+        let il = self.il;
+        let addr = il.add(4, self.ar(0), self.c(frame - size)).build();
+        self.set_temp(SAVE_AREA, 4, il.load(4, addr).build());
+    }
+
     fn load(&self, size: usize, signed: bool, dest: Reg, addr: Expr<'a>) {
         let value = self.il.load(size, addr).build();
         let value = match (size, signed) {
@@ -868,10 +904,9 @@ impl<'a> Lifter<'a> {
                     self.set(Reg::A(k), self.reg(Reg::A(k + 8)));
                 }
                 let sp = self.a(0);
-                self.set(
-                    sp,
-                    il.sub(4, self.reg(sp), self.c(self.imm(1) as i64)).build(),
-                );
+                let frame = self.imm(1) as i64;
+                self.set(sp, il.sub(4, self.reg(sp), self.c(frame)).build());
+                self.mark_save_area(frame);
             }
 
             // Zero-overhead loops
