@@ -1,950 +1,162 @@
 # binja-espressif
 
-A Binary Ninja plugin for Espressif's chips: it adds architectures for the
-Xtensa cores in Espressif's **ESP8266**, **ESP32**, **ESP32-S2** and
-**ESP32-S3**, written in Rust against the [binaryninja-api](https://github.com/Vector35/binaryninja-api): `main`
-and releases build against its `dev` branch, for the Binary Ninja dev
-channel. The code also builds against the latest stable release (6.0), and
-release builds for stable will follow later.
-Decoding is done by the [`xtensa`](xtensa/) disassembler crate in `xtensa/`,
-which is verified against GNU objdump.
+A Binary Ninja plugin for Espressif's chips. It adds architectures for the
+Xtensa cores of the **ESP8266**, **ESP32**, **ESP32-S2** and **ESP32-S3**,
+and loads firmware for those and for the RISC-V **ESP32-C2**, **C3**,
+**C5**, **C6** and **H2** (analyzed with Binary Ninja's own `rv32gc`
+architecture).
 
-The plugin is three crates shaped like the Rust plugins in the
-binaryninja-api tree, each a Binary Ninja plugin of its own, which the
-release bundles into one library (see [Repository layout](#repository-layout)):
-[`arch_xtensa`](arch/xtensa/) (the architectures),
-[`arch_riscv_ilp32`](arch/riscv_ilp32/) (the `ilp32` calling convention
-for Binary Ninja's RISC-V architecture) and
-[`view_espressif`](view/espressif/) (everything about Espressif's chips and
-firmware).
+- **Xtensa architectures** for each core, decoding exactly the instructions
+  it implements (MAC16, FPU, the S3's PIE vector extension and more),
+  disassembling like GNU objdump and lifting the whole ISA, with the
+  `windowed` and `call0` calling conventions and zero-overhead loops.
+- **Firmware images, flash dumps and ELF files** open on the right chip,
+  mapped into its memory map.
+- **ROM function names and types**, so calls into the mask ROM decompile
+  with real names and arguments (`ets_printf`, `memset`, `__udivdi3`).
+- **ROM images**, downloaded with your consent, so the ROM's own code can be
+  read and decompiled.
+- **Peripheral registers** named and typed from the chips' SVD files
+  (`UART0.INT_CLR.RXFIFO_FULL_INT_CLR = 9`).
 
-It also loads firmware for Espressif's RISC-V chips, the **ESP32-C2**,
-**ESP32-C3**, **ESP32-C6**, **ESP32-H2** and **ESP32-C5**, whose code is
-analyzed with Binary Ninja's own `rv32gc` architecture.
+## Install
 
-It provides:
+Install **Espressif** from Binary Ninja's extension manager. For now it
+needs a **dev** build of Binary Ninja; stable is not supported yet.
 
-- **Architectures** `xtensa-esp8266`, `xtensa-esp32`, `xtensa-esp32s2` and
-  `xtensa-esp32s3`, each decoding exactly the instructions its core
-  implements (including MAC16, booleans, FPU, the ESP32 DFP assist,
-  the S2 dedicated-GPIO TIE and the S3 PIE vector extension), and a
-  standalone platform of the same name.
-- **Platforms** `esp8266`, `esp32`, `esp32s2`, `esp32s3`, `esp32c2`,
-  `esp32c3`, `esp32c6`, `esp32h2` and `esp32c5` (the ESP-IDF target names,
-  under the OS `espressif`), one per chip, on the chip's architecture and
-  with its calling conventions. ESP images and ELF files
-  open with these; the chip, for example for the SVD file, is taken from
-  the platform. The architectures' standalone platforms remain available
-  (e.g. for `loader.platform`), but do not identify a chip.
-- **Disassembly** in GNU objdump syntax, with branch/call targets and `l32r`
-  literals as address tokens.
-- **Lifting** of the whole ISA to LLIL: every decodable instruction lifts
-  (checked by `arch_xtensa`'s `liftcheck` lift sweep), with native semantics
-  for the integer, load/store, branch, call, shift/SAR, zero-overhead loop,
-  boolean, floating point and conditional-move instructions, and intrinsics
-  for the rest.
-- **Flags**: the boolean registers `b0`–`b15` (Xtensa has no condition codes).
-- **Intrinsics** named after their mnemonics (`__memw`, `__rsil`,
-  `__ee_vmulas_s16_accx_ld_ip`, ...) and for accesses to hardware special and
-  user registers (`__rsr_ccount()`, `__wsr_intenable(x)`, `__xsr_vecbase(x)`).
-- **Calling conventions**: `windowed` (the `call8` ABI used for all ESP32
-  family code; default there) and `call0` (the ESP8266 ABI, and hand-written
-  or `-mabi=call0` code on the others). Functions that do not begin with
-  `entry` on the windowed cores get `call0` before their parameters and
-  return value are inferred, unless you have given the function a type or
-  calling convention yourself (for example a windowed stub with no `entry`,
-  typed `__convention("windowed")`). There, `callx0` sites are typed as
-  `call0` calls (with the callee's type, or variadic for an unknown target),
-  since Binary Ninja otherwise calls through a register with the platform's
-  default convention; a call site type you set is kept, and so is the type
-  of a function pointer called through (give it `__convention("call0")`).
-  Both place arguments as GCC does: in the six argument registers, a value
-  aligned to 8 bytes (`double`, 64-bit integers) starting at an even one and
-  structures included, and on the stack from the first argument that does
-  not fit. On `rv32gc`,
-  `ilp32`, the soft-float ABI ESP-IDF builds the RISC-V chips for (the
-  architecture's own `default` passes floating point values in `fa0`–`fa7`),
-  is the RISC-V chip platforms' default.
-- **Zero-overhead loops** (`loop`/`loopnez`/`loopgtz`) recovered as real loops.
-- **Windowed stack frames**: the register save areas at the top of an
-  `entry` frame (32 bytes, as GCC lays it out) end the function's locals,
-  so a local whose address is passed on keeps its size instead of growing
-  into an array that reaches the top of the frame. `entry` reads the bottom
-  word of the save areas into an unused temporary for this (`temp0 =
-  var_20` in the MLIL); the read is not one the processor makes, and dead
-  code elimination leaves it out of the HLIL.
-- **Patching** on the Xtensa architectures: converting to nops (`nop`,
-  `nop.n`), never branch, invert branch (every conditional branch, narrow
-  `beqz.n`/`bnez.n` included) and always branch (a 3-byte branch becomes a
-  `j` to the same target; a narrow branch has no room for one). Skip and
-  return value turns a call into a `movi` of the value (-2048 to 2047) to
-  the register the call returns in: `a2` after `call0`, `a10` after `call8`.
-  Loop instructions and `entry` are not offered as branches.
-- An **`ESP` binary view** for raw firmware:
-  - ESP32/ESP32-S2/ESP32-S3 and ESP32-C2/C3/C6/H2/C5 application and
-    bootloader images from any ESP-IDF version (the chip is taken from the
-    extended header's `chip_id`; images from before that field existed are
-    recognised as ESP32);
-  - ESP8266 v1 images (NONOS/RTOS SDK, including the RTOS SDK v3 layout with an
-    extended header) and v2 images (`0xEA`, NONOS OTA `user1.bin`, Arduino);
-  - flash dumps, starting at flash offset 0 or 0x1000 (as `esptool merge_bin`
-    and most firmware distributions produce for the ESP32/ESP32-S2), through
-    the `EspFlash` container transform (see **Flash dumps** below). ESP8266
-    NONOS dumps (no partition table: a v1 image at 0 that maps no flash
-    itself, with data written past it from 0x10000) are mapped as a whole
-    through the 0x40200000 flash cache window so `irom0` code is present.
-    An ESP8266 app on its own, however long, is not.
+The plugin is a native library, which the extension manager can't install
+itself, so what it installs is a small Python loader that fetches the
+prebuilt library (Linux x86_64, Windows x86_64, macOS) from this
+repository's GitHub release:
 
-  The view maps every segment into the chip's memory map with appropriate
-  permissions and section semantics, adds unbacked segments for `.bss`,
-  RTC memory and the peripheral register blocks, names the mask ROM's
-  functions and data (from the ESP-IDF and ESP8266 SDK linker scripts),
-  types them (see **Mask ROM types** below), names
-  the ESP8266's peripheral blocks as its SDK's linker script does (`uart0`,
-  `frc1`: aliases of the SVD file's names, below), types the ESP-IDF
-  `esp_app_desc_t`, and,
-  on the Xtensa chips, seeds functions from every aligned `entry`
-  instruction so that callbacks and tasks reached only through pointers are
-  found. On the RISC-V chips it finds ESP-IDF's interrupt vector table
-  (`_vector_table`, or the CLIC's `_mtvt_table` on the ESP32-C5) and names
-  and seeds its handlers, and reads the value `call_start_cpu0` loads into
-  `gp` (`la gp, __global_pointer$`) so that `gp`-relative accesses to small
-  data resolve from the start. The value is set as the view's global
-  pointer value (*user* value, since Binary Ninja only allows setting those),
-  once, when the file is first loaded: one you set yourself is left alone,
-  and one you change or clear stays that way when the database is reopened.
-  Bootloader images do not use `gp`. On the ESP32-C6, H2 and C5, where SRAM
-  is one region seen by both buses and flash is mapped through one window
-  shared by code and read-only data, the SRAM segments are mapped writable
-  and executable and the flash window read-only, as code.
-- **Peripheral registers from SVD**: Espressif's SVD files for the ESP32,
-  ESP32-S2, ESP32-S3, ESP32-C2, ESP32-C3, ESP32-C6, ESP32-H2 and ESP32-C5
-  (Apache-2.0), and for the ESP8266, which Espressif never published one
-  for, a file made from esp-rs/esp-pacs' (MIT or Apache-2.0; see
-  [view/espressif/svd/README.md](view/espressif/svd/README.md)),
-  are bundled and applied automatically to ESP firmware images and ELF files
-  by Binary Ninja's SVD loader, naming and typing every peripheral register (`UART0.INT_CLR.RXFIFO_FULL_INT_CLR = 9`). An SVD file chosen in *Open with
-  Options* (*SVD File*, `analysis.svd.autoLoadFile`) takes precedence, and
-  `espressif.svd.autoLoad` turns this off. The files are unpacked once to
-  `<user directory>/espressif/svd/`. This needs Binary Ninja's SVD loader
-  plugin (`svd_ninja`); without it, peripherals are left unnamed (the
-  ESP8266's blocks keep their linker script names). The ESP8266 file covers
-  DPORT, EFUSE, the RNG register, UART0/1, SPI0/1, GPIO, IO_MUX, the timers
-  (FRC1/FRC2), RTC, WDT, SLC, I2S and the analog I2C master's register
-  (`I2C_ANA`); see **Not supported** for what it leaves out.
-- **Flash dumps**: a dump with a partition table at flash offset 0x8000
-  opens as a container (the `EspFlash` transform), like an archive: its
-  files are `bootloader` (the second stage bootloader, up to the table),
-  `partition-table`, and one per partition, named by its label, each
-  described by its type, subtype, flash offset and size. In the UI,
-  Binary Ninja's container browser lists them all to choose from. Headless,
-  `bn.load` opens the one the `files.espressif.partition` setting names,
-  by default the factory app (or else the first OTA app with an image):
-  `bn.load(path, options={"files.espressif.partition": "ota_1"})`, or
-  `"bootloader"`, `"nvs"`, ...; `"*"` opens the whole dump instead, as
-  does a name the dump has no file for (with an error logged). The app and
-  bootloader files open with the `ESP` view; data partitions and the
-  partition table are not code, and are left to Binary Ninja (`bn.load`
-  opens them in a `Mapped` view with its default architecture). The
-  view of a file records where it came from (its virtual path, partition
-  label, type, subtype, flash offset and size) in its
-  `espressif.flash.entry` metadata, which a database keeps. A single
-  partition, as `esptool.py read_flash` or `parttool.py read_partition`
-  reads it, or an image from a build, has no partition table: it is not a
-  container, and opens directly with the `ESP` view.
+1. After installing, the loader asks once whether to download the native
+   library. If you say no, you can run **Plugins > Espressif > Install or
+   Update Native Library** later.
+2. Restart Binary Ninja to load it.
 
-  With the container off (`files.container.mode` set to `Disabled`, or
-  `files.container.excludedTransforms` containing `EspFlash`), the `ESP`
-  view loads the whole dump, mapping only one image of it: the app
-  partition or bootloader `files.espressif.partition` names, by default the
-  factory app. There it is read from the global settings (`bn.Settings()`):
-  in `bn.load`'s options it only reaches the container. The files of a dump can also be listed and extracted with
-  `binaryninja.transform.TransformSession` (with
-  `options={"files.espressif.partition": "*"}` to see them all, as in
-  `tests/test_headless.py`); keep the session alive as long as views of its
-  files are open.
-- **ELF support**: `EM_XTENSA` and `EM_RISCV` files open with the ELF view
-  on the chip's platform. A RISC-V file counts as Espressif firmware only if
-  it is 32-bit, uses the soft-float ABI and loads entirely into one
-  supported chip's memory; any other RISC-V file keeps Binary Ninja's own
-  platform (`linux-rv32gc`). The chip is the one whose memory map holds
-  every loaded segment. Where several do (the C2 and C3; the C6, H2 and C5;
-  some Xtensa layouts), the `ABS` symbols ESP-IDF puts in the ELF for the ROM
-  functions it calls decide: the chip whose ROM has the most of them, by
-  name and address. Failing that, the load addresses (and, for Xtensa,
-  whether the entry point uses the windowed ABI) pick the most likely chip.
-  To force a chip, set Binary Ninja's standard `loader.platform` load
-  setting to its platform (`esp32`, `esp32c3`, ...):
-  *Open with Options* → *Platform*, or
-  `bn.load(path, options={"loader.platform": "esp32s3"})`. It takes
-  precedence over the recognised chip.
-- **ESP-IDF ELF files** analyze like firmware images. On the C6, H2 and
-  C5, whose code and data share one flash window, ESP-IDF (v5.x and v6.1)
-  starts the rodata's PT_LOAD at the code's address with the zeros of
-  `.flash_rodata_dummy`, a `NOLOAD` placeholder the size of the code, and
-  Binary Ninja maps that PT_LOAD over the code's: the code is mapped from
-  the file again, and placeholder sections (also the S3's `.ext_ram.dummy`
-  over `.flash.rodata`) are trimmed off the code and data they overlap,
-  so that these are not writable to analysis. Sections in the
-  chip's flash data (`.flash.rodata`, which ESP-IDF marks writable) are made
-  read-only data, so jump tables and constants in them resolve; the mask
-  ROM's functions and data are named from the ELF's `ABS` symbols, and from
-  the bundled ROM table for names it lacks (the symbols of every chip
-  revision only, as an ELF does not say which revision it needs), and
-  typed; and the RISC-V global pointer is taken from `__global_pointer$`.
-- **Mask ROM types**: the ROM functions get their prototypes, and the ROM
-  variables their types, so that calls into the ROM decompile with the
-  right arguments and results (`__udivdi3(a, b)` on two `uint64_t`s rather
-  than four registers, `ets_delay_us(n)`, `memset(&buf, c, n)`) and ROM
-  data shows its fields (`rom_spiflash_legacy_data->chip.chip_size`). Every
-  chip but the ESP8266 has a type library, generated from ESP-IDF v6.1's
-  ROM headers (`components/esp_rom`, and the heap component's for the ROM's
-  TLSF and multi_heap functions), newlib's headers for the C library
-  functions in the ROM, and the libgcc helpers' standard prototypes
-  (`scripts/rom_types_extra.h`), and embedded in the plugin; it is unpacked
-  to `<user directory>/espressif/rom_types/` at startup. The ROM's code is
-  mapped as a memory region of its own (`espressif.rom`), holding the ROM
-  image if there is one (see **Mask ROM images** below) and zeros
-  otherwise, where each typed ROM function is defined as an imported
-  function: Binary Ninja applies a callee's type only to a function, and
-  creates functions only where there are bytes. ROM functions with several names (`ets_printf` and
-  `esp_rom_printf`) are typed under the one already shown, and revision-
-  specific ones (the ESP32 v3.0 ROM's Secure Boot v2 API) only for images
-  that require that revision. All of the ROM functions that ESP-IDF's
-  `hello_world` calls are typed (ESP32 and ESP32-C3); of all the names in
-  the ROM tables, from 15% (ESP32-C2) to 62% (ESP32-H2) are, as most of
-  the rest (Bluetooth, Wi-Fi and PHY internals) have no public header:
+The download is checked against SHA-256 hashes shipped with the plugin. If
+there is no library for your platform or Binary Ninja version, the loader
+logs what's available and installs nothing; [build from
+source](#building-from-source) instead. If you've already put a library
+you built yourself in the plugin folder, the loader leaves it alone.
 
-  | Chip     | Typed ROM functions | Variables | Library |
-  |----------|---------------------|-----------|---------|
-  | ESP32    | 471 of 1777 (27%)   | 11        | 27 KiB  |
-  | ESP32-S2 | 458 of 884 (52%)    | 4         | 26 KiB  |
-  | ESP32-S3 | 486 of 2035 (24%)   | 7         | 31 KiB  |
-  | ESP32-C2 | 388 of 2621 (15%)   | 6         | 26 KiB  |
-  | ESP32-C3 | 393 of 1916 (21%)   | 6         | 28 KiB  |
-  | ESP32-C6 | 396 of 1209 (33%)   | 6         | 27 KiB  |
-  | ESP32-H2 | 383 of 621 (62%)    | 6         | 25 KiB  |
-  | ESP32-C5 | 407 of 1411 (29%)   | 6         | 27 KiB  |
+**Headless**, the loader never asks: it downloads only if the
+`espressif.loader.autoDownload` setting is on (in Settings, or
+`{"espressif.loader.autoDownload": true}` in `settings.json` in your user
+folder).
 
-  Databases keep the types; a database saved before this feature existed is
-  not retyped when reopened. A database typed from another version of the
-  library (saved by an earlier build of the plugin) is brought up to date
-  the first time it is analyzed: the ROM functions and variables the
-  library now types are typed, changed prototypes and types are replaced
-  (an edit of yours to one of them too), and they are recorded as imported
-  from this library. Save the database afterwards to keep that.
-- **Mask ROM images**: the ROM region holds the chip's real ROM when one of
-  Espressif's ROM ELF files is available, so the ROM's code can be read
-  and decompiled (`memset` at 0x4000c44c on the ESP32 starts
-  `entry a1, 16`). The plugin does not bundle them: they come from
-  [esp-rom-elfs](https://github.com/espressif/esp-rom-elfs), whose ELF
-  files are licensed under Apache-2.0; the ROM code itself is closed
-  source, Copyright Espressif Systems, and includes third-party libraries
-  listed in [ESP-IDF's copyrights page](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/COPYRIGHT.html#rom-source-code-copyrights).
-  The plugin looks for `<chip>_rev<REV>_rom.elf`, in order, in:
-  1. the directory in the `espressif.rom.elfDirectory` setting: the
-     file's own, then yours. A file gets its own when it is opened: one
-     set with *Open with Options*, or headless as a load option
-     (`bn.load(path, options={"espressif.rom.elfDirectory": dir})`), else
-     a copy of yours; a database saves it, path included;
-  2. ESP-IDF's tools install, `$IDF_TOOLS_PATH/tools/esp-rom-elfs/<version>/`
-     and `~/.espressif/tools/esp-rom-elfs/<version>/` (newest version
-     first);
-  3. its own download cache, `<user directory>/espressif/rom-elfs/<release>/`.
+**Uninstalling:** removing the plugin in the extension manager doesn't
+remove the native library. Run **Plugins > Espressif > Remove Native
+Library** first (or delete `binja_espressif-native.so`, `.dll` or `.dylib`
+from your [user plugin folder](https://docs.binary.ninja/guide/index.html#user-folder)),
+then restart.
 
-  The first file that is the chip's (an ELF of the chip's architecture
-  whose symbols put `ets_printf` and `memset`, or their ROM jump table
-  entries, where the chip's ROM table does) is used, and only its loadable
-  contents within the ROM's code range and its data bus alias. The revision is the minimum chip
-  revision an ESP image requires, and the lowest for an ELF file, or the
-  `espressif.rom.revision` setting's (`v3.0`; settable per file with
-  *Open with Options*); the file of the highest revision up to it is used,
-  or the lowest there is. `espressif.rom.loadImages` turns all this off.
+## Usage
 
-  The ROM's constants (`_ctype_`, its strings, its drivers' tables) are
-  read by its code where the data bus sees the ROM, not where the ROM
-  region has them. With an image, that alias is mapped too, as read-only
-  data (`espressif.rom.data`), with the ELF file's `.rodata`: in
-  0x3FF90000..0x3FFA0000 on the ESP32, 0x3FFA0000..0x3FFB0000 on the
-  ESP32-S2 and from 0x3FF00000 on the ESP32-S3, C2 and C3 (the C6, H2 and
-  C5 keep their constants in the ROM region). The ROM variables
-  there then have values, and the ROM code's references to them (and
-  switch tables) resolve. Without an image it is left unmapped, as zeros
-  would read as the constants' values. A database saved with the image by
-  an earlier version gets it from **Plugins > Espressif > Download ROM
-  Images**.
+Open a file and the plugin picks the chip:
 
-  **Downloading** happens only with your consent, from the esp-rom-elfs
-  release pinned in `view/espressif/src/rom_images.rs` (20260528, 4.9 MB),
-  over HTTPS through Binary Ninja's download provider (its proxy settings
-  apply). In the UI it never holds up loading a file (the ROM region holds
-  zeros meanwhile):
-  - In the UI, the first file that would use a ROM image asks once whether
-    to download them, naming the source and licence. If you answer No,
-    it doesn't ask again for that release. If you answer Yes, the image is
-    mapped into that file when the download is done; other open files map
-    it when they are next reanalyzed or reopened.
-  - **Plugins > Espressif > Download ROM Images** downloads them on
-    request and maps the image into the current file, database or not.
-    In a file that has the image already, it creates the ROM functions
-    the file lacks (a database saved with `espressif.rom.createFunctions`
-    off, or by 0.1.0-rc.1, which only named most of them).
-  - Headless (scripts, `bn-remote`-style servers), it never asks; it
-    downloads only if the `espressif.rom.autoDownload` setting is enabled
-    (with it on, the UI doesn't ask either), and then the load that needs
-    the image waits for the download (at most 30 s), so the view, and a
-    database saved right after loading, has it. If the download fails or
-    times out, the view has zeros and a warning says so; an analysis tries
-    again a few minutes later. Without the setting or an image, a warning
-    says how to get one.
+- **Firmware images** (ESP-IDF app and bootloader `.bin` files, ESP8266 v1
+  and v2 images) open in the `ESP` view, with the segments, RAM, RTC memory
+  and peripherals mapped, the ROM's functions named and typed, and the app
+  description typed.
+- **ELF files** (`EM_XTENSA`, or 32-bit soft-float RISC-V that fits a
+  chip's memory map) open on the chip's platform, with ESP-IDF's layout
+  fixed up. If the plugin guesses the wrong chip, choose it in *Open with
+  Options > Platform* (`esp32`, `esp32s3`, `esp32c3`, ...). Relocatable
+  objects and static library members (such as ESP-IDF's binary Wi-Fi
+  libraries) load with their relocations applied.
+- **Flash dumps** with a partition table open in Binary Ninja's container
+  browser, listing the bootloader, the partition table and each partition
+  by label; pick the one to analyze. Headless, `bn.load` opens the factory
+  app; choose another with the `files.espressif.partition` load option
+  (`"ota_0"`, `"bootloader"`, or `"*"` for the whole dump).
+- **Espressif's ROM ELF files** (from
+  [esp-rom-elfs](https://github.com/espressif/esp-rom-elfs)) open on their
+  chip with the ROM functions typed.
 
-  **Headless**, `espressif.rom.autoDownload` must be in the user settings
-  (`settings.json` in the user directory, or `binaryninja.Settings()`
-  before loading): it is global, and as a load option it is ignored.
-  `espressif.rom.elfDirectory` can be either (see above). To check what a
-  view's ROM region holds, read its `espressif.rom` metadata with one
-  call, `bv.query_metadata("espressif.rom")`:
-  `{"status": "mapped", "chip": "esp32", "image": "esp32_rev0_rom.elf",
-  "revision": 0, "source": "cache", "release": "20260528", "sha256": ...,
-  "dataAlias": true}`.
-  `status` is `mapped`, or for a region of zeros `zeros` (no image found,
-  or `espressif.rom.loadImages` off), `downloading` (a download is
-  running) or `failed` (this session's last download failed or timed out;
-  the log says why); the image's fields come only with `mapped`. `source`
-  is `elfDirectory`, `esp-idf` or `cache`, and `release` the esp-rom-elfs
-  version of the latter two; `dataAlias` says whether the ROM's data bus
-  alias (`espressif.rom.data`) is mapped too. It is saved in databases,
-  so it names no absolute path. A view without it has no ROM region (the ESP8266, or a
-  file that maps the ROM itself, such as a chip's ROM ELF file opened
-  directly, whose `espressif.rom.elf` metadata names its chip).
-  `espressif.rom.image`, the ROM ELF
-  file's name (`KeyError` with zeros), is kept too. A database keeps the
-  ROM region it was saved with; to map the image into one saved with
-  zeros, run the command on it and save:
+### ROM images
 
-  ```python
-  ctx = binaryninja.PluginCommandContext(bv)
-  binaryninja.PluginCommand.get_valid_list(ctx)["Espressif\\Download ROM Images"].execute(ctx)
-  # it runs on a thread of its own: wait until
-  # bv.query_metadata("espressif.rom")["status"] == "mapped", then
-  bv.update_analysis_and_wait()
-  bv.file.save_auto_snapshot()
-  ```
+Firmware calls into the chip's mask ROM all the time. The plugin always
+names and types the ROM's functions, and with a ROM image it also maps the
+ROM's real code and data, so you can follow calls into it.
 
-  The archive is used only if its size and SHA-256 match the pinned ones;
-  only the ROM ELF files of the chips the plugin supports are unpacked,
-  under names made from the chip and revision, never from the archive's
-  paths.
+The images aren't bundled. The first time a file could use one, Binary
+Ninja asks whether to download them from esp-rom-elfs (about 5 MB, once).
+You can also run **Plugins > Espressif > Download ROM Images** at any time;
+it maps the image into the current file. If ESP-IDF's tools are installed
+(`~/.espressif/tools/esp-rom-elfs`), their copy is used without downloading
+anything.
 
-  `scripts/fetch_rom_elfs.py` does the same without Binary Ninja (Python
-  standard library only; run it from a checkout, as it reads the pinned
-  release from `rom_images.rs`), to provision a machine ahead of time: it
-  unpacks into the download cache of the user directory
-  (`$BN_USER_DIRECTORY`, else the platform's default), or with `--dir DIR`
-  into a directory for `espressif.rom.elfDirectory`; `--archive FILE` uses
-  an archive downloaded already.
+### Settings
 
-  With real code in the ROM, every function the ROM ELF file's symbol
-  table names becomes a function and is analyzed (about 2,000 to 2,300
-  per chip), so the ROM reads like any other code. The `espressif.rom.createFunctions` setting
-  turns that off: the ROM's other functions are then only named, and
-  analysis creates just the typed ROM functions and the ROM functions they
-  call (about 80 more on the ESP32, 450 to 600 on the RISC-V chips and the
-  ESP32-S3, whose ROM API is a jump table to the implementations), for a
-  smaller database and a faster analysis. The typed ROM functions' names,
-  prototypes and purity are made user data, as the analysis of a body
-  would change them (a jump table entry is named `j_sub_...` after its
-  target, `void *` parameters narrow to `uint8_t *`, `__pure` is
-  inferred), and the functions behind the jump table get the same
-  prototypes. They still clobber the caller-saved registers, the API's
-  contract, whatever their bodies do. A database keeps the ROM region it
-  was saved with: one saved with zeros gets the image only through
-  **Download ROM Images**. The ROM image and the analysis of its
-  functions add to a database: the ESP32 test ELF's is 2.2 MB without an
-  image, 4.3 MB with one and `espressif.rom.createFunctions` off, and
-  12 MB with it on (creating the ROM's functions adds 4 to 8 MB on each
-  chip, and a second or two of analysis).
-- **Relocatable objects**: `.o` files, and the members of static libraries
-  such as ESP-IDF's binary Wi-Fi, PHY and Bluetooth libraries
-  (`libnet80211.a`, `libphy.a`, `libbtdm_app.a`), load with their
-  relocations applied by an ELF relocation handler on each Xtensa
-  architecture: `R_XTENSA_32` (literal pools and data pointers, adding to
-  the part of the addend the assembler leaves in the word),
-  `R_XTENSA_32_PCREL`, and `R_XTENSA_SLOT0_OP` on `l32r`, the calls, `j`,
-  the conditional branches (`beqz.n`/`bnez.n` included), the
-  zero-overhead loops and `movi`. Every re-encoded instruction is decoded
-  to check it; one that cannot reach its target (out of range, misaligned,
-  or an `l32r` whose literal lies after it) is left as assembled and a
-  warning is logged. The linker's relaxation hints (`ASM_EXPAND`,
-  `ASM_SIMPLIFY`) and label differences (`DIFF`, `PDIFF`, `NDIFF`, already
-  stored by the assembler) need nothing. Binary Ninja places an object's
-  sections one after another from 0x10000, in section header order, and
-  GNU as puts the literal sections first, so `l32r` reaches its literals;
-  undefined symbols become external symbols. An object has no addresses to
-  tell the chips apart by, so call0 objects (`ABI=1` in their
-  `.xtensa.info`) open as `esp8266` and windowed ones as `esp32`: set
-  `loader.platform` for ESP32-S2 or ESP32-S3 code. `bn.load` does not open
-  a `.a` archive; Binary Ninja's `AR` container transform lists its
-  members (headless, through `binaryninja.transform.TransformSession`, as
-  in `tests/test_headless.py`), or extract them with `ar x`.
+Everything is under *Espressif* in Settings. The ones you're most likely to
+want:
 
-Assembling is not supported on the Xtensa architectures.
+- `espressif.rom.autoDownload`: download ROM images without asking (the
+  only way they download headless).
+- `espressif.rom.elfDirectory`: a directory of ROM ELF files to use.
+- `espressif.rom.createFunctions`: turn off to only name the ROM's
+  functions rather than analyze them all (a smaller, faster database).
+- `espressif.svd.autoLoad`: turn off to skip the bundled SVD files.
+- `files.espressif.partition`: the flash dump partition to open headless.
 
-Not supported for now:
+## Limitations
 
-- **ESP32-P4.** Its images are not loaded (the log says so), and its ELFs
-  are not recognised as Espressif firmware. Its custom instructions (the
-  PIE SIMD extension, in two incompatible versions for chip revisions
-  before and from v3.0, and the hardware loops) are not decoded; Binary
-  Ninja's `rv32gc` treats them as invalid instructions.
-- **ESP32-C61, H21, H4 and S31.** Their images are not loaded either: the
-  log names the chip ("ESP image for ESP32-C61 (chip id 20) ... is not
-  supported by binja-espressif"), or gives the raw `chip_id` of an image for
-  a chip it does not know, and the file opens as it would without the
-  plugin.
-- **Other relocations.** The dynamic and TLS relocations (Espressif
-  firmware is linked statically), the FLIX slot relocations
-  (`R_XTENSA_SLOTn_OP`/`ALT` for slots 1 and up, and `SLOT0_ALT`) and
-  `const16` operands are not applied; Espressif's cores have neither FLIX
-  nor `const16`. Binary Ninja's DWARF import rejects the Xtensa relocations
-  of an object's debug sections, so objects built with `-g` load without
-  their debug information.
-- **ESP8266 ROM types.** Its ROM functions are named but not typed: the
-  ESP-IDF docker image the type libraries are made from has no ESP8266 SDK
-  headers.
-- **ESP8266 Wi-Fi and analog registers.** Its SVD file (see above) has no
-  registers for the Wi-Fi MAC and baseband (WDEV, 0x3FF20000 on, apart from
-  the RNG register at 0x3FF20E44), the SAR ADC or the analog blocks behind
-  the internal I2C master; those addresses stay unnamed and unmapped.
-- **Zcb/Zcmp on the ESP32-C5.** ESP-IDF only emits them with
-  `CONFIG_COMPILER_ENABLE_RISCV_ZCMP` (off by default). `rv32gc` decodes
-  `cm.push`/`cm.pop` as `fsd` and does not decode the Zcb instructions, so
-  firmware built with that option analyzes incorrectly.
+- The **ESP32-P4**, **C61**, **H21**, **H4** and **S31** aren't supported
+  yet: their images aren't loaded (the log says so), and P4 ELF files open
+  as generic RISC-V.
+- Assembling isn't supported on the Xtensa architectures.
+- **ESP8266** ROM functions are named but not typed, and its SVD file lacks
+  the Wi-Fi, ADC and analog registers.
+- **ESP32-C5** firmware built with `CONFIG_COMPILER_ENABLE_RISCV_ZCMP` (off
+  by default) analyzes incorrectly.
+- Peripheral names need Binary Ninja's SVD loader plugin (`svd_ninja`).
 
-## Installing
-
-The plugin is a native library, but Binary Ninja's extension manager only
-installs Python plugins, from the source of the latest release. So what it
-installs is a small Python loader (`__init__.py` and
-`binja_espressif_loader/`), which installs the prebuilt native library from
-the matching GitHub release into your
-[user plugin folder](https://docs.binary.ninja/guide/index.html#user-folder).
-Prebuilt libraries exist for Linux x86_64, Windows x86_64 and macOS
-(universal). For now they are built for the core ABI of the Binary Ninja
-**dev** channel at release time (the binaryninja-api revision pinned in
-`Cargo.toml`), so they need a dev build of Binary Ninja; stable is not
-supported yet. For any other platform, or a Binary Ninja whose core ABI
-range doesn't include the release's (such as stable, or a much newer dev
-build), the loader logs what is available and does nothing;
-[build from source](#building-from-source) instead.
-
-1. Install **Espressif** in the extension manager.
-2. Nothing is downloaded without your consent:
-   - In the UI, the loader asks once whether to download the library (it
-     asks again only when a new version needs a different library). If you
-     decline, use **Plugins > Espressif > Install or Update Native Library**
-     later.
-   - Headless, it never asks; it downloads only if the
-     `espressif.loader.autoDownload` setting is enabled (in the UI, or in
-     `settings.json` in the user folder:
-     `{"espressif.loader.autoDownload": true}`), and otherwise logs what to
-     do. With the setting on, the UI doesn't ask either.
-3. Restart Binary Ninja to load the library. The loader does not load it
-   from Python: Binary Ninja loads it like any native plugin, after the
-   plugins it depends on.
-
-The library is downloaded over HTTPS from this repository's GitHub release
-(redirects are only followed to GitHub's release asset storage), and is
-installed only if its size and SHA-256 match
-`binja_espressif_loader/manifest.json`, which is part of the plugin's source as
-the extension manager installed it; nothing fetched from the release is
-trusted. It is written to a temporary file in the plugin folder, checked,
-and then renamed to `binja_espressif-native.so` (`.dll`, `.dylib`), so a new
-version replaces the old one and only one is ever installed.
-
-If the plugin folder already has a copy of the plugin, such as a
-`libbinja_espressif.so` you built (any `*binja_espressif*` library), the
-loader doesn't install a second one, which would register the same
-architectures twice, and logs why. If the native plugin is already loaded from elsewhere,
-it doesn't ask.
-
-**Uninstalling.** Removing the plugin in the extension manager removes the
-loader but not the native library. Run **Plugins > Espressif > Remove
-Native Library** first (it then doesn't ask about that version again, and
-turns `espressif.loader.autoDownload` off if it was on), or delete
-`binja_espressif-native.so` (`.dll`, `.dylib`) from the user plugin folder
-yourself, then restart Binary Ninja.
+See [docs/reference.md](docs/reference.md#limitations) for the full list
+and for how each feature behaves in detail.
 
 ## Building from source
 
-Requires a Rust toolchain at least as new as the binaryninja-api revision's
-`rust-version` (1.98.1 at the pinned revision), libclang for `bindgen`
-(`libclang-dev` on Debian/Ubuntu), and a Binary Ninja installation whose core
-matches the API revision pinned in `Cargo.toml`
-(`binaryninjacore-sys` finds the installation through
-`~/.binaryninja/lastrun` or `~/binaryninja`; set `BINARYNINJADIR` to
-override).
+You need a recent stable Rust, libclang (`libclang-dev` on Debian and
+Ubuntu) and a Binary Ninja whose version matches the binaryninja-api
+revision in `Cargo.toml` (a dev build on `main`). The build finds Binary Ninja through
+`~/.binaryninja/lastrun` or `~/binaryninja`, or set `BINARYNINJADIR`.
 
 ```sh
 cargo build --release
-cp target/release/libbinja_espressif.so ~/.binaryninja/plugins/   # .dylib / .dll elsewhere
+cp target/release/libbinja_espressif.so ~/.binaryninja/plugins/   # .dylib on macOS, .dll on Windows
 ```
 
-This builds the plugin the release ships, which holds all three crates (see
-[Repository layout](#repository-layout)); install only this library. Each
-crate also builds as a plugin of its own (`cargo build --release -p
-arch_xtensa -p arch_riscv_ilp32 -p view_espressif`), as Binary Ninja's own
-build would make them: those builds are for building the crates inside
-binaryninja-api, not for installing next to `libbinja_espressif.so`.
-
-On Windows, run `git config --global core.longpaths true` first:
-binaryninja-api's `vendor/bindiff` submodule has paths longer than 260
-characters, which cargo refuses to check out otherwise. The release build
-sets it, and a short `CARGO_HOME`, for the same reason.
-
-`view/espressif/build.rs` compresses the SVD files in `view/espressif/svd/`
-into the plugin. They are vendored, each pinned to an upstream commit with
-its SHA-256 in `view/espressif/svd/SOURCES`; `scripts/fetch_svds.sh`
-downloads them again and checks them (to pick up a newer file, change its
-commit there and run the script with `--update`). The ESP8266's is
-generated with svdtools 0.5.0 from esp-pacs' file and patches and
-`view/espressif/svd/esp8266.yaml`, which the script does again (see
-[view/espressif/svd/README.md](view/espressif/svd/README.md)).
-
-A native plugin loads only in a Binary Ninja whose core ABI matches the API
-it was built against (`BN_MINIMUM_CORE_ABI_VERSION` to
-`BN_CURRENT_CORE_ABI_VERSION` in `binaryninjacore.h`): a build for a 6.0
-stable core (ABI 187) is refused by a 6.1 dev core (ABI 188-189), and the
-other way round. `Cargo.toml` on `main` pins a `dev` revision of the API, so
-a plain `cargo build` (like a release build) is for a dev Binary Ninja.
-`scripts/use_stable_api.sh` rewrites both pins in the root `Cargo.toml`'s
-`[workspace.dependencies]` to the
-stable tag it names and updates `Cargo.lock`; run it (and don't commit the
-result) to build for a stable Binary Ninja:
-
-```sh
-scripts/use_stable_api.sh
-cargo build --release
-```
-
-CI builds and tests against both. To move to a newer dev revision, update
-the `rev` of `binaryninja` and `binaryninjacore-sys` in the root
-`Cargo.toml`'s `[workspace.dependencies]`; to
-move to a newer stable release, update `STABLE_TAG` in
-`scripts/use_stable_api.sh`.
-
-A self-built library in the plugin folder takes precedence: if the
-extension manager's loader is installed too, it sees the library and
-installs nothing. Don't copy a self-built library into the plugin folder
-next to an installed `binja_espressif-native.so`; remove that first.
-
-### Repository layout
-
-```
-Cargo.toml          the workspace, and the plugin the release ships (binja-espressif)
-src/lib.rs          its entry points: registers the three plugins below
-arch/xtensa/        arch_xtensa: the Xtensa architectures, lifting, calling
-                    conventions, loops, patching, ELF relocations
-arch/riscv_ilp32/   arch_riscv_ilp32: the ilp32 calling convention for rv32gc
-view/espressif/     view_espressif: the ESP view and flash dump container, ELF
-                    fix-ups and chip recognition, chip platforms, ROM symbols
-                    (data/rom_symbols), types (data/rom_types) and images, SVDs (svd/)
-xtensa/             the xtensa decoder crate
-binja_espressif_loader/, __init__.py, plugin.json
-                    the extension manager's Python loader
-scripts/            generators, fetchers and release tooling
-tests/              end-to-end tests (headless Binary Ninja) and their data
-```
-
-Each crate in `arch/` and `view/` follows the layout of binaryninja-api's
-Rust plugins (`arch/msp430`, `arch/riscv`, `view/minidump`): a
-`Cargo.toml` with `crate-type = ["cdylib", "rlib"]`, a `build.rs` that links
-the core, a `CMakeLists.txt` that builds it with `bn_add_rust_crate` in the
-binaryninja-api tree, and a README. Built on its own, each is a Binary
-Ninja plugin with its own `CorePluginInit` and `CorePluginDependencies`.
-The root package links them as Rust libraries with their `bundled` feature,
-which leaves those entry points out, and registers them in the order their
-plugin dependencies would load them: `arch_xtensa`, `arch_riscv_ilp32`,
-`view_espressif`. So the release still ships one library per platform for
-the extension manager's loader.
-
-They share no Rust types: `view_espressif` looks the architectures and the
-`ilp32` convention up by name, and the architectures know nothing of
-Espressif's chips. (They do share core state: `arch_xtensa` leaves alone
-the functions whose type the view imported from a ROM type library.)
-Dependencies they have in common (`binaryninja`, `binaryninjacore-sys`, the
-decoder) are `[workspace.dependencies]` of the root `Cargo.toml`.
-
-A workspace build enables `bundled` on every crate (Cargo unifies features),
-so the crates' own entry points are only compiled in a build of the crate
-alone (`-p arch_xtensa`), as CI does. Without the default `core` feature,
-every crate links a stub core library instead of Binary Ninja's.
-
-### Regenerating the ROM tables and types
-
-The ROM symbol tables in `view/espressif/data/rom_symbols/` (one text file
-per chip, embedded in the plugin; `view/espressif/src/rom_symbols.rs`
-describes the format) are generated from the ROM linker scripts of ESP-IDF
-v6.1 by `scripts/gen_rom_symbols.py` (see its header for the sources and
-commands); the Xtensa chips' keep the names ESP-IDF v5.3 gave and v6.1
-dropped or renamed (`gpio_matrix_out`, now `rom_gpio_matrix_out`). It
-reads Espressif's ROM ELF files too (`--rom-elfs`, fetched by
-`scripts/fetch_rom_elfs.py`): where two linker scripts name one address
-differently, the names the ROM does not give it are left out (ESP-IDF's
-`esp32s3.rom.bt_funcs.ld` puts Bluetooth hooks at the ROM's CRC and MD5
-functions), and the type libraries do not type them. The ROM
-type libraries in `view/espressif/data/rom_types/` are generated, offline,
-by `scripts/gen_rom_types.py`, which runs headless Binary Ninja with a
-plugin build (for the chip platforms) and parses the headers of the ESP-IDF
-version named in it, copied out of the `espressif/idf` docker image by
-`scripts/fetch_rom_type_headers.sh`; the names that earlier releases'
-linker scripts give the same ROM functions, which firmware built with them
-carries, are typed too (`--older`):
-
-```sh
-cargo build --release
-scripts/fetch_rom_type_headers.sh /tmp/rom-headers
-scripts/fetch_rom_type_headers.sh /tmp/rom-headers-v5.5.5 v5.5.5
-scripts/fetch_rom_type_headers.sh /tmp/rom-headers-v5.4.1 v5.4.1
-scripts/gen_rom_types.py --older /tmp/rom-headers-v5.5.5 --older /tmp/rom-headers-v5.4.1 \
-    /tmp/rom-headers esp32 esp32s2 esp32s3 esp32c2 esp32c3 esp32c6 esp32h2 esp32c5
-cargo build --release   # embeds the new libraries
-```
-
-Each library records the ESP-IDF version and the list of headers it was
-made from in its metadata (`espressif.idf_version`, `espressif.headers`):
-the chip's `components/esp_rom/<chip>/include/<chip>/rom/*.h`, esp_rom's
-chip-neutral `components/esp_rom/include/*.h`, the heap component's
-`rom_patch_tlsf.h` and `rom_patch_multi_heap.h`, `xtensa/xtruntime.h` and
-`xtensa/hal.h` (Xtensa) or `riscv/interrupt.h` (RISC-V), newlib's
-`string.h`, `strings.h`, `stdio.h`, `stdlib.h`, `ctype.h`, `time.h`,
-`sys/unistd.h`, `sys/_default_fcntl.h`, `sys/lock.h`, `reent.h`,
-`sys/reent.h`, `setjmp.h`, `locale.h`, `sys/time.h`, `sys/stat.h`,
-`signal.h`, `assert.h`, `envlock.h` and `malloc.h`, and
-`scripts/rom_types_extra.h`.
-
-## Releasing
-
-The loader trusts only the hashes committed in the source the extension
-manager installs, that is, in the release tag. A tag cannot contain the
-hashes of libraries built from itself, so a release is built from one
-commit and published from a tag on a commit that adds only the manifest,
-by `.github/workflows/release.yml` (manual only) in two runs:
-
-1. **Build.** Run the Release workflow on `main` (or another branch) with
-   mode `build`, and optionally the version being released (default:
-   `plugin.json`'s) and the API to build against:
-
-   ```sh
-   gh workflow run release.yml --ref main -f mode=build -f version=0.2.0
-   ```
-
-   The `api` input is `dev` by default: the binaryninja-api revision pinned
-   in `Cargo.toml`, for the Binary Ninja dev channel. `-f api=stable` builds
-   against the stable release named in `scripts/use_stable_api.sh` instead;
-   releases will move to (or add) stable later. Either way, set
-   `plugin.json`'s `minimumbinaryninjaversion` in the build commit to the
-   oldest Binary Ninja build the libraries load in (the extension manager
-   hides the plugin from older ones): currently 10874, the dev build whose
-   core ABI (189, accepting 188-189) matches the pinned revision. A stable
-   build needs it back at the stable build number (10601 for 6.0).
-
-   It builds the dispatched commit for Linux, Windows and macOS, uploads
-   the libraries as artifacts of the run (kept 90 days), and generates the
-   loader's manifest: the version, the build commit, the run ID, the API
-   built against (`build.api` and `build.api_source`, for the record), and
-   each library's name, core ABI, size and SHA-256. The run summary shows
-   it and each platform's core ABI, and the `manifest` artifact holds it.
-   The platforms build independently, so one failing doesn't cancel the
-   others, but the manifest is generated only when all three succeed.
-   Each library's name carries its core ABI
-   (`binja_espressif-abi189-windows-x86_64.dll`), and the loader picks the one
-   the running core accepts, so the publish run doesn't need to know the
-   API.
-2. **Commit and tag.** On top of the build commit, save the manifest as
-   `binja_espressif_loader/manifest.json`, set `plugin.json`'s `version` to
-   the release version if it isn't already, and change nothing else.
-   Commit that on top of the build commit (through a PR works too, as long
-   as nothing else lands on `main` in between), then tag the commit
-   `v<version>` and push the tag.
-3. **Publish.** Run the workflow on the tag with mode `publish`:
-
-   ```sh
-   gh workflow run release.yml --ref v0.2.0 -f mode=publish
-   ```
-
-   It checks that `plugin.json` and the committed manifest are for the
-   tag; that the manifest's build commit is an ancestor of the tag whose
-   tree differs only in the manifest and `plugin.json`'s version; and that
-   the manifest's run is a successful dispatch of this workflow on that
-   commit. It then downloads that run's artifacts, checks them against the
-   committed manifest (exactly the listed files, with their sizes and
-   hashes), and creates the GitHub release from them, with a `SHA256SUMS`.
-
-`scripts/release_manifest.py` does the generating and checking. Between
-releases, `main`'s manifest stays that of the last release; if
-`plugin.json`'s version moves ahead of it, the loader of a checkout of
-`main` refuses to install anything, as it isn't a release.
-
-**Pre-releases.** A version with a pre-release suffix, such as
-`0.2.0-rc.1` (tag `v0.2.0-rc.1`), goes through the same steps, and its
-publish run needs the `prerelease` input (`-f prerelease=true`); a final
-version's must not have it. The release is then a GitHub pre-release and
-is not marked latest. That matters beyond testing: extensions.binary.ninja
-reads `plugin.json` at the latest release, skips a version it already has,
-and ignores a pre-release suffix when comparing versions, so an rc it
-picked up could make it skip the final release of the same version.
-
-To release exactly the libraries a pre-release was tested with, reuse its
-build run: on top of the same build commit, commit its manifest with only
-`version` changed (say to `0.2.0`) and `plugin.json`'s version to match,
-tag that `v0.2.0` and publish it without `prerelease` (within the 90 days
-the run's artifacts are kept).
-
-## Testing a release privately
-
-Before the plugin is listed on extensions.binary.ninja, a release can be
-installed through the extension manager from a repository of your own.
-Release libraries are built for the core ABI of the Binary Ninja dev
-channel, so test with a **dev** Binary Ninja whose core accepts the
-release's ABI: 189 at the pinned revision, which dev builds from 10874
-accept (their core accepts ABI 188-189). A newer dev build may have moved
-on: if its minimum core ABI is above the release's, the loader logs that no
-prebuilt library matches (listing the platforms and ABIs the release has)
-and installs nothing. Then update the `rev` pins in `Cargo.toml` to the
-binaryninja-api revision of that build (`api_REVISION.txt` in the Binary
-Ninja install), set `minimumbinaryninjaversion` to match, and cut a new rc.
-A stable Binary Ninja finds no library to install.
-
-1. **Cut a pre-release** (see [Releasing](#releasing)):
-
-   ```sh
-   gh workflow run release.yml --ref main -f mode=build -f version=0.1.0-rc.1 -f api=dev
-   ```
-
-   (`api=dev` is the default.) On top of the build commit, on a branch rather than `main` (so `main`
-   keeps the final version), commit the run's manifest as
-   `binja_espressif_loader/manifest.json` with `plugin.json`'s version set to
-   `0.1.0-rc.1`, tag that commit `v0.1.0-rc.1`, push the tag, and publish:
-
-   ```sh
-   gh workflow run release.yml --ref v0.1.0-rc.1 -f mode=publish -f prerelease=true
-   ```
-
-2. **Make a repository** listing that release. Binary Ninja reads
-   third-party repositories in the format of the extensions.binary.ninja API
-   (as served by Binary Ninja's `examples/python/mock_extension_server.py`),
-   not the `plugins.json` of Vector35/community-plugins, which current
-   versions reject. `scripts/test_extension_repo.py` writes it as static
-   files from `plugin.json` at the tag, with the tag's source archive on
-   GitHub as the download, the way the extension server would list it.
-
-   The simplest host is a **public** GitHub repository (or a branch of
-   one), such as
-   [jrozner/binja-extensions-test](https://github.com/jrozner/binja-extensions-test):
-   with `--github OWNER/REPO[:BRANCH]` (branch `main` by default), the
-   files are written for the root of that branch, served by
-   raw.githubusercontent.com:
-
-   ```sh
-   git fetch --tags
-   git clone https://github.com/jrozner/binja-extensions-test ../binja-extensions-test
-   scripts/test_extension_repo.py v0.1.0-rc.1 --github jrozner/binja-extensions-test -o ../binja-extensions-test
-   git -C ../binja-extensions-test add v2/manifests extensions.json versions.json
-   git -C ../binja-extensions-test commit -m "List binja-espressif 0.1.0-rc.1"
-   git -C ../binja-extensions-test push
-   ```
-
-   The repository URL is then
-   `https://raw.githubusercontent.com/jrozner/binja-extensions-test/main`. A
-   private repository does not work, as Binary Ninja fetches without
-   credentials. raw.githubusercontent.com caches files for about 5 minutes,
-   so after pushing an update (such as the final release, below), wait that
-   long before Binary Ninja checks for updates.
-
-   To keep it on the test machine instead, generate it with the URL it
-   will be served from and serve the directory locally:
-
-   ```sh
-   scripts/test_extension_repo.py v0.1.0-rc.1 --base-url http://127.0.0.1:8000 -o bx-repo
-   python3 -m http.server 8000 --bind 127.0.0.1 --directory bx-repo
-   ```
-
-   Any host that serves the files at their paths works with `--base-url`
-   (not a gist: Binary Ninja fetches `<base URL>/v2/manifests`).
-
-3. **Start a dev Binary Ninja with a throwaway user folder**, holding only
-   your license and the repository URL. Binary Ninja uses the folder named
-   by `BN_USER_DIRECTORY` in place of its
-   [user folder](https://docs.binary.ninja/guide/index.html#user-folder),
-   whose `license.dat` you copy. Quit Binary Ninja first, so the new
-   instance starts with this environment.
-
-   macOS (Terminal):
-
-   ```sh
-   mkdir bn-test && cp ~/Library/Application\ Support/Binary\ Ninja/license.dat bn-test/
-   echo '{"extensionManager.unofficialUrls": ["https://raw.githubusercontent.com/jrozner/binja-extensions-test/main"]}' > bn-test/settings.json
-   BN_USER_DIRECTORY=$PWD/bn-test /Applications/Binary\ Ninja.app/Contents/MacOS/binaryninja
-   ```
-
-   Windows (PowerShell):
-
-   ```powershell
-   mkdir bn-test; copy "$env:APPDATA\Binary Ninja\license.dat" bn-test\
-   Set-Content bn-test\settings.json '{"extensionManager.unofficialUrls": ["https://raw.githubusercontent.com/jrozner/binja-extensions-test/main"]}'
-   $env:BN_USER_DIRECTORY = "$PWD\bn-test"
-   & "C:\Program Files\Vector35\BinaryNinja\binaryninja.exe"
-   ```
-
-   Windows (cmd):
-
-   ```bat
-   mkdir bn-test && copy "%APPDATA%\Binary Ninja\license.dat" bn-test\
-   echo {"extensionManager.unofficialUrls": ["https://raw.githubusercontent.com/jrozner/binja-extensions-test/main"]} > bn-test\settings.json
-   set "BN_USER_DIRECTORY=%CD%\bn-test"
-   "C:\Program Files\Vector35\BinaryNinja\binaryninja.exe"
-   ```
-
-   A per-user Windows install is in `%LOCALAPPDATA%\Vector35\BinaryNinja`
-   instead. On Linux, the license is in `~/.binaryninja` and the binary is
-   wherever you extracted Binary Ninja (`BN_USER_DIRECTORY=$PWD/bn-test
-   ~/binaryninja/binaryninja`). The variable applies only to what is
-   started from that shell. With a local server, the URL is
-   `http://127.0.0.1:8000`. The setting is *Unofficial 3rd Party Plugin
-   Repository URLs* in Settings, too.
-
-4. **Install** *Espressif* (version `0.1.0-rc.1`, from the
-   `binja-extensions-test` repository) in the extension manager and restart.
-
-Then check:
-
-- The loader asks to download the library for this platform; accept it.
-  The log names the library (`binja_espressif-abi189-<platform>`) and its
-  verified SHA-256, and `binja_espressif-native.so` (`.dll`, `.dylib`) is in
-  `bn-test/plugins`. If it says no prebuilt library matches instead, your
-  dev build's core ABI has moved on (see above).
-- After a restart, the library loads without errors in the log and an
-  ESP32 ELF or image opens with the Xtensa architecture.
-- The ROM image prompt appears for a file that uses it, and
-  **Plugins > Espressif > Download ROM Images** maps it.
-- A flash dump opens in the container browser with its partitions, and
-  headless, `files.espressif.partition` picks one.
-- **Plugins > Espressif > Remove Native Library** removes the library
-  (after a restart, the architectures are gone and the loader doesn't ask
-  again), and uninstalling the plugin in the extension manager removes the
-  loader.
-
-To try the update to the final release, regenerate the repository for
-`v0.1.0` once it is published (and push it, then wait out the cache): the
-extension manager offers it as an update, and the loader then asks to replace the library if it changed (not
-if the final release reuses the pre-release's build). Delete `bn-test` when
-done.
-
-## Testing
-
-```sh
-# Unit tests: image formats, partitions, loops, intrinsics, patching, relocations
-cargo test -p arch_xtensa -p arch_riscv_ilp32 -p view_espressif -p binja-espressif --lib --no-default-features
-# Lifts ~1.5M encodings through the real core
-cargo test --release -p arch_xtensa --features liftcheck --lib liftcheck::lift_sweep
-cargo build --release && tests/test_headless.py
-tests/test_loader.py                      # the Python loader and release tooling
-cargo build --release && tests/test_loader_headless.py
-cargo test -p xtensa                      # the decoder (see xtensa/README.md)
-```
-
-The unit tests link a stub core generated by `binaryninjacore-sys` (which
-needs CMake 3.28+ and Ninja), so they need no Binary Ninja installation.
-The lift sweep and the `test_headless` scripts need a headless-capable
-Binary Ninja license. The sweep is a unit test behind the
-`liftcheck` feature of `arch_xtensa` (see `arch/xtensa/src/liftcheck.rs`),
-which also lists the decoded operands of every opcode, for checking what the
-lifter assumes about them: `cargo test -p arch_xtensa --no-default-features
---features liftcheck --lib liftcheck::operands -- --ignored --nocapture`. `tests/test_headless.py`
-runs Binary Ninja with a throwaway user directory containing only this plugin
-and checks ELF loading, chip detection, calling conventions, call-site
-arguments, loop recovery, lifting semantics, patching, and the ESP view
-(including partition selection and malformed images) and the flash dump
-container on images and flash dumps synthesized from `tests/data/*.elf`.
-Those ELFs are built from
-`tests/data/corpus.c` by `scripts/build_test_elfs.sh` with Espressif's GCC,
-which also builds the relocatable objects in `tests/data/obj` (with and
-without `-mlongcalls`, ESP-IDF style with `-ffunction-sections`, and
-`tests/data/reloc_edge.S`, whose relocations cannot all be applied) and
-lists their relocations with objdump: the test checks every
-`R_XTENSA_SLOT0_OP` and `R_XTENSA_32` Binary Ninja applies against that
-listing. `tests/data/idf_*.elf`, built from `tests/data/idf_features.c` by
-`scripts/build_idf_elfs.sh`, are laid out like ESP-IDF applications (`idf_esp32c6.elf`
-with the C6's `.flash_rodata_dummy` over its code, `idf_esp32s3.elf` with the
-S3's `.ext_ram.dummy` over its rodata) and
-call into the mask ROM: the test checks the ELF fix-ups and the ROM types
-(the arguments of ROM calls and libgcc helpers, a ROM structure's fields,
-that reopening a database changes nothing, and that a database typed from
-another version of the library is brought up to date) on them and on
-images made from them. The user directory (`bn-espressif-test-*` in the system temp
-directory) also holds the databases and images the test writes, and is
-removed when the test exits; set `BN_ESPRESSIF_KEEP_TMP=1` to keep it for
-debugging (the test prints its path).
-
-Those checks run without ROM images (ESP-IDF's are hidden from the plugin).
-The mask ROM image checks need the pinned esp-rom-elfs archive, which the
-test does not download:
-
-```sh
-curl -LO https://github.com/espressif/esp-rom-elfs/releases/download/20260528/esp-rom-elfs-20260528.tar.gz
-BN_ESPRESSIF_ROM_TARBALL=$PWD/esp-rom-elfs-20260528.tar.gz tests/test_headless.py
-```
-
-They check the ROM types again with a directory of ROM ELF files (and in
-databases), that the ROM's functions are created and analyzed (or only
-named, with `espressif.rom.createFunctions` off), the revision chosen,
-`espressif.rom.elfDirectory` as a load option, the `espressif.rom`
-metadata, a view that maps an image found after it was loaded, and the
-download:
-served from a local HTTP server (through the `BN_ESPRESSIF_ROM_TEST_URL`
-override, loopback only), not without consent, not when corrupted, and
-through the command.
-
-`tests/test_loader.py` needs only Python (it stands in for the
-`binaryninja` module where it needs one) and runs in CI, as does
-`tests/test_fetch_rom_elfs.py`, which checks `scripts/fetch_rom_elfs.py`
-on small synthetic archives.
-`tests/test_loader_headless.py` installs the loader into a throwaway user
-directory with a manifest listing the locally built library as the release
-asset for the running core's ABI, serves it from a local HTTP server (the
-loader fetches from `$BN_ESPRESSIF_LOADER_TEST_BASE_URL` instead of GitHub; it
-accepts only loopback addresses there, and still checks the manifest's hash),
-and runs headless Binary Ninja several times: it checks that nothing is
-downloaded without `espressif.loader.autoDownload`, that with it the library
-lands in the user plugin folder as `binja_espressif-native.so` and loads after
-a restart, and that a tampered asset or a self-built copy in the plugin
-folder means nothing is installed.
+On Windows, run `git config --global core.longpaths true` first. To build
+without Binary Ninja installed (for example to run the unit tests), add
+`--no-default-features`: that links a stub core instead (and needs CMake
+and Ninja). See
+[docs/development.md](docs/development.md) for building against stable,
+testing and the repository layout.
 
 ## License
 
-MIT, see [LICENSE](LICENSE). The Espressif SVD files in `view/espressif/svd/`, embedded in
-the plugin, are licensed under Apache-2.0 by Espressif
-([view/espressif/svd/LICENSE](view/espressif/svd/LICENSE)); they come unmodified from
-[espressif/svd](https://github.com/espressif/svd) and, for the ESP32-C5,
-from [espressif/esp-bist](https://github.com/espressif/esp-bist) (that file
-carries Espressif's Apache-2.0 license text; the rest of esp-bist is
-LGPL-3.0 and is not used), at the commits listed in
-[view/espressif/svd/SOURCES](view/espressif/svd/SOURCES). The ESP8266's
-SVD file is generated from [esp-rs/esp-pacs](https://github.com/esp-rs/esp-pacs)'
-file and patches, Copyright The esp-rs Project Developers, under the MIT
-License or Apache-2.0
-([view/espressif/svd/LICENSE-esp-pacs-MIT](view/espressif/svd/LICENSE-esp-pacs-MIT),
-[view/espressif/svd/LICENSE-esp-pacs-APACHE](view/espressif/svd/LICENSE-esp-pacs-APACHE)).
-The
-mask ROM symbol tables are derived from ESP-IDF's ROM linker scripts
-(Apache-2.0, Espressif) and the ESP8266 RTOS and NONOS SDKs' (Apache-2.0
-and the Espressif MIT License). The ROM type libraries in `view/espressif/data/rom_types/`
-are derived from ESP-IDF v6.1's headers (Apache-2.0, Espressif) and from
-newlib's headers as shipped with Espressif's toolchains (BSD-style licenses,
-see newlib's `COPYING.NEWLIB`). The mask ROM images are not part of the
-plugin: they are downloaded, with your consent, from
-[esp-rom-elfs](https://github.com/espressif/esp-rom-elfs), whose ELF files
-Espressif licenses under Apache-2.0; the ROM code is Copyright Espressif
-Systems, not open source, and includes the third-party libraries listed
-[here](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/COPYRIGHT.html#rom-source-code-copyrights).
+MIT, see [LICENSE](LICENSE). The plugin also includes:
+
+- ROM symbol tables derived from ESP-IDF's ROM linker scripts (Apache-2.0,
+  Espressif) and the ESP8266 RTOS and NONOS SDKs' (Apache-2.0 and the
+  Espressif MIT License);
+- ROM type libraries derived from ESP-IDF v6.1's headers (Apache-2.0,
+  Espressif) and newlib's headers (BSD-style, see newlib's `COPYING.NEWLIB`);
+- Espressif's SVD files (Apache-2.0), and an ESP8266 SVD file generated from
+  [esp-rs/esp-pacs](https://github.com/esp-rs/esp-pacs) (MIT or Apache-2.0).
+  See [view/espressif/svd/README.md](view/espressif/svd/README.md) for
+  sources and licenses.
+
+The ROM images are not part of the plugin. They're downloaded, with your
+consent, from [esp-rom-elfs](https://github.com/espressif/esp-rom-elfs),
+whose ELF files are licensed under Apache-2.0; the ROM code is closed
+source, Copyright Espressif Systems, and includes the third-party libraries
+listed in [ESP-IDF's copyrights page](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/COPYRIGHT.html#rom-source-code-copyrights).
+
+## Contributing
+
+See [docs/development.md](docs/development.md) for building, testing and
+regenerating the bundled data, [docs/reference.md](docs/reference.md) for
+how the plugin works in detail, and [docs/releasing.md](docs/releasing.md)
+for cutting and testing a release.

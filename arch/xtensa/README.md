@@ -26,8 +26,8 @@ It provides:
   `always_branch`, skip-and-return), an ELF relocation handler, and the
   ESP32's architecture for `EM_XTENSA` ELF files.
 
-See the [repository README](../../README.md) for what the lifting does and
-does not model.
+See [docs/reference.md](../../docs/reference.md) for what the lifting does
+and does not model.
 
 ## Building
 
