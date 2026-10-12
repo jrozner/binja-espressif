@@ -12,9 +12,11 @@
 //! and Binary Ninja creates functions only where there are bytes. So the
 //! ROM's code is mapped, as a memory region of its own (see
 //! [`add_rom_region`]), and each typed ROM function is defined there as an
-//! imported function with its type. [`RomRecognizer`] makes those functions
-//! clobber what the API's callers may assume, and the Xtensa
-//! `WindowRecognizer` leaves their calling convention alone. ROM variables
+//! imported function with its type, recorded as imported from the library
+//! (`record_imported_object_library`). [`RomRecognizer`] makes those
+//! functions clobber what the API's callers may assume, and the Xtensa
+//! architecture leaves the calling convention and clobbers of a function
+//! whose type was imported alone. ROM variables
 //! need no region: a data variable at an unmapped address keeps its type.
 //!
 //! The region holds the chip's ROM image when one is available (see
@@ -698,9 +700,10 @@ pub fn register_recognizer() {
 /// the ROM table names where the file names it too (or its jump table
 /// entry, `__call_<name>`) gets its prototype, pinned as with a ROM image
 /// (see [`pin_rom_function`]), and so does the function a jump table entry
-/// jumps to.
+/// jumps to. Each is recorded as imported from the ROM type library, which
+/// tells the Xtensa architecture to leave its convention and clobbers alone.
 pub fn type_rom_elf(view: &BinaryView, chip: Chip, elf: &RomElf) {
-    // A database keeps them.
+    // A database keeps them (see backfill_rom_elf_imports).
     if view.file().is_database_backed() {
         return;
     }
@@ -761,13 +764,71 @@ pub fn type_rom_elf(view: &BinaryView, chip: Chip, elf: &RomElf) {
             && let Some(imp) = function_at(imp as u64)
             && pin_rom_function(view, &lib, &imp, name, imp_name)
         {
+            view.record_imported_object_library(&lib, name.as_str(), imp.start(), &platform);
             pinned += 1;
         }
     }
+    view.store_metadata(
+        ROM_ELF_IMPORTS_RECORDED,
+        true,
+        MetadataStoreFlags::PERSISTENT,
+    );
     tracing::info!(
         "typed {pinned} functions of the {} ROM ELF file",
         chip.display_name()
     );
+}
+
+/// The view metadata that marks a view of the chip's ROM ELF file (see
+/// [`ROM_ELF_METADATA`]) whose typed functions are all recorded as imported
+/// from the ROM type library.
+const ROM_ELF_IMPORTS_RECORDED: &str = "espressif.rom.elf.importsRecorded";
+
+/// For a database of the chip's ROM ELF file saved by 0.1.0-rc.2 or
+/// earlier, which recorded the typed functions as imported from the ROM
+/// type library, but not the functions jump table entries jump to: records
+/// those too, once. It runs at the start of an analysis update, when the
+/// database's metadata, functions and types have been restored.
+pub fn backfill_rom_elf_imports(view: &BinaryView, chip: Chip) {
+    if !view.file().is_database_backed()
+        || !is_own_rom_elf(view, chip)
+        || view.query_metadata(ROM_ELF_IMPORTS_RECORDED).is_some()
+    {
+        return;
+    }
+    let (Some(platform), Some(lib)) = (view.default_platform(), library(chip)) else {
+        return;
+    };
+    record_typed_rom_elf_functions(view, &lib, &platform);
+    view.store_metadata(
+        ROM_ELF_IMPORTS_RECORDED,
+        true,
+        MetadataStoreFlags::PERSISTENT,
+    );
+}
+
+/// Records each typed function of a ROM ELF file's database (see
+/// [`rom_function_name`]) that is not recorded as imported from the ROM type
+/// library yet as imported from it, under its own name.
+fn record_typed_rom_elf_functions(view: &BinaryView, lib: &TypeLibrary, platform: &Platform) {
+    let mut recorded = 0;
+    for func in view.functions().iter() {
+        if view
+            .lookup_imported_object_library(func.start(), platform)
+            .is_some()
+        {
+            continue;
+        }
+        if let Some(name) = rom_function_name(view, &func) {
+            view.record_imported_object_library(lib, name.as_str(), func.start(), platform);
+            recorded += 1;
+        }
+    }
+    if recorded > 0 {
+        tracing::info!(
+            "recorded {recorded} typed ROM functions as imported from the ROM type library"
+        );
+    }
 }
 
 /// From ROM symbols, in order of preference, the ones to type: one per

@@ -400,6 +400,7 @@ fn refresh(view: &BinaryView) {
     let Some(chip) = view_chip(view) else {
         return;
     };
+    rom_types::backfill_rom_elf_imports(view, chip);
     if !rom_types::has_zero_filled_region(view, chip) {
         rom_status::backfill(view, chip);
         rom_status::sync_data_alias(view);

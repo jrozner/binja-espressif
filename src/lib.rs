@@ -1,8 +1,13 @@
 //! Binary Ninja plugin for Espressif's chips: the architectures of the Xtensa
-//! cores of the ESP8266, ESP32, ESP32-S2 and ESP32-S3 (`xtensa`), additions to
-//! Binary Ninja's RISC-V architecture for the ESP32-C2, C3, C6, H2 and C5
-//! (`riscv`), and the loading of Espressif firmware images, ELF files, ROM
-//! symbols and SVD files (`espressif`).
+//! cores of the ESP8266, ESP32, ESP32-S2 and ESP32-S3 (`xtensa`), the
+//! soft-float `ilp32` calling convention for Binary Ninja's RISC-V
+//! architecture, used by the ESP32-C2, C3, C6, H2 and C5 (`riscv`), and the
+//! loading of Espressif firmware images, ELF files, ROM symbols and SVD files
+//! (`espressif`).
+//!
+//! The three are independent: `espressif` uses no type of the other two,
+//! but looks the architectures and calling conventions up by name, and the
+//! architectures know nothing of Espressif's chips.
 
 pub mod espressif;
 pub mod riscv;

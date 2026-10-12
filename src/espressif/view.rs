@@ -16,7 +16,7 @@ use binaryninja::symbol::{SymbolBuilder, SymbolType};
 use binaryninja::types::{MemberAccess, MemberScope, StructureBuilder, Type};
 
 use crate::espressif::image::{self, Firmware, RegionKind, Segment};
-use crate::espressif::{Chip, container, rom_download, rom_types};
+use crate::espressif::{Chip, container, riscv, rom_download, rom_types};
 
 pub struct EspViewType;
 
@@ -363,7 +363,7 @@ impl EspView {
 
     /// Names the global pointer the startup code at the entry point sets,
     /// and gives it to the analysis, so that `gp`-relative accesses to
-    /// small data resolve (see [`crate::riscv::set_global_pointer`]).
+    /// small data resolve (see [`riscv::set_global_pointer`]).
     fn define_global_pointer(&self, view: &BinaryView) {
         let entry = self.firmware.image.entry;
         let Some(seg) = self
@@ -384,7 +384,7 @@ impl EspView {
         view.define_auto_symbol(
             &SymbolBuilder::new(SymbolType::Data, "__global_pointer$", gp as u64).create(),
         );
-        crate::riscv::set_global_pointer(view, gp);
+        riscv::set_global_pointer(view, gp);
     }
 
     /// Names the mask ROM's functions and data (and, on the ESP8266, the

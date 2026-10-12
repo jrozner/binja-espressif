@@ -7,6 +7,7 @@ pub mod cache;
 pub mod container;
 pub mod elf;
 pub mod image;
+pub mod riscv;
 pub mod rom_download;
 pub mod rom_images;
 pub mod rom_status;
@@ -14,6 +15,7 @@ pub mod rom_symbols;
 pub mod rom_types;
 pub mod svd;
 pub mod view;
+pub mod xtensa;
 
 use std::ffi::CString;
 
@@ -31,16 +33,16 @@ use binaryninjacore_sys::{
 };
 
 use crate::espressif::image::{Region, RegionKind};
+use crate::espressif::riscv::RiscVCore;
 use crate::espressif::rom_images::RomOf;
-use crate::riscv;
-use crate::xtensa::{self, Core};
+use crate::espressif::xtensa::XtensaCore;
 
 /// The CPU core of a chip, which decides the architecture its code is
 /// analyzed with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Cpu {
-    Xtensa(Core),
-    RiscV(riscv::Core),
+    Xtensa(XtensaCore),
+    RiscV(RiscVCore),
 }
 
 impl Cpu {
@@ -217,12 +219,12 @@ impl Chip {
     /// The chip's CPU core.
     pub fn cpu(self) -> Cpu {
         match self {
-            Chip::Esp8266 => Cpu::Xtensa(Core::Esp8266),
-            Chip::Esp32 => Cpu::Xtensa(Core::Esp32),
-            Chip::Esp32S2 => Cpu::Xtensa(Core::Esp32S2),
-            Chip::Esp32S3 => Cpu::Xtensa(Core::Esp32S3),
-            Chip::Esp32C2 | Chip::Esp32C3 => Cpu::RiscV(riscv::Core::Rv32imc),
-            Chip::Esp32C6 | Chip::Esp32H2 | Chip::Esp32C5 => Cpu::RiscV(riscv::Core::Rv32imac),
+            Chip::Esp8266 => Cpu::Xtensa(XtensaCore::Esp8266),
+            Chip::Esp32 => Cpu::Xtensa(XtensaCore::Esp32),
+            Chip::Esp32S2 => Cpu::Xtensa(XtensaCore::Esp32S2),
+            Chip::Esp32S3 => Cpu::Xtensa(XtensaCore::Esp32S3),
+            Chip::Esp32C2 | Chip::Esp32C3 => Cpu::RiscV(RiscVCore::Rv32imc),
+            Chip::Esp32C6 | Chip::Esp32H2 | Chip::Esp32C5 => Cpu::RiscV(RiscVCore::Rv32imac),
         }
     }
 
