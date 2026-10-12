@@ -14,8 +14,13 @@ ESP32-S3 (Xtensa) and ESP32-C2, C3, C6, H2, C5 (RISC-V). It provides:
   types (`data/rom_types/`, type libraries generated from ESP-IDF's headers)
   and, on request, Espressif's ROM images (downloaded from esp-rom-elfs and
   verified against a pinned SHA-256).
-- Espressif's SVD files (`svd/`), selected for the chip and applied by
-  Binary Ninja's SVD loader.
+- The chips' SVD files (`svd/`), selected for the chip and applied by
+  Binary Ninja's SVD loader: Espressif's, and for the ESP8266 one generated
+  with svdtools from esp-rs/esp-pacs' (see svd/README.md). That one covers
+  DPORT, EFUSE, the RNG register, UART0/1, SPI0/1, GPIO, IO_MUX, the timers,
+  RTC, WDT, SLC, I2S and the analog I2C master's register, but not the
+  Wi-Fi MAC and baseband (WDEV, 0x3FF20000 on), the SAR ADC or the analog
+  blocks.
 
 It shares no Rust type with the architectures. It looks them up by name:
 the `arch_xtensa` plugin's Xtensa architectures, and Binary Ninja's

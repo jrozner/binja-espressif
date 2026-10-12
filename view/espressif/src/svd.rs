@@ -1,13 +1,15 @@
-//! Automatic loading of Espressif's SVD files.
+//! Automatic loading of the chips' SVD files.
 //!
 //! Binary Ninja's bundled SVD loader (`svd_ninja`) runs as an analysis step
 //! (`analysis.svd.loader`) and applies the file named by the
 //! `analysis.svd.autoLoadFile` setting of the view. This plugin registers a
 //! step right before it that, for ESP views and ELF files on a chip
 //! platform, points that setting at
-//! Espressif's SVD for the chip, bundled with the plugin. The files are
-//! vendored in `svd/` (from https://github.com/espressif/svd and, for the
-//! ESP32-C5, https://github.com/espressif/esp-bist; Apache-2.0; see
+//! the SVD for the chip, bundled with the plugin. The files are
+//! vendored in `svd/` (Espressif's, from https://github.com/espressif/svd
+//! and, for the ESP32-C5, https://github.com/espressif/esp-bist, Apache-2.0;
+//! the ESP8266's, which Espressif never published, made from
+//! https://github.com/esp-rs/esp-pacs, MIT or Apache-2.0; see
 //! svd/README.md), are gzip-compressed by build.rs and embedded, and are
 //! written to a cache in the user directory on first use (see `cache`), because the
 //! loader takes a path.
@@ -34,6 +36,7 @@ const SVD_FILE: &str = "analysis.svd.autoLoadFile";
 pub const AUTO_LOAD: &str = "espressif.svd.autoLoad";
 
 // Compressed from svd/ by build.rs.
+pub(super) static ESP8266: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp8266.svd.gz"));
 pub(super) static ESP32: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32.svd.gz"));
 pub(super) static ESP32S2: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32s2.svd.gz"));
 pub(super) static ESP32S3: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/esp32s3.svd.gz"));
@@ -52,7 +55,7 @@ pub fn register_settings() {
             "title": "Load Espressif SVD automatically",
             "type": "boolean",
             "default": true,
-            "description": "Have the SVD loader apply Espressif's SVD file for the chip (bundled with this plugin) to ESP firmware images, naming and typing the peripheral registers. Ignored if an SVD file is chosen explicitly. Requires the SVD loader plugin.",
+            "description": "Have the SVD loader apply the chip's SVD file (bundled with this plugin) to ESP firmware images, naming and typing the peripheral registers. Ignored if an SVD file is chosen explicitly. Requires the SVD loader plugin.",
             "ignore": ["SettingsProjectScope"]
         }"#,
     );
@@ -90,7 +93,7 @@ pub fn register_activity() {
     let config = activity::Config::action(
         "espressif.svd.select",
         "Select Espressif SVD",
-        "Points the SVD loader at Espressif's SVD file for the chip of an ESP firmware image or ELF file.",
+        "Points the SVD loader at the bundled SVD file for the chip of an ESP firmware image or ELF file.",
     )
     .eligibility(activity::Eligibility::auto().run_once(true));
     let select = Activity::new_with_action(config, |ctx: &AnalysisContext| {
@@ -113,7 +116,7 @@ pub fn register_activity() {
         .and_then(|w| w.register());
     if registered.is_err() {
         tracing::info!(
-            "the SVD loader is not available; Espressif SVD files will not be loaded automatically"
+            "the SVD loader is not available; the bundled SVD files will not be loaded automatically"
         );
     }
 }
@@ -143,7 +146,7 @@ fn configure(view: &BinaryView, chip: Chip) {
         &QueryOptions::new_with_view(view).with_scope(SettingsScope::SettingsResourceScope),
     );
     tracing::info!(
-        "loading Espressif's {} SVD file ({path})",
+        "loading the bundled {} SVD file ({path})",
         chip.display_name()
     );
 }

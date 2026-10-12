@@ -8,10 +8,10 @@ into it constantly (libc, libgcc, SPI flash and boot helpers). ESP-IDF (for
 the ESP32 family) and the ESP8266 RTOS SDK publish the ROM's symbols as linker
 scripts.
 
-Peripheral register blocks are left to Espressif's SVD files
-(https://github.com/espressif/svd) for the chips that have one, which Binary
-Ninja's SVD loader applies with types and register fields. The ESP8266 has
-no official SVD, so its peripheral blocks are named from its linker script.
+Peripheral register blocks are left to the bundled SVD files
+(view/espressif/svd/), which Binary Ninja's SVD loader applies with types and
+register fields. The ESP8266's linker script names its blocks as its SDK
+does (uart0, frc1), and those names are kept as aliases of its SVD file's.
 
 Usage: scripts/gen_rom_symbols.py [--rom-elfs ELFDIR] DIR SOURCE CHIP...
   Regenerates view/espressif/data/rom_symbols/<chip>.txt for each CHIP; the other chips'

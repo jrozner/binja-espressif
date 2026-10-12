@@ -100,7 +100,9 @@ It provides:
   RTC memory and the peripheral register blocks, names the mask ROM's
   functions and data (from the ESP-IDF and ESP8266 SDK linker scripts),
   types them (see **Mask ROM types** below), names
-  the ESP8266's peripheral blocks, types the ESP-IDF `esp_app_desc_t`, and,
+  the ESP8266's peripheral blocks as its SDK's linker script does (`uart0`,
+  `frc1`: aliases of the SVD file's names, below), types the ESP-IDF
+  `esp_app_desc_t`, and,
   on the Xtensa chips, seeds functions from every aligned `entry`
   instruction so that callbacks and tasks reached only through pointers are
   found. On the RISC-V chips it finds ESP-IDF's interrupt vector table
@@ -117,14 +119,19 @@ It provides:
   and executable and the flash window read-only, as code.
 - **Peripheral registers from SVD**: Espressif's SVD files for the ESP32,
   ESP32-S2, ESP32-S3, ESP32-C2, ESP32-C3, ESP32-C6, ESP32-H2 and ESP32-C5
-  (Apache-2.0, see [view/espressif/svd/README.md](view/espressif/svd/README.md))
+  (Apache-2.0), and for the ESP8266, which Espressif never published one
+  for, a file made from esp-rs/esp-pacs' (MIT or Apache-2.0; see
+  [view/espressif/svd/README.md](view/espressif/svd/README.md)),
   are bundled and applied automatically to ESP firmware images and ELF files
   by Binary Ninja's SVD loader, naming and typing every peripheral register (`UART0.INT_CLR.RXFIFO_FULL_INT_CLR = 9`). An SVD file chosen in *Open with
   Options* (*SVD File*, `analysis.svd.autoLoadFile`) takes precedence, and
   `espressif.svd.autoLoad` turns this off. The files are unpacked once to
   `<user directory>/espressif/svd/`. This needs Binary Ninja's SVD loader
-  plugin (`svd_ninja`); without it, peripherals are left unnamed. The ESP8266
-  has no official SVD, so the view names its peripheral blocks itself.
+  plugin (`svd_ninja`); without it, peripherals are left unnamed (the
+  ESP8266's blocks keep their linker script names). The ESP8266 file covers
+  DPORT, EFUSE, the RNG register, UART0/1, SPI0/1, GPIO, IO_MUX, the timers
+  (FRC1/FRC2), RTC, WDT, SLC, I2S and the analog I2C master's register
+  (`I2C_ANA`); see **Not supported** for what it leaves out.
 - **Flash dumps**: a dump with a partition table at flash offset 0x8000
   opens as a container (the `EspFlash` transform), like an archive: its
   files are `bootloader` (the second stage bootloader, up to the table),
@@ -392,6 +399,10 @@ Not supported for now:
 - **ESP8266 ROM types.** Its ROM functions are named but not typed: the
   ESP-IDF docker image the type libraries are made from has no ESP8266 SDK
   headers.
+- **ESP8266 Wi-Fi and analog registers.** Its SVD file (see above) has no
+  registers for the Wi-Fi MAC and baseband (WDEV, 0x3FF20000 on, apart from
+  the RNG register at 0x3FF20E44), the SAR ADC or the analog blocks behind
+  the internal I2C master; those addresses stay unnamed and unmapped.
 - **Zcb/Zcmp on the ESP32-C5.** ESP-IDF only emits them with
   `CONFIG_COMPILER_ENABLE_RISCV_ZCMP` (off by default). `rv32gc` decodes
   `cm.push`/`cm.pop` as `fsd` and does not decode the Zcb instructions, so
@@ -484,7 +495,10 @@ sets it, and a short `CARGO_HOME`, for the same reason.
 into the plugin. They are vendored, each pinned to an upstream commit with
 its SHA-256 in `view/espressif/svd/SOURCES`; `scripts/fetch_svds.sh`
 downloads them again and checks them (to pick up a newer file, change its
-commit there and run the script with `--update`).
+commit there and run the script with `--update`). The ESP8266's is
+generated with svdtools 0.5.0 from esp-pacs' file and patches and
+`view/espressif/svd/esp8266.yaml`, which the script does again (see
+[view/espressif/svd/README.md](view/espressif/svd/README.md)).
 
 A native plugin loads only in a Binary Ninja whose core ABI matches the API
 it was built against (`BN_MINIMUM_CORE_ABI_VERSION` to
@@ -891,7 +905,13 @@ the plugin, are licensed under Apache-2.0 by Espressif
 from [espressif/esp-bist](https://github.com/espressif/esp-bist) (that file
 carries Espressif's Apache-2.0 license text; the rest of esp-bist is
 LGPL-3.0 and is not used), at the commits listed in
-[view/espressif/svd/SOURCES](view/espressif/svd/SOURCES). The
+[view/espressif/svd/SOURCES](view/espressif/svd/SOURCES). The ESP8266's
+SVD file is generated from [esp-rs/esp-pacs](https://github.com/esp-rs/esp-pacs)'
+file and patches, Copyright The esp-rs Project Developers, under the MIT
+License or Apache-2.0
+([view/espressif/svd/LICENSE-esp-pacs-MIT](view/espressif/svd/LICENSE-esp-pacs-MIT),
+[view/espressif/svd/LICENSE-esp-pacs-APACHE](view/espressif/svd/LICENSE-esp-pacs-APACHE)).
+The
 mask ROM symbol tables are derived from ESP-IDF's ROM linker scripts
 (Apache-2.0, Espressif) and the ESP8266 RTOS and NONOS SDKs' (Apache-2.0
 and the Espressif MIT License). The ROM type libraries in `view/espressif/data/rom_types/`

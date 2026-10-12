@@ -376,11 +376,12 @@ impl Chip {
         }
     }
 
-    /// The gzip-compressed Espressif SVD file for the chip; the ESP8266 has
-    /// none.
+    /// The gzip-compressed SVD file for the chip: Espressif's, or for the
+    /// ESP8266, which has none, the one made from esp-pacs' (see
+    /// svd/README.md).
     pub fn bundled_svd(self) -> Option<&'static [u8]> {
         match self {
-            Chip::Esp8266 => None,
+            Chip::Esp8266 => Some(svd::ESP8266),
             Chip::Esp32 => Some(svd::ESP32),
             Chip::Esp32S2 => Some(svd::ESP32S2),
             Chip::Esp32S3 => Some(svd::ESP32S3),
@@ -950,6 +951,21 @@ mod tests {
                 assert!(chip.is_rom_function(start) && chip.is_rom_function(end - 1));
                 assert!(!chip.is_rom_function(end), "{chip:?}");
             }
+        }
+    }
+
+    #[test]
+    fn bundled_svds() {
+        // Every chip has an SVD file, for that chip (the ESP8266's made
+        // from esp-pacs', see svd/README.md).
+        for chip in Chip::ALL {
+            let compressed = chip.bundled_svd().unwrap_or_else(|| panic!("{chip:?}"));
+            let mut svd = String::new();
+            std::io::Read::read_to_string(&mut flate2::read::GzDecoder::new(compressed), &mut svd)
+                .unwrap();
+            let name = format!("<name>{}</name>", chip.display_name());
+            assert!(svd.contains("<device ") && svd.contains(&name), "{chip:?}");
+            assert!(svd.find(&name) < svd.find("<peripherals>"), "{chip:?}");
         }
     }
 

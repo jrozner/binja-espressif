@@ -1,11 +1,10 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-/// The chips whose Espressif SVD file (vendored in `svd/`, see
-/// svd/README.md) is embedded, gzip-compressed, in the plugin; see
-/// src/svd.rs.
-const SVD_CHIPS: [&str; 8] = [
-    "esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3", "esp32c6", "esp32h2", "esp32c5",
+/// The chips whose SVD file (vendored in `svd/`, see svd/README.md) is
+/// embedded, gzip-compressed, in the plugin; see src/svd.rs.
+const SVD_CHIPS: [&str; 9] = [
+    "esp8266", "esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3", "esp32c6", "esp32h2", "esp32c5",
 ];
 
 fn compress_svd_files() {

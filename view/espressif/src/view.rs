@@ -388,8 +388,9 @@ impl EspView {
     }
 
     /// Names the mask ROM's functions and data (and, on the ESP8266, the
-    /// peripheral register blocks; the other chips' peripherals come from
-    /// Espressif's SVD files through Binary Ninja's SVD loader). The ROM is
+    /// peripheral register blocks by its SDK's names, beside its SVD file's;
+    /// peripherals come from the bundled SVD files through Binary Ninja's
+    /// SVD loader). The ROM is
     /// not part of the image, so its functions are defined
     /// as imported functions at their (unmapped) addresses
     /// (see [`Chip::is_rom_function`]).
