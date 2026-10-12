@@ -1,7 +1,34 @@
 {
   "schema": 1,
-  "version": "0.1.0",
+  "version": "0.1.0-rc.3",
   "repository": "jrozner/binja-xtensa",
-  "build": null,
-  "assets": []
+  "build": {
+    "commit": "85d34c156027e6ecd4b056ceaed79da0d77ecee4",
+    "run_id": 38209908807,
+    "api": "dev",
+    "api_source": "git+https://github.com/Vector35/binaryninja-api.git?rev=f15f46d6517159243a6907674dcc1170f10fb0d3#f15f46d6517159243a6907674dcc1170f10fb0d3"
+  },
+  "assets": [
+    {
+      "name": "binja_xtensa-abi189-linux-x86_64.so",
+      "platform": "linux-x86_64",
+      "abi": 189,
+      "sha256": "db1081f2f25dc8fa231ed308958d8b09ed28007df3530d6907addd82f98d44b1",
+      "size": 4986208
+    },
+    {
+      "name": "binja_xtensa-abi189-macos-universal.dylib",
+      "platform": "macos-universal",
+      "abi": 189,
+      "sha256": "4d5f64f83cd74612bcb2cbb2effa0c16a90723dceca27822f987efe95c1b7f82",
+      "size": 8107184
+    },
+    {
+      "name": "binja_xtensa-abi189-windows-x86_64.dll",
+      "platform": "windows-x86_64",
+      "abi": 189,
+      "sha256": "230000dc3f63ae4d7ea53f097a604726b49b0656c9aec3d30fcc9123d633deda",
+      "size": 3190272
+    }
+  ]
 }

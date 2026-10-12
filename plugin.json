@@ -25,7 +25,7 @@
         "Windows": "Requires a dev build of Binary Ninja (stable is not supported yet). Install with the extension manager, then accept the prompt to download the native library (or use Plugins > Espressif > Install or Update Native Library; headless, enable espressif.loader.autoDownload) and restart Binary Ninja. To uninstall, run Plugins > Espressif > Remove Native Library before removing the plugin."
     },
     "dependencies": {},
-    "version": "0.1.0",
+    "version": "0.1.0-rc.3",
     "author": "Joe Rozner",
     "minimumbinaryninjaversion": 10874
 }
