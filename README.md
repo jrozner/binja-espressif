@@ -9,6 +9,15 @@ release builds for stable will follow later.
 Decoding is done by the [`xtensa`](xtensa/) disassembler crate in `xtensa/`,
 which is verified against GNU objdump.
 
+The plugin is three crates shaped like the Rust plugins in the
+binaryninja-api tree, each a Binary Ninja plugin of its own, which the
+release bundles into one library (see [Repository layout](#repository-layout)):
+[`arch_xtensa`](arch/xtensa/) (the architectures),
+[`arch_riscv_ilp32`](arch/riscv_ilp32/) (the `ilp32` calling convention
+for Binary Ninja's RISC-V architecture) and
+[`view_espressif`](view/espressif/) (everything about Espressif's chips and
+firmware).
+
 It also loads firmware for Espressif's RISC-V chips, the **ESP32-C2**,
 **ESP32-C3**, **ESP32-C6**, **ESP32-H2** and **ESP32-C5**, whose code is
 analyzed with Binary Ninja's own `rv32gc` architecture.
@@ -30,10 +39,10 @@ It provides:
 - **Disassembly** in GNU objdump syntax, with branch/call targets and `l32r`
   literals as address tokens.
 - **Lifting** of the whole ISA to LLIL: every decodable instruction lifts
-  (checked by the `liftcheck` feature's lift sweep), with native semantics for the integer,
-  load/store, branch, call, shift/SAR, zero-overhead loop, boolean,
-  floating point and conditional-move instructions, and intrinsics for the
-  rest.
+  (checked by `arch_xtensa`'s `liftcheck` lift sweep), with native semantics
+  for the integer, load/store, branch, call, shift/SAR, zero-overhead loop,
+  boolean, floating point and conditional-move instructions, and intrinsics
+  for the rest.
 - **Flags**: the boolean registers `b0`–`b15` (Xtensa has no condition codes).
 - **Intrinsics** named after their mnemonics (`__memw`, `__rsil`,
   `__ee_vmulas_s16_accx_ld_ip`, ...) and for accesses to hardware special and
@@ -108,10 +117,9 @@ It provides:
   and executable and the flash window read-only, as code.
 - **Peripheral registers from SVD**: Espressif's SVD files for the ESP32,
   ESP32-S2, ESP32-S3, ESP32-C2, ESP32-C3, ESP32-C6, ESP32-H2 and ESP32-C5
-  (Apache-2.0, see [view/espressif/svd/README.md](view/espressif/svd/README.md)) are bundled and applied
-  automatically to ESP
-  firmware images and ELF files by Binary Ninja's SVD loader, naming and typing every
-  peripheral register (`UART0.INT_CLR.RXFIFO_FULL_INT_CLR = 9`). An SVD file chosen in *Open with
+  (Apache-2.0, see [view/espressif/svd/README.md](view/espressif/svd/README.md))
+  are bundled and applied automatically to ESP firmware images and ELF files
+  by Binary Ninja's SVD loader, naming and typing every peripheral register (`UART0.INT_CLR.RXFIFO_FULL_INT_CLR = 9`). An SVD file chosen in *Open with
   Options* (*SVD File*, `analysis.svd.autoLoadFile`) takes precedence, and
   `espressif.svd.autoLoad` turns this off. The files are unpacked once to
   `<user directory>/espressif/svd/`. This needs Binary Ninja's SVD loader
@@ -458,16 +466,25 @@ cargo build --release
 cp target/release/libbinja_xtensa.so ~/.binaryninja/plugins/   # .dylib / .dll elsewhere
 ```
 
+This builds the plugin the release ships, which holds all three crates (see
+[Repository layout](#repository-layout)). Each crate also builds as a
+plugin of its own (`cargo build --release -p arch_xtensa -p
+arch_riscv_ilp32 -p view_espressif` gives `libarch_xtensa.so`,
+`libarch_riscv_ilp32.so` and `libview_espressif.so`), as Binary Ninja's own
+build would make them. Install either the three of them or
+`libbinja_xtensa.so`, never both: they register the same architectures,
+platforms and view.
+
 On Windows, run `git config --global core.longpaths true` first:
 binaryninja-api's `vendor/bindiff` submodule has paths longer than 260
 characters, which cargo refuses to check out otherwise. The release build
 sets it, and a short `CARGO_HOME`, for the same reason.
 
-`build.rs` compresses the SVD files in `view/espressif/svd/` into the plugin. They are
-vendored, each pinned to an upstream commit with its SHA-256 in
-`view/espressif/svd/SOURCES`; `scripts/fetch_svds.sh` downloads them again and checks them
-(to pick up a newer file, change its commit there and run the script with
-`--update`).
+`view/espressif/build.rs` compresses the SVD files in `view/espressif/svd/`
+into the plugin. They are vendored, each pinned to an upstream commit with
+its SHA-256 in `view/espressif/svd/SOURCES`; `scripts/fetch_svds.sh`
+downloads them again and checks them (to pick up a newer file, change its
+commit there and run the script with `--update`).
 
 A native plugin loads only in a Binary Ninja whose core ABI matches the API
 it was built against (`BN_MINIMUM_CORE_ABI_VERSION` to
@@ -475,7 +492,8 @@ it was built against (`BN_MINIMUM_CORE_ABI_VERSION` to
 stable core (ABI 187) is refused by a 6.1 dev core (ABI 188-189), and the
 other way round. `Cargo.toml` on `main` pins a `dev` revision of the API, so
 a plain `cargo build` (like a release build) is for a dev Binary Ninja.
-`scripts/use_stable_api.sh` rewrites both pins in `Cargo.toml` to the
+`scripts/use_stable_api.sh` rewrites both pins in the root `Cargo.toml`'s
+`[workspace.dependencies]` to the
 stable tag it names and updates `Cargo.lock`; run it (and don't commit the
 result) to build for a stable Binary Ninja:
 
@@ -485,21 +503,66 @@ cargo build --release
 ```
 
 CI builds and tests against both. To move to a newer dev revision, update
-the `rev` of `binaryninja` and `binaryninjacore-sys` in `Cargo.toml`; to
+the `rev` of `binaryninja` and `binaryninjacore-sys` in the root
+`Cargo.toml`'s `[workspace.dependencies]`; to
 move to a newer stable release, update `STABLE_TAG` in
 `scripts/use_stable_api.sh`.
 
 A self-built library in the plugin folder takes precedence: if the
 extension manager's loader is installed too, it sees the library and
 installs nothing. Don't copy a self-built library into the plugin folder
-next to an installed `binja_xtensa-native.so`; remove that first.
+next to an installed `binja_xtensa-native.so`; remove that first. The
+loader only recognizes the bundled library (`*binja_xtensa*`), not the
+three crates built as plugins of their own.
+
+### Repository layout
+
+```
+Cargo.toml          the workspace, and the plugin the release ships (binja-xtensa)
+src/lib.rs          its entry points: registers the three plugins below
+arch/xtensa/        arch_xtensa: the Xtensa architectures, lifting, calling
+                    conventions, loops, patching, ELF relocations
+arch/riscv_ilp32/   arch_riscv_ilp32: the ilp32 calling convention for rv32gc
+view/espressif/     view_espressif: the ESP view and flash dump container, ELF
+                    fix-ups and chip recognition, chip platforms, ROM symbols
+                    (data/rom_symbols), types (data/rom_types) and images, SVDs (svd/)
+xtensa/             the xtensa decoder crate
+binja_xtensa_loader/, __init__.py, plugin.json
+                    the extension manager's Python loader
+scripts/            generators, fetchers and release tooling
+tests/              end-to-end tests (headless Binary Ninja) and their data
+```
+
+Each crate in `arch/` and `view/` follows the layout of binaryninja-api's
+Rust plugins (`arch/msp430`, `arch/riscv`, `view/minidump`): a
+`Cargo.toml` with `crate-type = ["cdylib", "rlib"]`, a `build.rs` that links
+the core, a `CMakeLists.txt` that builds it with `bn_add_rust_crate` in the
+binaryninja-api tree, and a README. Built on its own, each is a Binary
+Ninja plugin with its own `CorePluginInit` and `CorePluginDependencies`.
+The root package links them as Rust libraries with their `bundled` feature,
+which leaves those entry points out, and registers them in the order their
+plugin dependencies would load them: `arch_xtensa`, `arch_riscv_ilp32`,
+`view_espressif`. So the release still ships one library per platform for
+the extension manager's loader.
+
+They share no Rust types: `view_espressif` looks the architectures and the
+`ilp32` convention up by name, and the architectures know nothing of
+Espressif's chips. (They do share core state: `arch_xtensa` leaves alone
+the functions whose type the view imported from a ROM type library.)
+Dependencies they have in common (`binaryninja`, `binaryninjacore-sys`, the
+decoder) are `[workspace.dependencies]` of the root `Cargo.toml`.
+
+A workspace build enables `bundled` on every crate (Cargo unifies features),
+so the crates' own entry points are only compiled in a build of the crate
+alone (`-p arch_xtensa`), as CI does. Without the default `core` feature,
+every crate links a stub core library instead of Binary Ninja's.
 
 ### Regenerating the ROM tables and types
 
-The ROM symbol tables in `view/espressif/data/rom_symbols/` (one text file per chip,
-embedded in the plugin; `view/espressif/src/rom_symbols.rs` describes the format)
-are generated from the ROM linker scripts by `scripts/gen_rom_symbols.py`
-(see its header for the sources). The ROM type
+The ROM symbol tables in `view/espressif/data/rom_symbols/` (one text file
+per chip, embedded in the plugin; `view/espressif/src/rom_symbols.rs`
+describes the format) are generated from the ROM linker scripts by
+`scripts/gen_rom_symbols.py` (see its header for the sources). The ROM type
 libraries in `view/espressif/data/rom_types/` are generated, offline, by
 `scripts/gen_rom_types.py`, which runs headless Binary Ninja with a plugin
 build (for the chip platforms) and parses the headers of the ESP-IDF version
@@ -745,8 +808,10 @@ done.
 ## Testing
 
 ```sh
-cargo test -p arch_xtensa -p arch_riscv_ilp32 -p view_espressif -p binja-xtensa --lib --no-default-features    # image formats, partitions, loops, intrinsics, patching, relocations
-cargo test --release -p arch_xtensa --features liftcheck --lib liftcheck::lift_sweep    # lifts ~1.5M encodings through the real core
+# Unit tests: image formats, partitions, loops, intrinsics, patching, relocations
+cargo test -p arch_xtensa -p arch_riscv_ilp32 -p view_espressif -p binja-xtensa --lib --no-default-features
+# Lifts ~1.5M encodings through the real core
+cargo test --release -p arch_xtensa --features liftcheck --lib liftcheck::lift_sweep
 cargo build --release && tests/test_headless.py
 tests/test_loader.py                      # the Python loader and release tooling
 cargo build --release && tests/test_loader_headless.py
@@ -756,11 +821,11 @@ cargo test -p xtensa                      # the decoder (see xtensa/README.md)
 The unit tests link a stub core generated by `binaryninjacore-sys` (which
 needs CMake 3.28+ and Ninja), so they need no Binary Ninja installation.
 The lift sweep and the `test_headless` scripts need a headless-capable
-Binary Ninja license. The sweep is a unit test behind the `liftcheck`
-feature of `arch_xtensa` (see `arch/xtensa/src/liftcheck.rs`), which also lists the decoded
-operands of every opcode, for checking what the lifter assumes about them:
-`cargo test -p arch_xtensa --no-default-features --features liftcheck --lib
-liftcheck::operands -- --ignored --nocapture`. `tests/test_headless.py`
+Binary Ninja license. The sweep is a unit test behind the
+`liftcheck` feature of `arch_xtensa` (see `arch/xtensa/src/liftcheck.rs`),
+which also lists the decoded operands of every opcode, for checking what the
+lifter assumes about them: `cargo test -p arch_xtensa --no-default-features
+--features liftcheck --lib liftcheck::operands -- --ignored --nocapture`. `tests/test_headless.py`
 runs Binary Ninja with a throwaway user directory containing only this plugin
 and checks ELF loading, chip detection, calling conventions, call-site
 arguments, loop recovery, lifting semantics, patching, and the ESP view
