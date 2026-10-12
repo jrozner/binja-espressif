@@ -9,6 +9,7 @@
 //! | `32..40`        | ESP32-S3 vector registers `q0`..`q7` | 16 |
 //! | `0x100 + n`     | special register number `n`        | 4    |
 //! | `0x200 + n`     | user register number `n`           | 4    |
+//! | `0x300..0x304`  | shift amount pseudo registers ([`ShiftReg`]) | 4 |
 //!
 //! The boolean registers `b0`..`b15` are modelled as flags (see `flags.rs`).
 //! The MAC16 data registers `m0`..`m3` are special registers 32..35 and are
@@ -24,6 +25,7 @@ const F_BASE: u32 = 16;
 const Q_BASE: u32 = 32;
 const SR_BASE: u32 = 0x100;
 const UR_BASE: u32 = 0x200;
+const SHIFT_BASE: u32 = 0x300;
 
 /// Special register numbers referenced by the lifter.
 pub mod sr {
@@ -39,6 +41,49 @@ pub mod sr {
     pub const PS: u8 = 230;
 }
 
+/// Pseudo registers the lifter keeps alongside the shift amount register
+/// SAR. No instruction names them.
+///
+/// `srl` and `sra` shift right by SAR and `sll` left by 32 - SAR, amounts
+/// from 0 to 32, but Binary Ninja does not define a 32-bit shift by 32 (its
+/// constant folding shifts by the amount modulo 32). So each is lifted as
+/// two shifts by at most 31 bits: `srl` as `x u>> sar1 u>> sar2` and `sll`
+/// as `x << sal1 << sal2`, where `sar1 + sar2` is SAR and `sal1 + sal2` is
+/// 32 - SAR. Every instruction that sets SAR sets these as well, with the
+/// second amount 0 where it can: after `ssr` (or `ssa8l`, `ssai`) `sar1` is
+/// SAR and `sar2` is 0, after `ssl` (or `ssa8b`) `sal1` is the shift amount
+/// and `sal2` is 0. So the decompiler shows `x u>> (n & 0x1f)` and
+/// `x << (n & 0x1f)` for the code compilers emit for `x >> n` and `x << n`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ShiftReg {
+    /// The first of the two right shifts by SAR.
+    Sar1,
+    /// The second of the two right shifts by SAR.
+    Sar2,
+    /// The first of the two left shifts by 32 - SAR.
+    Sal1,
+    /// The second of the two left shifts by 32 - SAR.
+    Sal2,
+}
+
+impl ShiftReg {
+    pub const ALL: [ShiftReg; 4] = [
+        ShiftReg::Sar1,
+        ShiftReg::Sar2,
+        ShiftReg::Sal1,
+        ShiftReg::Sal2,
+    ];
+
+    fn name(self) -> &'static str {
+        match self {
+            ShiftReg::Sar1 => "sar1",
+            ShiftReg::Sar2 => "sar2",
+            ShiftReg::Sal1 => "sal1",
+            ShiftReg::Sal2 => "sal2",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Reg {
     A(u8),
@@ -46,6 +91,7 @@ pub enum Reg {
     Q(u8),
     Sr(&'static SpecialRegister),
     Ur(&'static UserRegister),
+    Shift(ShiftReg),
 }
 
 impl Reg {
@@ -59,7 +105,11 @@ impl Reg {
             F_BASE..Q_BASE => Some(Reg::F((id - F_BASE) as u8)),
             Q_BASE..40 => Some(Reg::Q((id - Q_BASE) as u8)),
             SR_BASE..UR_BASE => special_register(isa, (id - SR_BASE) as u8).map(Reg::Sr),
-            UR_BASE..0x300 => user_register(isa, (id - UR_BASE) as u8).map(Reg::Ur),
+            UR_BASE..SHIFT_BASE => user_register(isa, (id - UR_BASE) as u8).map(Reg::Ur),
+            SHIFT_BASE.. => ShiftReg::ALL
+                .get((id - SHIFT_BASE) as usize)
+                .copied()
+                .map(Reg::Shift),
             _ => None,
         }
     }
@@ -75,6 +125,7 @@ impl Reg {
         }
         regs.extend(isa.special_registers.iter().map(Reg::Sr));
         regs.extend(isa.user_registers.iter().map(Reg::Ur));
+        regs.extend(ShiftReg::ALL.map(Reg::Shift));
         regs
     }
 
@@ -118,6 +169,7 @@ impl Reg {
             Reg::Q(n) => format!("q{n}").into(),
             Reg::Sr(sr) => sr.name.into(),
             Reg::Ur(ur) => ur.name.into(),
+            Reg::Shift(r) => r.name().into(),
         }
     }
 }
@@ -152,6 +204,7 @@ impl architecture::Register for Reg {
             Reg::Q(n) => Q_BASE + n as u32,
             Reg::Sr(sr) => SR_BASE + sr.number as u32,
             Reg::Ur(ur) => UR_BASE + ur.number as u32,
+            Reg::Shift(r) => SHIFT_BASE + r as u32,
         })
     }
 }
