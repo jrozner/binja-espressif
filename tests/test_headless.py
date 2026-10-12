@@ -608,11 +608,130 @@ for code, name, op in [("4023a2", "muluh", "LLIL_MULU_DP"), ("4023b2", "mulsh", 
     wide = shift.left
     check(wide.operation.name == op and wide.size == 4 and wide.left.size == 4 and shift.size == 8,
           f"{name}: 4-byte operands, 8-byte product")
-for code, name, op in [("0023a1", "sll", "LLIL_LSR"), ("302091", "srl", "LLIL_LSR"),
-                       ("3020b1", "sra", "LLIL_ASR")]:
-    il = llil(esp32, code)
-    check(il.src.operation.name == "LLIL_LOW_PART" and il.src.src.operation.name == op
-          and il.src.src.size == 8, f"{name}: 64-bit funnel shift (exact for SAR 0 and 32)")
+
+
+def lift_all(arch, word):
+    """Every LLIL instruction of the 3-byte instruction `word`."""
+    il = bn.LowLevelILFunction(arch)
+    arch.get_instruction_low_level_il(word.to_bytes(3, "little"), 0x40080000, il)
+    return [il[i] for i in range(len(il))]
+
+
+def run_llil(insns, regs):
+    """Runs the register assignments `insns` on `regs`. A shift by the
+    operand's width or more fails: Binary Ninja leaves it undefined (its
+    constant folding takes the amount modulo the width)."""
+    def ev(e):
+        op, bits = e.operation.name, 8 * e.size
+        mask = (1 << bits) - 1
+        if op in ("LLIL_CONST", "LLIL_CONST_PTR"):
+            return e.constant & mask
+        if op == "LLIL_REG":
+            return regs[str(e.src)] & mask
+        if op in ("LLIL_ZX", "LLIL_LOW_PART"):
+            return ev(e.src) & mask
+        if op == "LLIL_SX":
+            v, width = ev(e.src), 8 * e.src.size
+            return (v - (1 << width) if v >> (width - 1) else v) & mask
+        a, b = ev(e.left), ev(e.right)
+        if op in ("LLIL_LSL", "LLIL_LSR", "LLIL_ASR"):
+            assert b < bits, f"{e}: shift by {b}"
+        if op == "LLIL_ASR" and a >> (bits - 1):
+            a -= 1 << bits
+        if op == "LLIL_ROR":  # by the width or more: the amount modulo the width
+            b %= bits
+            return (a >> b | a << (bits - b)) & mask
+        return {"LLIL_ADD": a + b, "LLIL_SUB": a - b, "LLIL_MUL": a * b, "LLIL_AND": a & b,
+                "LLIL_OR": a | b, "LLIL_XOR": a ^ b, "LLIL_LSL": a << b, "LLIL_LSR": a >> b,
+                "LLIL_ASR": a >> b}[op] & mask
+
+    for insn in insns:
+        assert insn.operation.name == "LLIL_SET_REG", str(insn)
+        regs[str(insn.dest)] = ev(insn.src)
+
+
+# Every instruction that sets SAR followed by every one that reads it,
+# checked against the ISA: SAR is 6 bits, and the shifts take the low word of
+# a 64-bit value shifted right by SAR, from 0 to 32.
+M32 = 0xffffffff
+
+
+def set_sar(name, n):
+    """The instruction word of `name` with as = a3 (ssai: with the immediate
+    n), and the SAR it sets for a3 = n."""
+    return {"ssr": (0x400300, n & 31), "ssl": (0x401300, 32 - (n & 31)),
+            "ssa8l": (0x402300, 8 * (n & 3)), "ssa8b": (0x403300, 32 - 8 * (n & 3)),
+            "ssai": (0x404000 | (n & 15) << 8 | (n >> 4) << 4, n),
+            "wsr.sar": (0x130330, n & 63), "xsr.sar": (0x610330, n & 63)}[name]
+
+
+def funnel(hi, lo, sar):
+    return ((hi << 32 | lo) >> sar) & M32
+
+
+uses = {  # with as = a4, at = a5
+    "sll a2, a4": (0xa12400, lambda x, y, s: funnel(x, 0, s)),
+    "srl a2, a5": (0x912050, lambda x, y, s: funnel(0, y, s)),
+    "sra a2, a5": (0xb12050, lambda x, y, s: funnel(M32 if y >> 31 else 0, y, s)),
+    "src a2, a4, a5": (0x812450, lambda x, y, s: funnel(x, y, s)),
+    "src a2, a4, a4": (0x812440, lambda x, y, s: funnel(x, x, s)),
+    "rsr.sar a2": (0x030320, lambda x, y, s: s),
+}
+uses = {name: (lift_all(esp32, word), ref) for name, (word, ref) in uses.items()}
+values = [0, 1, 0x7fffffff, 0x80000000, 0x80000001, 0xdeadbeef, M32]
+bad, cases = [], 0
+for setter in ("ssr", "ssl", "ssa8l", "ssa8b", "ssai", "wsr.sar", "xsr.sar"):
+    for n in range(32) if setter == "ssai" else [*range(70), 0xffffffe0, 0xfffffff1, 0x12345663]:
+        word, sar = set_sar(setter, n)
+        if sar > 32:
+            continue  # the shifts are undefined
+        setting = lift_all(esp32, word)
+        for name, (insns, ref) in uses.items():
+            for i, x in enumerate(values):
+                y = values[(i + 3) % len(values)]
+                regs = {"a2": 0, "a3": n, "a4": x, "a5": y, "sar": 7}  # xsr reads sar
+                cases += 1
+                try:
+                    run_llil(setting, regs)
+                    run_llil(insns, regs)
+                    got = regs["a2"]
+                except (AssertionError, KeyError) as e:
+                    got = repr(e)
+                if got != ref(x, y, sar):
+                    bad.append(f"{setter} {n:#x}; {name} with a4 = {x:#x}, a5 = {y:#x}: {got}")
+check(not bad and cases > 10000,
+      f"SAR shifts are exact for every SAR value ({cases} cases){': ' + '; '.join(bad[:5]) if bad else ''}")
+# What GCC (-O2, ESP32) emits for these C functions decompiles to plain
+# shifts. The 64-bit ones return only the low word unless typed.
+shl64 = "3641007cf88084302091410008409090910014400033a12c088084100014400022a13a390c098032938029931df0"
+shr64 = "3641007cf88084303a930018400099a10004402020912c088084100004403030912a290c098023938039931df0"
+shift_functions = [  # C source, code, typed as uint64_t f(uint64_t, uint32_t), HLIL
+    ("x << n", "3641000013400022a11df000", False, "return arg1 << (arg2 & 0x1f)"),  # ssl; sll
+    ("x >> n", "3641000003402020911df000", False, "return arg1 u>> (arg2 & 0x1f)"),  # ssr; srl
+    ("(int32_t)x >> n", "3641000003402020b11df000", False, "return arg1 s>> (arg2 & 0x1f)"),  # ssr; sra
+    ("(uint64_t)x << n", shl64, False, "return arg1 << (arg3 & 0x1f)"),  # ssr; srl; ssl; sll; ssl; sll
+    ("(uint64_t)x << n", shl64, True, "u>> 1 u>> ((arg2 ^ 0xffffffff) & 0x1f)) + (arg1:4.d << (arg2 & 0x1f))"),
+    ("(uint64_t)x >> n", shr64, False,  # ssl; sll; ssr; srl; ssr; srl
+     "((arg2 * 2) << ((arg3 ^ 0xffffffff) & 0x1f)) + (arg1 u>> (arg3 & 0x1f))"),
+    ("(uint64_t)x << 12", "3641008d021044408033814022111df0", True, "arg1:4.d << 0xc | "),  # ssai; src
+    ("x >> n | x << (32 - n)", "3641000003402022811df000", False, "return ror.d(arg1, arg2 & 0x1f)"),  # ssr; src
+    ("x << 7 | x >> 25", "3641001049402022811df000", False, "return ror.d(arg1, 0x19)"),  # ssai; src
+    ("p[0] >> 8 * (n & 3) | p[1] << ...", "364100881228020023402028811df000", False,  # ssa8l; src
+     "return arg1[1] << 1 << (0x1f - sar) | *arg1 u>> sar"),
+]
+shift_bv = bn.load(b"".join(bytes.fromhex(code).ljust(64, b"\0") for _, code, _, _ in shift_functions),
+                   options={"loader.platform": "esp32"})
+u64 = bn.Type.function(bn.Type.int(8, False), [bn.Type.int(8, False), bn.Type.int(4, False)])
+for i, (_, _, typed, _) in enumerate(shift_functions):
+    f = shift_bv.add_function(shift_bv.start + 64 * i, bn.Platform["esp32"])
+    if typed:
+        f.type = u64
+shift_bv.update_analysis_and_wait()
+for i, (source, _, _, want) in enumerate(shift_functions):
+    f = shift_bv.get_function_at(shift_bv.start + 64 * i)
+    text = hlil_text(f) if f else ""
+    check(want in text, f"{source} decompiles to ...{want}" + ("" if want in text else f": {text!r}"))
+shift_bv.file.close()
 for code, name in [("20014a", "madd.s"), ("20016a", "maddn.s"), ("20015a", "msub.s")]:
     il = llil(esp32, code)
     check(il.src.operation.name == "LLIL_FLOAT_CONV" and il.src.src.size == 8,

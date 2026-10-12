@@ -12,7 +12,7 @@ use xtensa_isa::{Instruction, Isa, Opcode as O, Operand};
 use crate::xtensa::flags::Flag;
 use crate::xtensa::intrinsics::{self, Input, Intrinsic, SysAccess, operand_reg};
 use crate::xtensa::loops::Loops;
-use crate::xtensa::registers::{Reg, special_register, special_register_by_name, sr};
+use crate::xtensa::registers::{Reg, ShiftReg, special_register, special_register_by_name, sr};
 
 type Il = LowLevelILMutableFunction;
 
@@ -710,49 +710,50 @@ impl<'a> Lifter<'a> {
                 let Some(sar) = self.sr(sr::SAR) else {
                     return unimplemented(il);
                 };
-                let value = match insn.opcode() {
-                    O::Ssai => self.c(self.imm(0) as i64),
-                    O::Ssr => il.and(4, self.ar(0), self.c(31)).build(),
-                    O::Ssl => il
-                        .sub(4, self.c(32), il.and(4, self.ar(0), self.c(31)))
-                        .build(),
-                    O::Ssa8l => il
-                        .lsl(4, il.and(4, self.ar(0), self.c(3)), self.c(3))
-                        .build(),
-                    _ => il
-                        .sub(
-                            4,
-                            self.c(32),
-                            il.lsl(4, il.and(4, self.ar(0), self.c(3)), self.c(3)),
-                        )
-                        .build(),
-                };
-                self.set(sar, value);
+                match insn.opcode() {
+                    O::Ssai => self.set_shift_constant(sar, self.imm(0) as i64),
+                    O::Ssr => self.set_shift_amount(sar, false, &|| {
+                        il.and(4, self.ar(0), self.c(31)).build()
+                    }),
+                    O::Ssl => self
+                        .set_shift_amount(sar, true, &|| il.and(4, self.ar(0), self.c(31)).build()),
+                    O::Ssa8l => self.set_shift_amount(sar, false, &|| {
+                        il.mul(4, il.and(4, self.ar(0), self.c(3)), self.c(8))
+                            .build()
+                    }),
+                    _ => self.set_shift_amount(sar, true, &|| {
+                        il.mul(4, il.and(4, self.ar(0), self.c(3)), self.c(8))
+                            .build()
+                    }),
+                }
             }
             O::Sll | O::Srl | O::Sra | O::Src => {
                 let Some(sar) = self.sr(sr::SAR) else {
                     return unimplemented(il);
                 };
+                // Shifts by SAR and by 32 - SAR, from 0 to 32 bits, each as
+                // two shifts by at most 31 (see `ShiftReg`).
+                let amount = |r: ShiftReg| self.reg(Reg::Shift(r));
+                let left = |x: Expr<'a>| {
+                    let once = il.lsl(4, x, amount(ShiftReg::Sal1));
+                    il.lsl(4, once, amount(ShiftReg::Sal2)).build()
+                };
+                let right = |x: Expr<'a>| {
+                    let once = il.lsr(4, x, amount(ShiftReg::Sar1));
+                    il.lsr(4, once, amount(ShiftReg::Sar2)).build()
+                };
                 let value = match insn.opcode() {
-                    // Funnel shifts through 64 bits, as the hardware does,
-                    // so that a shift amount of 0 or 32 gives its result.
-                    O::Sll => {
-                        let hi = il.lsl(8, il.zx(8, self.ar(1)), il.const_int(1, 32));
-                        il.low_part(4, il.lsr(8, hi, self.reg(sar))).build()
+                    O::Sll => left(self.ar(1)),
+                    O::Srl => right(self.ar(1)),
+                    O::Sra => {
+                        let once = il.asr(4, self.ar(1), amount(ShiftReg::Sar1));
+                        il.asr(4, once, amount(ShiftReg::Sar2)).build()
                     }
-                    O::Srl => il
-                        .low_part(4, il.lsr(8, il.zx(8, self.ar(1)), self.reg(sar)))
-                        .build(),
-                    O::Sra => il
-                        .low_part(4, il.asr(8, il.sx(8, self.ar(1)), self.reg(sar)))
-                        .build(),
-                    // `src ar, as, as` is a rotate.
+                    // `src ar, as, as` is a rotate. A rotate by 32 bits is
+                    // one by 0.
                     _ if ops[1] == ops[2] => il.ror(4, self.ar(1), self.reg(sar)).build(),
-                    _ => {
-                        let hi = il.lsl(8, il.zx(8, self.ar(1)), il.const_int(1, 32));
-                        let pair = il.or(8, hi, il.zx(8, self.ar(2)));
-                        il.low_part(4, il.lsr(8, pair, self.reg(sar))).build()
-                    }
+                    // The low word of `as:at >> SAR`.
+                    _ => il.or(4, left(self.ar(1)), right(self.ar(2))).build(),
                 };
                 self.set(self.a(0), value);
             }
@@ -948,6 +949,8 @@ impl<'a> Lifter<'a> {
                 let r = operand_reg(self.isa, &ops[1]).unwrap();
                 if matches!(r, Reg::Sr(s) if s.number == sr::BR) {
                     self.write_br(self.ar(0));
+                } else if matches!(r, Reg::Sr(s) if s.number == sr::SAR) {
+                    self.write_sar(r, self.ar(0));
                 } else {
                     self.set(r, self.ar(0));
                 }
@@ -958,6 +961,9 @@ impl<'a> Lifter<'a> {
                 if matches!(r, Reg::Sr(s) if s.number == sr::BR) {
                     self.set_temp(OLD, 4, self.read_br());
                     self.write_br(self.ar(0));
+                } else if matches!(r, Reg::Sr(s) if s.number == sr::SAR) {
+                    self.set_temp(OLD, 4, self.reg(r));
+                    self.write_sar(r, self.ar(0));
                 } else {
                     self.set_temp(OLD, 4, self.reg(r));
                     self.set(r, self.ar(0));
@@ -1248,6 +1254,68 @@ impl<'a> Lifter<'a> {
         };
         self.set(self.a(1), il.add(4, self.ar(1), self.c(delta)).build());
         self.load(4, false, m, self.ar(1));
+    }
+
+    /// Sets SAR and the shift amount pseudo registers ([`ShiftReg`]) for a
+    /// shift by `amount`, from 0 to 31. For a right shift (`ssr`, `ssa8l`),
+    /// SAR is `amount`: the right shift is by SAR then by 0, and the left
+    /// shift by 32 - SAR, from 1 to 32, is by 1 then by 31 - SAR. A left
+    /// shift (`ssl`, `ssa8b`) is the other way around, and SAR is
+    /// 32 - `amount`.
+    fn set_shift_amount(&self, sar: Reg, left: bool, amount: &dyn Fn() -> Expr<'a>) {
+        use ShiftReg::*;
+        let il = self.il;
+        let (first, second, other_first, other_second) = if left {
+            (Sal1, Sal2, Sar1, Sar2)
+        } else {
+            (Sar1, Sar2, Sal1, Sal2)
+        };
+        let first = Reg::Shift(first);
+        if left {
+            self.set(first, amount());
+            self.set(sar, il.sub(4, self.c(32), self.reg(first)).build());
+        } else {
+            self.set(sar, amount());
+            self.set(first, self.reg(sar));
+        }
+        self.set(Reg::Shift(second), self.c(0));
+        self.set(Reg::Shift(other_first), self.c(1));
+        self.set(
+            Reg::Shift(other_second),
+            il.sub(4, self.c(31), self.reg(first)).build(),
+        );
+    }
+
+    /// `ssai`: SAR and the shift amount pseudo registers ([`ShiftReg`]) are
+    /// constants.
+    fn set_shift_constant(&self, sar: Reg, amount: i64) {
+        let left = 32 - amount;
+        self.set(sar, self.c(amount));
+        self.set(Reg::Shift(ShiftReg::Sar1), self.c(amount));
+        self.set(Reg::Shift(ShiftReg::Sar2), self.c(0));
+        self.set(Reg::Shift(ShiftReg::Sal1), self.c(left.min(31)));
+        self.set(Reg::Shift(ShiftReg::Sal2), self.c(left - left.min(31)));
+    }
+
+    /// `wsr.sar`, `xsr.sar`: SAR is six bits. The shift amount pseudo
+    /// registers ([`ShiftReg`]) split SAR and 32 - SAR in halves, which is
+    /// exact for the shift amounts 0 to 32. That covers every defined shift:
+    /// the ISA's legal range for SAR is 0 to 32, and `sll`, `srl`, `sra` and
+    /// `src` are undefined with SAR above 32.
+    fn write_sar(&self, sar: Reg, value: Expr<'a>) {
+        let il = self.il;
+        let half = |r: ShiftReg, amount: &dyn Fn() -> Expr<'a>, other: ShiftReg| {
+            self.set(Reg::Shift(r), il.lsr(4, amount(), self.c(1)).build());
+            let rest = il.sub(4, amount(), self.reg(Reg::Shift(r)));
+            self.set(Reg::Shift(other), rest.build());
+        };
+        self.set(sar, il.and(4, value, self.c(0x3f)).build());
+        half(ShiftReg::Sar1, &|| self.reg(sar), ShiftReg::Sar2);
+        half(
+            ShiftReg::Sal1,
+            &|| il.sub(4, self.c(32), self.reg(sar)).build(),
+            ShiftReg::Sal2,
+        );
     }
 
     /// The `br` special register, assembled from the sixteen boolean flags.
