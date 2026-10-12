@@ -220,7 +220,12 @@ It provides:
   | ESP32-C5 | 407 of 1411 (29%)   | 6         | 27 KiB  |
 
   Databases keep the types; a database saved before this feature existed is
-  not retyped when reopened.
+  not retyped when reopened. A database typed from another version of the
+  library (saved by an earlier build of the plugin) is brought up to date
+  the first time it is analyzed: the ROM functions and variables the
+  library now types are typed, changed prototypes and types are replaced
+  (an edit of yours to one of them too), and they are recorded as imported
+  from this library. Save the database afterwards to keep that.
 - **Mask ROM images**: the ROM region holds the chip's real ROM when one of
   Espressif's ROM ELF files is available, so the ROM's code can be read
   and decompiled (`memset` at 0x4000c44c on the ESP32 starts
@@ -865,8 +870,9 @@ listing. `tests/data/idf_*.elf`, built from `tests/data/idf_features.c` by
 `scripts/build_idf_elfs.sh`, are laid out like ESP-IDF applications and
 call into the mask ROM: the test checks the ELF fix-ups and the ROM types
 (the arguments of ROM calls and libgcc helpers, a ROM structure's fields,
-and that reopening a database changes nothing) on them and on images made
-from them. The user directory (`bn-xtensa-test-*` in the system temp
+that reopening a database changes nothing, and that a database typed from
+another version of the library is brought up to date) on them and on
+images made from them. The user directory (`bn-xtensa-test-*` in the system temp
 directory) also holds the databases and images the test writes, and is
 removed when the test exits; set `BN_XTENSA_KEEP_TMP=1` to keep it for
 debugging (the test prints its path).

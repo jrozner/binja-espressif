@@ -396,11 +396,15 @@ pub fn create_functions(view: &BinaryView) -> bool {
 /// A database keeps the ROM region it was saved with: it is reopened before
 /// it is restored, so this cannot change it then. The command maps an image
 /// into it once it is open (see [`map_into`]).
+///
+/// It also brings a database up to date with the ROM type library first
+/// (see [`rom_types::update_database`]).
 fn refresh(view: &BinaryView) {
     let Some(chip) = view_chip(view) else {
         return;
     };
     rom_types::backfill_rom_elf_imports(view, chip);
+    rom_types::update_database(view, chip);
     if !rom_types::has_zero_filled_region(view, chip) {
         rom_status::backfill(view, chip);
         rom_status::sync_data_alias(view);
