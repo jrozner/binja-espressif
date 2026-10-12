@@ -51,6 +51,9 @@ overwriting an earlier one it overlaps:
   esp-pacs lacks are added: `RTC_SLP_VAL` (+0x04), `RTC_STATE2` (+0x18),
   `RTC_SLP_CNT_VAL` (+0x1C) and `RTC_STORE1` to `RTC_STORE3` (+0x34 to
   +0x3C, the SDK's `RTC_SCRATCH1` to 3);
+- the GPIO pin registers' `DRIVER` and `SOURCE` values, which esp-pacs has
+  the wrong way round (1 is open drain and sigma-delta, as the SDK and the
+  fields' descriptions say);
 - esp-pacs' `RTCCNTL` at 0x60000D00, the internal I2C master of the analog
   blocks (the PLL), not the RTC (that is `RTC`), is renamed `I2C_ANA`;
 - the device gets a description and a `<licenseText>` naming its sources,

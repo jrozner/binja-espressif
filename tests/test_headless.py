@@ -481,6 +481,11 @@ check({s.name for s in bv.get_symbols(0x60000000, 1)} == {"UART0", "uart0"}, "es
 rtc = bv.get_type_by_name("RTC")
 check(rtc is not None and {m.name: m.offset for m in rtc.members}.get("RTC_SLP_CNT_VAL") == 0x1C,
       "esp8266: the SVD has the RTC registers esp-pacs lacks")
+gpio = bv.get_type_by_name("GPIO")
+pin0 = next((m.type for m in gpio.members if m.name == "GPIO_PIN0"), None) if gpio else None
+driver = next((m.type for m in pin0.members if m.name == "GPIO_PIN0_DRIVER"), None) if pin0 else None
+values = {m.name: m.value for m in driver.members} if isinstance(driver, bn.EnumerationType) else None
+check(values == {"normal": 0, "open_drain": 1}, f"esp8266: GPIO pin driver 1 is open drain ({values})")
 
 bv = bn.load(esp8266_image, options={"espressif.svd.autoLoad": False})
 check({s.name for s in bv.get_symbols(0x60000000, 1)} == {"uart0"},

@@ -531,13 +531,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN0_DRIVER</name>
                 <enumeratedValue>
-                  <name>open_drain</name>
-                  <description>open drain</description>
+                  <name>normal</name>
+                  <description>normal</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>normal</name>
-                  <description>normal</description>
+                  <name>open_drain</name>
+                  <description>open drain</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -551,13 +551,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN0_SOURCE</name>
                 <enumeratedValue>
-                  <name>sigma_delta</name>
-                  <description>sigma-delta</description>
+                  <name>gpio_data</name>
+                  <description>GPIO_DATA</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>gpio_data</name>
-                  <description>gpio data</description>
+                  <name>sigma_delta</name>
+                  <description>sigma-delta</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -627,13 +627,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN1_DRIVER</name>
                 <enumeratedValue>
-                  <name>open_drain</name>
-                  <description>open drain</description>
+                  <name>normal</name>
+                  <description>normal</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>normal</name>
-                  <description>normal</description>
+                  <name>open_drain</name>
+                  <description>open drain</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -647,13 +647,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN1_SOURCE</name>
                 <enumeratedValue>
-                  <name>sigma_delta</name>
-                  <description>sigma-delta</description>
+                  <name>gpio_data</name>
+                  <description>GPIO_DATA</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>gpio_data</name>
-                  <description>gpio data</description>
+                  <name>sigma_delta</name>
+                  <description>sigma-delta</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -723,13 +723,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN2_DRIVER</name>
                 <enumeratedValue>
-                  <name>open_drain</name>
-                  <description>open drain</description>
+                  <name>normal</name>
+                  <description>normal</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>normal</name>
-                  <description>normal</description>
+                  <name>open_drain</name>
+                  <description>open drain</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -743,13 +743,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN2_SOURCE</name>
                 <enumeratedValue>
-                  <name>sigma_delta</name>
-                  <description>sigma-delta</description>
+                  <name>gpio_data</name>
+                  <description>GPIO_DATA</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>gpio_data</name>
-                  <description>gpio data</description>
+                  <name>sigma_delta</name>
+                  <description>sigma-delta</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -819,13 +819,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN3_DRIVER</name>
                 <enumeratedValue>
-                  <name>open_drain</name>
-                  <description>open drain</description>
+                  <name>normal</name>
+                  <description>normal</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>normal</name>
-                  <description>normal</description>
+                  <name>open_drain</name>
+                  <description>open drain</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -839,13 +839,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN3_SOURCE</name>
                 <enumeratedValue>
-                  <name>sigma_delta</name>
-                  <description>sigma-delta</description>
+                  <name>gpio_data</name>
+                  <description>GPIO_DATA</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>gpio_data</name>
-                  <description>gpio data</description>
+                  <name>sigma_delta</name>
+                  <description>sigma-delta</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -915,13 +915,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN4_DRIVER</name>
                 <enumeratedValue>
-                  <name>open_drain</name>
-                  <description>open drain</description>
+                  <name>normal</name>
+                  <description>normal</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>normal</name>
-                  <description>normal</description>
+                  <name>open_drain</name>
+                  <description>open drain</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -935,13 +935,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN4_SOURCE</name>
                 <enumeratedValue>
-                  <name>sigma_delta</name>
-                  <description>sigma-delta</description>
+                  <name>gpio_data</name>
+                  <description>GPIO_DATA</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>gpio_data</name>
-                  <description>gpio data</description>
+                  <name>sigma_delta</name>
+                  <description>sigma-delta</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1011,13 +1011,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN5_DRIVER</name>
                 <enumeratedValue>
-                  <name>open_drain</name>
-                  <description>open drain</description>
+                  <name>normal</name>
+                  <description>normal</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>normal</name>
-                  <description>normal</description>
+                  <name>open_drain</name>
+                  <description>open drain</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1031,13 +1031,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN5_SOURCE</name>
                 <enumeratedValue>
-                  <name>sigma_delta</name>
-                  <description>sigma-delta</description>
+                  <name>gpio_data</name>
+                  <description>GPIO_DATA</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>gpio_data</name>
-                  <description>gpio data</description>
+                  <name>sigma_delta</name>
+                  <description>sigma-delta</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1107,13 +1107,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN6_DRIVER</name>
                 <enumeratedValue>
-                  <name>open_drain</name>
-                  <description>open drain</description>
+                  <name>normal</name>
+                  <description>normal</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>normal</name>
-                  <description>normal</description>
+                  <name>open_drain</name>
+                  <description>open drain</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1127,13 +1127,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN6_SOURCE</name>
                 <enumeratedValue>
-                  <name>sigma_delta</name>
-                  <description>sigma-delta</description>
+                  <name>gpio_data</name>
+                  <description>GPIO_DATA</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>gpio_data</name>
-                  <description>gpio data</description>
+                  <name>sigma_delta</name>
+                  <description>sigma-delta</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1203,13 +1203,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN7_DRIVER</name>
                 <enumeratedValue>
-                  <name>open_drain</name>
-                  <description>open drain</description>
+                  <name>normal</name>
+                  <description>normal</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>normal</name>
-                  <description>normal</description>
+                  <name>open_drain</name>
+                  <description>open drain</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1223,13 +1223,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN7_SOURCE</name>
                 <enumeratedValue>
-                  <name>sigma_delta</name>
-                  <description>sigma-delta</description>
+                  <name>gpio_data</name>
+                  <description>GPIO_DATA</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>gpio_data</name>
-                  <description>gpio data</description>
+                  <name>sigma_delta</name>
+                  <description>sigma-delta</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1299,13 +1299,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN8_DRIVER</name>
                 <enumeratedValue>
-                  <name>open_drain</name>
-                  <description>open drain</description>
+                  <name>normal</name>
+                  <description>normal</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>normal</name>
-                  <description>normal</description>
+                  <name>open_drain</name>
+                  <description>open drain</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1319,13 +1319,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN8_SOURCE</name>
                 <enumeratedValue>
-                  <name>sigma_delta</name>
-                  <description>sigma-delta</description>
+                  <name>gpio_data</name>
+                  <description>GPIO_DATA</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>gpio_data</name>
-                  <description>gpio data</description>
+                  <name>sigma_delta</name>
+                  <description>sigma-delta</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1395,13 +1395,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN9_DRIVER</name>
                 <enumeratedValue>
-                  <name>open_drain</name>
-                  <description>open drain</description>
+                  <name>normal</name>
+                  <description>normal</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>normal</name>
-                  <description>normal</description>
+                  <name>open_drain</name>
+                  <description>open drain</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1415,13 +1415,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN9_SOURCE</name>
                 <enumeratedValue>
-                  <name>sigma_delta</name>
-                  <description>sigma-delta</description>
+                  <name>gpio_data</name>
+                  <description>GPIO_DATA</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>gpio_data</name>
-                  <description>gpio data</description>
+                  <name>sigma_delta</name>
+                  <description>sigma-delta</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1491,13 +1491,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN10_DRIVER</name>
                 <enumeratedValue>
-                  <name>open_drain</name>
-                  <description>open drain</description>
+                  <name>normal</name>
+                  <description>normal</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>normal</name>
-                  <description>normal</description>
+                  <name>open_drain</name>
+                  <description>open drain</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1511,13 +1511,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN10_SOURCE</name>
                 <enumeratedValue>
-                  <name>sigma_delta</name>
-                  <description>sigma-delta</description>
+                  <name>gpio_data</name>
+                  <description>GPIO_DATA</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>gpio_data</name>
-                  <description>gpio data</description>
+                  <name>sigma_delta</name>
+                  <description>sigma-delta</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1587,13 +1587,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN11_DRIVER</name>
                 <enumeratedValue>
-                  <name>open_drain</name>
-                  <description>open drain</description>
+                  <name>normal</name>
+                  <description>normal</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>normal</name>
-                  <description>normal</description>
+                  <name>open_drain</name>
+                  <description>open drain</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1607,13 +1607,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN11_SOURCE</name>
                 <enumeratedValue>
-                  <name>sigma_delta</name>
-                  <description>sigma-delta</description>
+                  <name>gpio_data</name>
+                  <description>GPIO_DATA</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>gpio_data</name>
-                  <description>gpio data</description>
+                  <name>sigma_delta</name>
+                  <description>sigma-delta</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1683,13 +1683,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN12_DRIVER</name>
                 <enumeratedValue>
-                  <name>open_drain</name>
-                  <description>open drain</description>
+                  <name>normal</name>
+                  <description>normal</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>normal</name>
-                  <description>normal</description>
+                  <name>open_drain</name>
+                  <description>open drain</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1703,13 +1703,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN12_SOURCE</name>
                 <enumeratedValue>
-                  <name>sigma_delta</name>
-                  <description>sigma-delta</description>
+                  <name>gpio_data</name>
+                  <description>GPIO_DATA</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>gpio_data</name>
-                  <description>gpio data</description>
+                  <name>sigma_delta</name>
+                  <description>sigma-delta</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1779,13 +1779,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN13_DRIVER</name>
                 <enumeratedValue>
-                  <name>open_drain</name>
-                  <description>open drain</description>
+                  <name>normal</name>
+                  <description>normal</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>normal</name>
-                  <description>normal</description>
+                  <name>open_drain</name>
+                  <description>open drain</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1799,13 +1799,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN13_SOURCE</name>
                 <enumeratedValue>
-                  <name>sigma_delta</name>
-                  <description>sigma-delta</description>
+                  <name>gpio_data</name>
+                  <description>GPIO_DATA</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>gpio_data</name>
-                  <description>gpio data</description>
+                  <name>sigma_delta</name>
+                  <description>sigma-delta</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1875,13 +1875,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN14_DRIVER</name>
                 <enumeratedValue>
-                  <name>open_drain</name>
-                  <description>open drain</description>
+                  <name>normal</name>
+                  <description>normal</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>normal</name>
-                  <description>normal</description>
+                  <name>open_drain</name>
+                  <description>open drain</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1895,13 +1895,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN14_SOURCE</name>
                 <enumeratedValue>
-                  <name>sigma_delta</name>
-                  <description>sigma-delta</description>
+                  <name>gpio_data</name>
+                  <description>GPIO_DATA</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>gpio_data</name>
-                  <description>gpio data</description>
+                  <name>sigma_delta</name>
+                  <description>sigma-delta</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1971,13 +1971,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN15_DRIVER</name>
                 <enumeratedValue>
-                  <name>open_drain</name>
-                  <description>open drain</description>
+                  <name>normal</name>
+                  <description>normal</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>normal</name>
-                  <description>normal</description>
+                  <name>open_drain</name>
+                  <description>open drain</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>
@@ -1991,13 +1991,13 @@
               <enumeratedValues>
                 <name>GPIO_PIN15_SOURCE</name>
                 <enumeratedValue>
-                  <name>sigma_delta</name>
-                  <description>sigma-delta</description>
+                  <name>gpio_data</name>
+                  <description>GPIO_DATA</description>
                   <value>0</value>
                 </enumeratedValue>
                 <enumeratedValue>
-                  <name>gpio_data</name>
-                  <description>gpio data</description>
+                  <name>sigma_delta</name>
+                  <description>sigma-delta</description>
                   <value>1</value>
                 </enumeratedValue>
               </enumeratedValues>

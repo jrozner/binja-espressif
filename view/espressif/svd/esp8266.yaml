@@ -133,6 +133,19 @@ WDT:
         name: rw_byte
         description: Read a byte from the RX FIFO, or write one to the TX FIFO
 
+GPIO:
+  # esp-pacs has the values of these two the wrong way round: 1 is open
+  # drain (the SDK's GPIO_PAD_DRIVER_ENABLE) and sigma-delta, as the fields'
+  # own descriptions say.
+  "GPIO_PIN*":
+    _clear: ["GPIO_PIN*_DRIVER", "GPIO_PIN*_SOURCE"]
+    "GPIO_PIN*_DRIVER":
+      normal: [0, "normal"]
+      open_drain: [1, "open drain"]
+    "GPIO_PIN*_SOURCE":
+      gpio_data: [0, "GPIO_DATA"]
+      sigma_delta: [1, "sigma-delta"]
+
 TIMER:
   # The control registers' whole-byte field, beside esp-pacs' bit fields.
   "FRC[12]_CTRL":
@@ -154,9 +167,8 @@ I2S:
         RX_CHAN_MOD: {description: Receive channel mode, bitOffset: 3, bitWidth: 2}
 
 # The registers the SDK's eagle_soc.h and rtc_register.h name that esp-pacs
-# lacks. They are read-write like esp-pacs' other RTC registers: svd_ninja
-# types a read-only register const, and Binary Ninja would then fold reads
-# of a counter to the (unknown, zero) contents of the view.
+# lacks. The SDK does not say which are read-only; they are read-write like
+# esp-pacs' other RTC registers.
 RTC:
   _delete: [RTC_STORE0, RTC_STATE1]
   _add:
