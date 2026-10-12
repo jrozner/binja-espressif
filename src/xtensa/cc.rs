@@ -382,10 +382,8 @@ pub fn register(arch: &'static Xtensa) -> Conventions {
 /// sticks. That matters for code that has no `entry` but is called with
 /// `call4`/`call8`/`call12`, such as placeholder stubs for unresolved
 /// externals: typed as `call0`, their callers' arguments would be read from
-/// `a2..a7` instead of `a10..a15`. The typed mask ROM functions in the
-/// plugin's ROM region are left alone too (see
-/// [`crate::espressif::rom_types`]); the other functions there, in a ROM
-/// image, are code like any other.
+/// `a2..a7` instead of `a10..a15`. Functions whose type was imported from a
+/// type library are left alone too (see [`has_imported_type`]).
 ///
 /// It runs in every analysis of a function, right after lifting: a full
 /// update resets the convention to the platform's default (`windowed`), and
@@ -428,7 +426,7 @@ pub fn register_call0_step() {
 }
 
 fn default_to_call0(bv: &BinaryView, func: &Function, call0: &CoreCallingConvention) {
-    if func.has_user_type() || crate::espressif::rom_types::rom_function_name(bv, func).is_some() {
+    if func.has_user_type() || has_imported_type(bv, func) {
         return;
     }
     // A function in the last two bytes of a segment (a `ret.n` stub, say)
@@ -444,6 +442,19 @@ fn default_to_call0(bv: &BinaryView, func: &Function, call0: &CoreCallingConvent
     {
         func.set_auto_calling_convention(Some(call0));
     }
+}
+
+/// Was `func`'s type imported from a type library, as recorded with
+/// `BinaryView::record_imported_object_library`? Such a function is part of
+/// an external API: its type says how to call it, and whoever imported it
+/// says what it clobbers. Espressif's mask ROM functions are: the Espressif
+/// view types them from the chip's ROM type library (and makes them clobber
+/// the convention's caller-saved registers), whether their region holds
+/// zeros or a ROM image (whose jump table entries have no `entry` either),
+/// and so are the ROM functions of a ROM ELF file opened on its own.
+fn has_imported_type(bv: &BinaryView, func: &Function) -> bool {
+    bv.lookup_imported_object_library(func.start(), &func.platform())
+        .is_some()
 }
 
 /// Fixes up functions on the windowed cores after their analysis:
@@ -466,11 +477,10 @@ fn default_to_call0(bv: &BinaryView, func: &Function, call0: &CoreCallingConvent
 ///   core types those from the pointer itself, at full confidence, on every
 ///   analysis, so the pointer's type needs `__convention("call0")`.
 ///
-/// The typed ROM functions (see
-/// [`crate::espressif::rom_types::rom_function_name`]) only get the second:
-/// their type and what they clobber come from the ROM's API (see
-/// [`crate::espressif::rom_types::RomRecognizer`]), but the calls they make
-/// are theirs.
+/// Functions whose type was imported from a type library (see
+/// [`has_imported_type`]) only get the second: their type and what they
+/// clobber come from the API they belong to, but the calls they make are
+/// theirs.
 pub struct WindowRecognizer {
     pub call0: Ref<CoreCallingConvention>,
 }
@@ -491,13 +501,9 @@ impl FunctionRecognizer for WindowRecognizer {
         func: &Function,
         llil: &LowLevelILRegularFunction,
     ) -> bool {
-        // A ROM function's own calls are analyzed like any other's.
+        // An imported function's own calls are analyzed like any other's.
         self.type_call0_sites(bv, func, llil);
-        // Mask ROM functions are typed from the ROM type library: their
-        // type says how to call them, and `RomRecognizer` says what they
-        // clobber. Their region holds zeros, or a ROM image whose jump table
-        // entries have no `entry` either.
-        if crate::espressif::rom_types::rom_function_name(bv, func).is_some() {
+        if has_imported_type(bv, func) {
             return false;
         }
         let mut code = [0u8; 3];

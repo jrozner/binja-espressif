@@ -33,8 +33,7 @@ use binaryninja::workflow::{Activity, AnalysisContext, Workflow, activity};
 
 use crate::espressif::image::{self, RegionKind};
 use crate::espressif::rom_images::{self, RomElf, RomOf};
-use crate::espressif::{Chip, Cpu, rom_types};
-use crate::riscv;
+use crate::espressif::{Chip, Cpu, riscv, rom_types};
 
 /// The first step of module analysis, which the fix-ups run before.
 pub const FIRST_STEP: &str = "core.module.loadDebugInfo";
