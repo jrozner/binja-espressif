@@ -1381,6 +1381,71 @@ for label, bv in [("ELF", bn.load(call0_elf)), ("image", load_bytes(elf_to_image
         bv.update_analysis_and_wait()
         check("op(4, 5, 6).d + " in hlil_text(start), "ELF: a callx0 through a typed pointer follows its type")
 
+
+def esp32_rom_elf(bodies):
+    """A minimal ESP32 ROM ELF file: one code segment over ets_printf and
+    memset, at their addresses in the ESP32's ROM, which `bodies` (name ->
+    code) fill in, and FUNC symbols for them. The plugin recognizes it as
+    the ESP32's ROM ELF file."""
+    addrs = {"ets_printf": 0x40007D54, "memset": 0x4000C44C}
+    base = min(addrs.values())
+    code = bytearray(max(addrs.values()) + 16 - base)
+    for name, body in bodies.items():
+        code[addrs[name] - base:addrs[name] - base + len(body)] = body
+    strtab = b"\0"
+    syms = bytes(16)
+    for name, addr in addrs.items():
+        syms += struct.pack("<IIIBBH", len(strtab), addr, len(bodies[name]), 0x12, 0, 1)
+        strtab += name.encode() + b"\0"
+    shstrtab = b"\0.text\0.symtab\0.strtab\0.shstrtab\0"
+    text_off = 0x100
+    symtab_off = text_off + len(code)
+    strtab_off = symtab_off + len(syms)
+    shstrtab_off = strtab_off + len(strtab)
+    shoff = (shstrtab_off + len(shstrtab) + 3) & ~3
+    header = b"\x7fELF\x01\x01\x01" + bytes(9) + struct.pack(
+        "<HHIIIIIHHHHHH", 2, 94, 1, base, 52, shoff, 0x300, 52, 32, 1, 40, 5, 4)
+    phdr = struct.pack("<IIIIIIII", 1, text_off, base, base, len(code), len(code), 5, 4)
+    sections = bytes(40) + b"".join(struct.pack("<IIIIIIIIII", *s) for s in [
+        (1, 1, 6, base, text_off, len(code), 0, 0, 4, 0),
+        (7, 2, 0, 0, symtab_off, len(syms), 3, 1, 4, 16),
+        (15, 3, 0, 0, strtab_off, len(strtab), 0, 0, 1, 0),
+        (23, 3, 0, 0, shstrtab_off, len(shstrtab), 0, 0, 1, 0),
+    ])
+    out = header + phdr
+    out += bytes(text_off - len(out)) + bytes(code) + syms + strtab + shstrtab
+    return out + bytes(shoff - len(out)) + sections
+
+
+print("callx0 in a typed ROM function:")
+# None of Espressif's ROMs has one, so a ROM ELF file of two functions:
+# memset is `entry a1, 32; callx0 a2; retw.n`. It is a typed ROM function,
+# which keeps the ROM API's type and clobbers, but its callx0 site is typed
+# with the call0 convention like any other. The call goes through memset's
+# `void *` parameter, whose user type would drop a call type of low
+# confidence on every analysis.
+ENTRY, RETW_N = bytes([0x36, 0x41, 0x00]), bytes([0x1D, 0xF0])
+path = os.path.join(user_dir, "esp32_rev0_rom.elf")
+with open(path, "wb") as f:
+    f.write(esp32_rom_elf({"ets_printf": ENTRY + RETW_N, "memset": ENTRY + bytes([0xC0, 0x02, 0x00]) + RETW_N}))
+bv = bn.load(path)
+marked = bv.query_metadata("espressif.rom.elf") if "espressif.rom.elf" in bv.metadata else None
+memset = bv.get_function_at(0x4000C44C)
+check(bv.platform.name == "esp32" and marked == "esp32" and memset is not None and memset.has_user_type
+      and str(memset.type) == "void*(void* arg1, int32_t arg2, uint32_t arg3)",
+      f"a synthetic ESP32 ROM ELF file: memset is a typed ROM function ({bv.platform}, {marked}, "
+      f"{memset.type if memset else None})")
+site = memset.get_call_type_adjustment(0x4000C44F) if memset else None
+check(site is not None and site.calling_convention is not None and site.calling_convention.name == "call0",
+      f"the callx0 in the typed ROM function memset is typed with call0 ({site})")
+check(memset is not None and not memset.analysis_skipped,
+      f"memset is analyzed ({memset.analysis_skip_reason if memset else None})")
+check(memset is not None and memset.calling_convention.name == "windowed"
+      and set(memset.clobbered_regs) == set(memset.calling_convention.caller_saved_regs),
+      f"memset keeps its windowed convention and clobbers its caller-saved registers "
+      f"({memset.calling_convention if memset else None}, {memset.clobbered_regs if memset else None})")
+bv.file.close()
+
 print("Patching:")
 
 
