@@ -35,6 +35,7 @@ use binaryninja::function_recognizer::FunctionRecognizer;
 use binaryninja::low_level_il::LowLevelILRegularFunction;
 use binaryninja::low_level_il::instruction::{InstructionHandler, LowLevelILInstructionKind};
 use binaryninja::rc::Ref;
+use binaryninja::symbol::SymbolType;
 use binaryninja::types::{
     FunctionParameter, Type, ValueLocation, ValueLocationComponent, ValueLocationSource,
 };
@@ -444,17 +445,22 @@ fn default_to_call0(bv: &BinaryView, func: &Function, call0: &CoreCallingConvent
     }
 }
 
-/// Was `func`'s type imported from a type library, as recorded with
-/// `BinaryView::record_imported_object_library`? Such a function is part of
-/// an external API: its type says how to call it, and whoever imported it
-/// says what it clobbers. Espressif's mask ROM functions are: the Espressif
-/// view types them from the chip's ROM type library (and makes them clobber
-/// the convention's caller-saved registers), whether their region holds
-/// zeros or a ROM image (whose jump table entries have no `entry` either),
-/// and so are the ROM functions of a ROM ELF file opened on its own.
+/// Is `func` part of an external API whose type was imported from a type
+/// library (as recorded with `BinaryView::record_imported_object_library`),
+/// either defined as an imported function or with that type pinned as a user
+/// type? Its type then says how to call it, and whoever imported it says
+/// what it clobbers. Espressif's mask ROM functions are: the Espressif view
+/// defines them as imported functions typed from the chip's ROM type library
+/// (and makes them clobber the convention's caller-saved registers),
+/// whether their region holds zeros or a ROM image (whose jump table entries
+/// have no `entry` either), and pins the types of the ROM functions of a ROM
+/// ELF file opened on its own. Other functions with an imported type keep
+/// the fixes that follow from their code.
 fn has_imported_type(bv: &BinaryView, func: &Function) -> bool {
-    bv.lookup_imported_object_library(func.start(), &func.platform())
-        .is_some()
+    (func.symbol().sym_type() == SymbolType::ImportedFunction || func.has_user_type())
+        && bv
+            .lookup_imported_object_library(func.start(), &func.platform())
+            .is_some()
 }
 
 /// Fixes up functions on the windowed cores after their analysis:
