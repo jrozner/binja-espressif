@@ -131,15 +131,26 @@ def elf_symbols(path):
 
 
 def elf_to_image(path, chip_id, min_rev=0):
-    """A minimal esptool-style image of an ELF's PT_LOAD segments."""
+    """A minimal esptool-style image of an ELF's PT_LOAD segments. Like
+    esptool, it leaves out NOLOAD (SHT_NOBITS) sections, which the linker
+    writes to the file as zeros when they come before contents in a
+    PT_LOAD (ESP-IDF's `.flash_rodata_dummy`, in idf_esp32c6.elf)."""
     data = open(path, "rb").read()
-    entry, phoff = struct.unpack_from("<II", data, 0x18)
-    phentsize, phnum = struct.unpack_from("<HH", data, 0x2A)
+    entry, phoff, shoff = struct.unpack_from("<III", data, 0x18)
+    phentsize, phnum, shentsize, shnum = struct.unpack_from("<HHHH", data, 0x2A)
+    sections = [struct.unpack_from("<IIIIII", data, shoff + i * shentsize) for i in range(shnum)]
+    noload = [sh for sh in sections if sh[1] == 8 and sh[2] & 2]  # SHT_NOBITS, SHF_ALLOC
     segments = []
     for i in range(phnum):
         p_type, offset, vaddr, _, filesz = struct.unpack_from("<IIIII", data, phoff + i * phentsize)
-        if p_type == 1 and filesz:
-            segments.append((vaddr, data[offset:offset + filesz]))
+        if p_type != 1:
+            continue
+        parts = [(offset, offset + filesz)]
+        # The NOBITS sections in this PT_LOAD's file image, by file offset.
+        for _, _, _, addr, off, size in noload:
+            if vaddr <= addr < vaddr + filesz and off - offset == addr - vaddr:
+                parts = [q for a, b in parts for q in ((a, min(b, off)), (max(a, off + size), b)) if q[0] < q[1]]
+        segments += [(vaddr + a - offset, data[a:b]) for a, b in parts]
     out = struct.pack("<BBBBI", 0xE9, len(segments), 2, 0x20, entry)
     if chip_id is not None:
         out += struct.pack("<B3sHBHH4sB", 0xEE, b"\0\0\0", chip_id, min_rev // 100, min_rev, 0xFFFF, b"\0" * 4, 0)
@@ -1053,7 +1064,10 @@ check(bv.platform.name == "esp32c5", "loader.platform overrides ROM symbols")
 print("ESP-IDF ELF fix-ups:")
 # tests/data/idf_*.elf: laid out like ESP-IDF apps, with a writable
 # `.flash.rodata` (WA, in an RW segment) holding a 12-entry jump table, and
-# the mask ROM's symbols as `ABS` symbols.
+# the mask ROM's symbols as `ABS` symbols. In idf_esp32c6.elf, as in ESP-IDF
+# C6, H2 and C5 apps, the rodata PT_LOAD starts at the code's address with
+# the zeros of `.flash_rodata_dummy`, a NOLOAD placeholder the size of the
+# code, which Binary Ninja maps over the code's PT_LOAD.
 IDF_ELFS = {
     "esp32": dict(jump=0x400d0086, peripheral=(0x3FF48000, "RTC_CNTL"),
                   functions=["ets_printf", "memcpy", "memset"], data=["_global_impure_ptr", "_ctype_"]),
@@ -1066,7 +1080,36 @@ IDF_ELFS = {
 }
 
 
+def section_file_bytes(path, name):
+    """The bytes of an ELF32 file's section `name` in the file."""
+    data = open(path, "rb").read()
+    shoff, = struct.unpack_from("<I", data, 0x20)
+    shentsize, shnum, shstrndx = struct.unpack_from("<HHH", data, 0x2E)
+    headers = [struct.unpack_from("<IIIIIIIIII", data, shoff + i * shentsize) for i in range(shnum)]
+    names = headers[shstrndx][4]
+    for sh in headers:
+        if data[names + sh[0]:data.index(b"\0", names + sh[0])].decode() == name:
+            return data[sh[4]:sh[4] + sh[5]]
+    return None
+
+
 def check_idf_elf(bv, chip, case, syms, label):
+    # The code, not the zeros of a placeholder mapped over it.
+    text = bv.get_section_by_name(".flash.text")
+    code = section_file_bytes(os.path.join(DATA, f"idf_{chip}.elf"), ".flash.text")
+    check(text is not None and bv.read(text.start, len(code)) == code, f"{label}: .flash.text holds the file's code")
+    seg = bv.get_segment_at(text.start) if text else None
+    check(seg is not None and seg.executable and not seg.writable, f"{label}: .flash.text is in an R-X segment ({seg})")
+    at_text = [s.name for s in bv.get_sections_at(text.start)] if text else []
+    check(at_text == [".flash.text"] and not bv.is_offset_writable_semantics(text.start),
+          f"{label}: .flash.text is read-only code alone ({at_text})")
+    funcs = [f for f in bv.functions if text and text.start <= f.start < text.end]
+    trapped = [f.name for f in funcs if "trap(0)" in hlil_text(f)]
+    check(len(funcs) >= 3 and not trapped, f"{label}: .flash.text's {len(funcs)} functions decompile ({trapped})")
+    if chip == "esp32c6":
+        dummy = bv.get_section_by_name(".flash_rodata_dummy")
+        check(dummy is not None and dummy.start == text.end and dummy.end == bv.get_section_by_name(".flash.rodata").start,
+              f"{label}: .flash_rodata_dummy is trimmed to after the code ({dummy})")
     rodata = bv.get_section_by_name(".flash.rodata")
     check(rodata is not None and rodata.semantics == bn.SectionSemantics.ReadOnlyDataSectionSemantics,
           f"{label}: .flash.rodata is read-only data")

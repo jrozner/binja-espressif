@@ -7,7 +7,9 @@
 # (libgcc helpers included) and data the code uses to absolute symbols at
 # their real ROM addresses. ROM_DATA names a ROM data symbol of each chip,
 # which the code reads; ROM_FLASHCHIP selects the ESP32's flash chip
-# variable over the later chips' pointer.
+# variable over the later chips' pointer. idf_esp32c6.ld also starts the
+# rodata PT_LOAD at the code's address with ESP-IDF's NOLOAD
+# `.flash_rodata_dummy`, whose zeros overlap the code's PT_LOAD.
 #
 # Uses the same toolchains as scripts/build_test_elfs.sh.
 #
