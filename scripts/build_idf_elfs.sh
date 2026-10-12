@@ -9,7 +9,8 @@
 # which the code reads; ROM_FLASHCHIP selects the ESP32's flash chip
 # variable over the later chips' pointer. idf_esp32c6.ld also starts the
 # rodata PT_LOAD at the code's address with ESP-IDF's NOLOAD
-# `.flash_rodata_dummy`, whose zeros overlap the code's PT_LOAD.
+# `.flash_rodata_dummy`, whose zeros overlap the code's PT_LOAD, and
+# idf_esp32s3.ld puts ESP-IDF's NOLOAD `.ext_ram.dummy` over `.flash.rodata`.
 #
 # Uses the same toolchains as scripts/build_test_elfs.sh.
 #

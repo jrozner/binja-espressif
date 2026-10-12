@@ -130,6 +130,11 @@ def elf_symbols(path):
     return out
 
 
+def cut(ranges, lo, hi):
+    """`ranges` (half-open (start, end) pairs) without [lo, hi)."""
+    return [r for a, b in ranges for r in ((a, min(b, lo)), (max(a, hi), b)) if r[0] < r[1]]
+
+
 def elf_to_image(path, chip_id, min_rev=0):
     """A minimal esptool-style image of an ELF's PT_LOAD segments. Like
     esptool, it leaves out NOLOAD (SHT_NOBITS) sections, which the linker
@@ -139,18 +144,24 @@ def elf_to_image(path, chip_id, min_rev=0):
     entry, phoff, shoff = struct.unpack_from("<III", data, 0x18)
     phentsize, phnum, shentsize, shnum = struct.unpack_from("<HHHH", data, 0x2A)
     sections = [struct.unpack_from("<IIIIII", data, shoff + i * shentsize) for i in range(shnum)]
-    noload = [sh for sh in sections if sh[1] == 8 and sh[2] & 2]  # SHT_NOBITS, SHF_ALLOC
+    alloc = [sh for sh in sections if sh[2] & 2 and sh[5]]  # SHF_ALLOC
     segments = []
     for i in range(phnum):
         p_type, offset, vaddr, _, filesz = struct.unpack_from("<IIIII", data, phoff + i * phentsize)
         if p_type != 1:
             continue
         parts = [(offset, offset + filesz)]
-        # The NOBITS sections in this PT_LOAD's file image, by file offset.
-        for _, _, _, addr, off, size in noload:
-            if vaddr <= addr < vaddr + filesz and off - offset == addr - vaddr:
-                parts = [q for a, b in parts for q in ((a, min(b, off)), (max(a, off + size), b)) if q[0] < q[1]]
-        segments += [(vaddr + a - offset, data[a:b]) for a, b in parts]
+        # The file bytes of the NOBITS sections in this PT_LOAD's file image
+        # that no section with contents (SHT_NOBITS is 8) has.
+        for _, kind, _, addr, off, size in alloc:
+            if kind == 8 and vaddr <= addr < vaddr + filesz and off - offset == addr - vaddr:
+                holes = [(off, off + size)]
+                for _, other, _, _, used, used_size in alloc:
+                    if other != 8:
+                        holes = cut(holes, used, used + used_size)
+                for lo, hi in holes:
+                    parts = cut(parts, lo, hi)
+        segments += [(vaddr + a - offset, data[a:b]) for a, b in parts if a < b]
     out = struct.pack("<BBBBI", 0xE9, len(segments), 2, 0x20, entry)
     if chip_id is not None:
         out += struct.pack("<B3sHBHH4sB", 0xEE, b"\0\0\0", chip_id, min_rev // 100, min_rev, 0xFFFF, b"\0" * 4, 0)
@@ -1067,7 +1078,8 @@ print("ESP-IDF ELF fix-ups:")
 # the mask ROM's symbols as `ABS` symbols. In idf_esp32c6.elf, as in ESP-IDF
 # C6, H2 and C5 apps, the rodata PT_LOAD starts at the code's address with
 # the zeros of `.flash_rodata_dummy`, a NOLOAD placeholder the size of the
-# code, which Binary Ninja maps over the code's PT_LOAD.
+# code, which Binary Ninja maps over the code's PT_LOAD. In idf_esp32s3.elf,
+# as in ESP-IDF S3 apps, the NOLOAD `.ext_ram.dummy` overlaps `.flash.rodata`.
 IDF_ELFS = {
     "esp32": dict(jump=0x400d0086, peripheral=(0x3FF48000, "RTC_CNTL"),
                   functions=["ets_printf", "memcpy", "memset"], data=["_global_impure_ptr", "_ctype_"]),
@@ -1113,6 +1125,13 @@ def check_idf_elf(bv, chip, case, syms, label):
     rodata = bv.get_section_by_name(".flash.rodata")
     check(rodata is not None and rodata.semantics == bn.SectionSemantics.ReadOnlyDataSectionSemantics,
           f"{label}: .flash.rodata is read-only data")
+    at_rodata = [s.name for s in bv.get_sections_at(rodata.start)] if rodata else []
+    check(at_rodata == [".flash.rodata"] and not bv.is_offset_writable_semantics(rodata.start),
+          f"{label}: .flash.rodata is read-only data alone ({at_rodata})")
+    if chip == "esp32s3":
+        dummy = bv.get_section_by_name(".ext_ram.dummy")
+        check(dummy is not None and dummy.start == rodata.end and bv.get_section_by_name(".ext_ram.dummy.1") is None,
+              f"{label}: .ext_ram.dummy is trimmed to after the rodata ({dummy})")
     targets = {b.dest_addr for f in bv.get_functions_containing(case["jump"])
                for b in f.indirect_branches if b.source_addr == case["jump"]}
     check(len(targets) == 12, f"{label}: the jump table at {case['jump']:#x} resolves ({len(targets)} targets)")

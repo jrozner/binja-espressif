@@ -922,7 +922,8 @@ lists their relocations with objdump: the test checks every
 `R_XTENSA_SLOT0_OP` and `R_XTENSA_32` Binary Ninja applies against that
 listing. `tests/data/idf_*.elf`, built from `tests/data/idf_features.c` by
 `scripts/build_idf_elfs.sh`, are laid out like ESP-IDF applications (`idf_esp32c6.elf`
-with the C6's `.flash_rodata_dummy` over its code) and
+with the C6's `.flash_rodata_dummy` over its code, `idf_esp32s3.elf` with the
+S3's `.ext_ram.dummy` over its rodata) and
 call into the mask ROM: the test checks the ELF fix-ups and the ROM types
 (the arguments of ROM calls and libgcc helpers, a ROM structure's fields,
 that reopening a database changes nothing, and that a database typed from
