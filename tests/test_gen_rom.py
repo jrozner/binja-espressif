@@ -202,6 +202,19 @@ class RomTypeNames(unittest.TestCase):
         self.assertEqual(names["crc32_le_old"], 0x40001C98)
         self.assertEqual(names["esp_rom_crc32_le"], 0x40001C98)
 
+    def test_older_same_script_hooks_are_not_typed(self):
+        # ESP-IDF v5.3 has the S3's hooks in esp32s3.rom.ld, the script that
+        # names the CRC functions; v6.1 left them out.
+        rom = "".join(f"{rom} = {a:#x};\n" for a, (_, rom) in S3_HOOKS.items())
+        bt = "".join(f"{hook} = {a:#x};\n" for a, (hook, _) in S3_HOOKS.items())
+        new = self.tree("v6.1", (6, 1), {"esp32s3.rom.ld": rom, "esp32s3.rom.bt_funcs.ld": bt})
+        old = self.tree("v5.3", (5, 3), {"esp32s3.rom.ld": rom + bt + "crc32_le_old = 0x40001c98;\n"})
+        table = {rom: a for a, (_, rom) in S3_HOOKS.items()}
+        names = types.rom_names(new, "esp32s3", table, [old])
+        for hook, _ in S3_HOOKS.values():
+            self.assertNotIn(hook, names)
+        self.assertEqual(names["crc32_le_old"], 0x40001C98)
+
     def test_conflicting(self):
         scripts = [("esp32s3.rom.ld", [("crc32_le", 0x40001C98), ("crc32_alias", 0x40001C98)]),
                    ("esp32s3.rom.bt_funcs.ld", [("r_lld_con_frm_isr_hook", 0x40001C98), ("r_x", 0x40004000)])]

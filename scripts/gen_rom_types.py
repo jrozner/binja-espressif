@@ -300,13 +300,14 @@ def conflicting(scripts, table):
     return out
 
 
-def idf_names(idf, chip, names, table):
+def idf_names(idf, chip, names, table, left_out=None):
     """Adds to names ({name: address}) those of an ESP-IDF tree's ROM linker
     scripts, with the ones ESP-IDF v6 moved out of esp_rom (MOVED_SCRIPTS),
     but not the conflicting ones (see conflicting(); table is the ROM symbol
     file's {name: address}), then its esp_rom API aliases (`PROVIDE (
     esp_rom_printf = ets_printf );`, in <chip>.rom.api.ld and, on the RISC-V
-    chips, riscv/ld/rom.api.ld)."""
+    chips, riscv/ld/rom.api.ld). The conflicting names are added to left_out
+    ({(name, address)}), if given."""
     ld = os.path.join(idf, "components", "esp_rom", chip, "ld")
     api = [os.path.join(ld, f"{chip}.rom.api.ld")]
     if chip not in XTENSA:
@@ -317,10 +318,12 @@ def idf_names(idf, chip, names, table):
     scripts = [(os.path.basename(path), [(name, addr) for name, addr in ld_symbols(path)
                                          if isinstance(addr, int) and addr])
                for path in paths if path.endswith(".ld") and path not in api]
-    left_out = conflicting(scripts, table)
+    conflicts = conflicting(scripts, table)
+    if left_out is not None:
+        left_out |= conflicts
     for _, syms in scripts:
         for name, addr in syms:
-            if (name, addr) not in left_out:
+            if (name, addr) not in conflicts:
                 names.setdefault(name, addr)
     for path in api:
         if os.path.exists(path):
@@ -347,14 +350,17 @@ def rom_names(idf, chip, table, older=()):
     with those releases carry them (gpio_matrix_out, now rom_gpio_matrix_out;
     esp_rom_regi2c_read, an alias of the ROM's rom_i2c_readReg until v6.0).
     The names that the ROM symbol file leaves out because the ROM names
-    their address otherwise are left out here too (see conflicting())."""
-    names = idf_names(idf, chip, dict(table), table)
+    their address otherwise are left out here too (see conflicting()), and
+    a name left out of a release is not taken from an older one (ESP-IDF
+    v5.3 has the S3's hooks in esp32s3.rom.ld, with the CRC functions)."""
+    left_out = set()
+    names = idf_names(idf, chip, dict(table), table, left_out)
     named = set(names.values())
     for old in older:
         if idf_version(old) < OLDER_MIN_VERSION.get(chip, (0, 0)):
             continue
-        for name, addr in idf_names(old, chip, {}, table).items():
-            if name not in names and addr in named:
+        for name, addr in idf_names(old, chip, {}, table, left_out).items():
+            if name not in names and addr in named and (name, addr) not in left_out:
                 names[name] = addr
     return names
 
