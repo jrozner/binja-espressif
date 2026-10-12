@@ -9,6 +9,8 @@ pub mod exemplars;
 pub mod flags;
 pub mod intrinsics;
 pub mod lift;
+#[cfg(all(test, feature = "liftcheck"))]
+mod liftcheck;
 pub mod loops;
 pub mod patch;
 pub mod registers;

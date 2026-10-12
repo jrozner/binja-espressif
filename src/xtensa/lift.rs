@@ -17,11 +17,14 @@ use crate::xtensa::registers::{Reg, ShiftReg, special_register, special_register
 type Il = LowLevelILMutableFunction;
 
 /// The number of times lifting has fallen back to an unimplemented
-/// expression, for the integration tests.
-pub static UNIMPLEMENTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// expression, for the lift check (see `liftcheck`).
+#[cfg(feature = "liftcheck")]
+pub(crate) static UNIMPLEMENTED: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 
 /// Emits an unimplemented instruction.
 pub(crate) fn unimplemented(il: &Il) {
+    #[cfg(feature = "liftcheck")]
     UNIMPLEMENTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     il.unimplemented().append();
 }

@@ -19,6 +19,11 @@ default = ["core"]
 # is built and linked instead, so the plugin builds where Binary Ninja is not
 # installed (e.g. CI).
 core = ["binaryninja/core", "binaryninjacore-sys/core"]
+# Developer checks of the Xtensa lifter, as unit tests (src/xtensa/liftcheck.rs):
+# a sweep that lifts ~1.5M encodings through the real core (needs `core` and
+# a headless-capable Binary Ninja license), and a listing of the decoded
+# operands of every opcode.
+liftcheck = []
 
 [dependencies]
 binaryninja = { git = "https://github.com/Vector35/binaryninja-api.git", rev = "f15f46d6517159243a6907674dcc1170f10fb0d3", default-features = false }
