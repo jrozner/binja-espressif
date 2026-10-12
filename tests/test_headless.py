@@ -1006,6 +1006,104 @@ with open(image, "wb") as f:
     f.write(elf_to_image(elf, RISCV_CHIPS["esp32c3"]))
 check_gp_set_once(image, elf_symbols(elf)["__global_pointer$"], "esp32c3 image")
 
+print("Reopened databases:")
+# A database the plugin saves restores what it was saved with, and
+# references no architecture that is missing when it loads, with one
+# exception in Binary Ninja itself (#49): restoring a view's global pointer
+# values, it translates their saved register IDs without an architecture.
+# For each list of values (the view's and the user's) it logs "Unable to
+# restore arch id mappings for null arch" and "Failed to translate saved id
+# (1, <register>) due to null arch!", and keeps the saved IDs. It does so
+# for any view with a global pointer value, whether Binary Ninja found it or
+# the plugin set it. Those lines are allowed for the RISC-V gp while the
+# core logs them for a view with no Espressif code in it (x86-64 code with a
+# user value for rbx), and nothing else is.
+ARCH_ID_LOG = ("arch id mappings", "translate saved")
+NULL_ARCH_GP = re.compile(r"Failed to translate saved id \(1, (\d+)\) due to null arch!")
+NULL_ARCH_MAPPINGS = "Unable to restore arch id mappings for null arch"
+
+
+def arch_id_lines(since):
+    """The lines about architecture ID mappings logged after offset `since`."""
+    with open(log_path) as f:
+        f.seek(since)
+        return [line.strip() for line in f if any(s in line for s in ARCH_ID_LOG)]
+
+
+def null_arch_gp_lines(lines, reg):
+    """The lines of `lines` that fail to translate register `reg`."""
+    return [line for line in lines if (m := NULL_ARCH_GP.search(line)) and int(m.group(1)) == reg]
+
+
+def saved_state(bv):
+    """What a reopened database must have as it was saved: the platforms,
+    calling conventions, global pointer values and types."""
+    return {
+        "platform": bv.platform.name,
+        "global pointer": [(reg, v.value) for reg, v in bv.global_pointer_values],
+        "user global pointer": [(reg, v.value) for reg, v in bv.user_global_pointer_values],
+        "conventions": {f.start: (f.platform.name, f.calling_convention and f.calling_convention.name)
+                        for f in bv.functions},
+        "types": sorted(str(name) for name in bv.types.keys()),
+    }
+
+
+def check_reopened(label, bv, sets_gp=True):
+    """Saves `bv` and reopens it twice. On RISC-V, `sets_gp` says the
+    plugin gives the view a gp value (firmware), or not (ROM ELF files,
+    whose gp the analysis may still record)."""
+    bv.update_analysis_and_wait()
+    saved = saved_state(bv)
+    gp = bv.arch.get_reg_index("gp") if bv.arch.name == "rv32gc" else None
+    if gp is not None and sets_gp:
+        check(saved["global pointer"] == saved["user global pointer"] != [],
+              f"{label}: has a global pointer value ({saved['global pointer']})")
+    db = os.path.join(user_dir, f"reopened_{label.replace(' ', '_')}.bndb")
+    bv.create_database(db)
+    bv.file.close()
+    for reopen in ("reopened", "reopened again"):
+        since = os.path.getsize(log_path)
+        bv = bn.load(db)
+        bv.update_analysis_and_wait()
+        lines = arch_id_lines(since)
+        gp_lines = null_arch_gp_lines(lines, gp) if core_logs_gp else []
+        mappings = [line for line in lines if NULL_ARCH_MAPPINGS in line]
+        others = [line for line in lines if line not in gp_lines and line not in mappings]
+        ok = not others and len(mappings) == len(gp_lines) <= 2
+        check(ok, f"{label} {reopen}: no missing architecture"
+                  f"{', but in the core restoring gp' if gp_lines else ''}{'' if ok else f' ({lines})'}")
+        state = saved_state(bv)
+        differ = [key for key in saved if state[key] != saved[key]]
+        check(not differ, f"{label} {reopen}: platforms, conventions, gp and types as saved"
+                          f"{f' ({differ} differ)' if differ else ''}")
+        bv.file.save_auto_snapshot()
+        bv.file.close()
+
+
+control = os.path.join(user_dir, "x86_64.bin")
+with open(control, "wb") as f:
+    f.write(bytes.fromhex("554889e5b801000000c3"))  # push rbp; mov rbp, rsp; mov eax, 1; ret
+bv = bn.load(control, options={"loader.platform": "linux-x86_64"})
+bv.set_user_global_pointer_values([("rbx", bn.variable.ConstantPointerRegisterValue(0x1000))])
+bv.create_database(control + ".bndb")
+bv.file.close()
+since = os.path.getsize(log_path)
+bv = bn.load(control + ".bndb")
+core_logs_gp = bool(null_arch_gp_lines(arch_id_lines(since), bv.arch.get_reg_index("rbx")))
+bv.file.close()
+print(f"  (Binary Ninja {'logs' if core_logs_gp else 'does not log'} a null arch for global pointer values)")
+
+c3_elf, c6_elf = os.path.join(DATA, "esp32c3.elf"), os.path.join(DATA, "esp32c6.elf")
+idf_c6_elf = os.path.join(DATA, "idf_esp32c6.elf")
+check_reopened("esp32c2 ELF", bn.load(c3_elf, options={"loader.platform": "esp32c2"}))
+check_reopened("esp32c3 ELF", bn.load(c3_elf))
+check_reopened("esp32c3 image", load_bytes(elf_to_image(c3_elf, RISCV_CHIPS["esp32c3"]), ".bin"))
+check_reopened("esp32c6 ELF", bn.load(idf_c6_elf))
+check_reopened("esp32c6 image", load_bytes(elf_to_image(idf_c6_elf, RISCV_CHIPS["esp32c6"]), ".bin"))
+check_reopened("esp32h2 image", load_bytes(elf_to_image(c6_elf, RISCV_CHIPS["esp32h2"]), ".bin"))
+check_reopened("esp32c5 image", load_bytes(elf_to_image(c6_elf, RISCV_CHIPS["esp32c5"]), ".bin"))
+check_reopened("esp32s3 ELF", bn.load(os.path.join(DATA, "idf_esp32s3.elf")))
+
 print("RISC-V ELF files:")
 
 
@@ -2106,6 +2204,9 @@ def rom_image_checks(tarball):
         else:
             check(platform not in supported, f"{name}, another chip's ROM, keeps {platform}")
         bv.file.close()
+    # Their databases restore as saved, as the firmware's do (check_reopened).
+    for chip in RISCV_CHIPS:
+        check_reopened(roms[chip][1], bn.load(os.path.join(elfs, roms[chip][1])), sets_gp=False)
 
     # A directory of ROM ELF files: the ROM region holds the chip's ROM, and
     # the typed ROM functions, their calls and databases are as without.

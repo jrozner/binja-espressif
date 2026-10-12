@@ -111,6 +111,8 @@ want:
 - **ESP32-C5** firmware built with `CONFIG_COMPILER_ENABLE_RISCV_ZCMP` (off
   by default) analyzes incorrectly.
 - Peripheral names need Binary Ninja's SVD loader plugin (`svd_ninja`).
+- Reopening a RISC-V database makes Binary Ninja log "null arch" errors,
+  which are harmless.
 
 See [docs/reference.md](docs/reference.md#limitations) for the full list
 and for how each feature behaves in detail.

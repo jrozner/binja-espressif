@@ -543,6 +543,15 @@ folder.
   `CONFIG_COMPILER_ENABLE_RISCV_ZCMP` (off by default). `rv32gc` decodes
   `cm.push`/`cm.pop` as `fsd` and does not decode the Zcb instructions, so
   firmware built with that option analyzes incorrectly.
+- **"null arch" errors when a RISC-V database is reopened.** Binary
+  Ninja logs "Unable to restore arch id mappings for null arch" and
+  "Failed to translate saved id (1, 3) due to null arch!", usually twice,
+  when it reopens a database whose view has a global pointer value: on
+  the RISC-V chips, ESP-IDF firmware and some ROM ELF files. They are
+  harmless: Binary Ninja restores the view's global pointer values without
+  the architecture that would translate their register (`gp`, register 3
+  of `rv32gc`), and keeps the register as saved, so `gp` comes back as it
+  was. It does the same without the plugin, for any architecture.
 - **Stable Binary Ninja.** Releases are built for the dev channel only for
   now; build from source against the stable API (see
   [development.md](development.md#building-for-stable-binary-ninja)).
