@@ -39,8 +39,8 @@ use binaryninja::relocation::{
 };
 use xtensa_isa::Isa;
 
-use crate::xtensa::arch::guard;
-use crate::xtensa::encode;
+use crate::architecture::guard;
+use crate::encode;
 
 pub const R_XTENSA_NONE: u64 = 0;
 pub const R_XTENSA_32: u64 = 1;
@@ -58,6 +58,7 @@ pub const R_XTENSA_32_PCREL: u64 = 14;
 pub const R_XTENSA_GNU_VTINHERIT: u64 = 15;
 pub const R_XTENSA_GNU_VTENTRY: u64 = 16;
 pub const R_XTENSA_DIFF8: u64 = 17;
+#[allow(dead_code)] // Handled through the R_XTENSA_DIFF8..=R_XTENSA_DIFF32 range.
 pub const R_XTENSA_DIFF16: u64 = 18;
 pub const R_XTENSA_DIFF32: u64 = 19;
 pub const R_XTENSA_SLOT0_OP: u64 = 20;

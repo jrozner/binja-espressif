@@ -786,16 +786,10 @@ pub fn register() {
     container::register();
 
     if let Some(elf) = BinaryViewType::by_name("ELF") {
-        // EM_XTENSA has no architecture of its own; EM_RISCV belongs to
-        // Binary Ninja's RISC-V plugin, whose platforms are kept for RISC-V
-        // files that are not Espressif firmware.
-        if let Some(esp32) = CoreArchitecture::by_name(Chip::Esp32.arch_name()) {
-            elf.register_arch(
-                Family::Xtensa.elf_machine(),
-                Endianness::LittleEndian,
-                &esp32,
-            );
-        }
+        // The architectures are registered for EM_XTENSA (by the Xtensa
+        // plugin) and EM_RISCV (by Binary Ninja's RISC-V plugin); the
+        // platforms of RISC-V files that are not Espressif firmware are
+        // kept.
         for family in [Family::Xtensa, Family::RiscV] {
             elf.register_platform_recognizer(
                 family.elf_machine(),

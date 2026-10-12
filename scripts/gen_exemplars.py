@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates src/xtensa/exemplars.rs: one sample encoding per mnemonic for each core.
+"""Generates arch/xtensa/src/exemplars.rs: one sample encoding per mnemonic for each core.
 
 Intrinsic signatures in Binary Ninja are declared per intrinsic, not per
 instruction instance. The plugin derives each intrinsic's declared inputs and
@@ -7,7 +7,7 @@ outputs by decoding an exemplar encoding of its opcode, so it needs one valid
 encoding of every mnemonic. These come from the objdump-verified fixtures of
 the xtensa disassembler crate (tests/data/<chip>.tsv).
 
-Usage: scripts/gen_exemplars.py [path/to/xtensa] > src/xtensa/exemplars.rs
+Usage: scripts/gen_exemplars.py [path/to/xtensa] > arch/xtensa/src/exemplars.rs
 """
 import os
 import sys

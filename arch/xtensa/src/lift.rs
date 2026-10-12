@@ -9,10 +9,10 @@ use binaryninja::low_level_il::{
 };
 use xtensa_isa::{Instruction, Isa, Opcode as O, Operand};
 
-use crate::xtensa::flags::Flag;
-use crate::xtensa::intrinsics::{self, Input, Intrinsic, SysAccess, operand_reg};
-use crate::xtensa::loops::Loops;
-use crate::xtensa::registers::{Reg, ShiftReg, special_register, special_register_by_name, sr};
+use crate::flag::Flag;
+use crate::intrinsic::{self, Input, Intrinsic, SysAccess, operand_reg};
+use crate::loops::Loops;
+use crate::register::{Reg, ShiftReg, special_register, special_register_by_name, sr};
 
 type Il = LowLevelILMutableFunction;
 
@@ -431,12 +431,12 @@ impl<'a> Lifter<'a> {
     }
 
     fn intrinsic(&self) {
-        let id = intrinsics::id_of(self.insn.opcode()).0;
+        let id = intrinsic::id_of(self.insn.opcode()).0;
         let Some(&intrinsic) = self.intrinsics.get(&id) else {
             unimplemented(self.il);
             return;
         };
-        let io = intrinsics::classify(self.insn, self.isa);
+        let io = intrinsic::classify(self.insn, self.isa);
         let inputs: Vec<Expr<'a>> = io
             .inputs
             .iter()
@@ -1226,7 +1226,7 @@ impl<'a> Lifter<'a> {
             _ => SysAccess::Exchange,
         };
         let Some(&intrinsic) =
-            intrinsics::sys_id(reg, access).and_then(|id| self.intrinsics.get(&id))
+            intrinsic::sys_id(reg, access).and_then(|id| self.intrinsics.get(&id))
         else {
             return unimplemented(self.il);
         };

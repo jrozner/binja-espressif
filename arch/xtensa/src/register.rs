@@ -38,7 +38,6 @@ pub mod sr {
     pub const ACCLO: u8 = 16;
     pub const ACCHI: u8 = 17;
     pub const M0: u8 = 32;
-    pub const PS: u8 = 230;
 }
 
 /// Pseudo registers the lifter keeps alongside the shift amount register

@@ -18,6 +18,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "arch_xtensa"
+version = "0.1.0"
+dependencies = [
+ "binaryninja",
+ "binaryninjacore-sys",
+ "tracing",
+ "xtensa",
+]
+
+[[package]]
 name = "binaryninja"
 version = "0.1.0"
 source = "git+https://github.com/Vector35/binaryninja-api.git?rev=f15f46d6517159243a6907674dcc1170f10fb0d3#f15f46d6517159243a6907674dcc1170f10fb0d3"
@@ -66,6 +76,7 @@ dependencies = [
 name = "binja-xtensa"
 version = "0.1.0"
 dependencies = [
+ "arch_xtensa",
  "binaryninja",
  "binaryninjacore-sys",
  "flate2",

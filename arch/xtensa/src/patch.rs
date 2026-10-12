@@ -5,11 +5,11 @@
 //!
 //! Every patch is checked by decoding the patched bytes before they are
 //! written, so an encoding mistake makes the patch fail rather than produce
-//! the wrong instruction (see `crate::xtensa::encode`).
+//! the wrong instruction (see `crate::encode`).
 
 use xtensa_isa::{ControlFlow, Features, Instruction, Isa, Opcode, Operand};
 
-use crate::xtensa::encode::{self, MOVI, verified, write};
+use crate::encode::{self, MOVI, verified, write};
 
 /// `nop` (RRR: op0 = 0, op1 = 0, op2 = 0, r = 2, s = 0, t = 0xf).
 pub const NOP: [u8; 3] = [0xf0, 0x20, 0x00];
@@ -184,7 +184,7 @@ pub fn skip_and_return_value(isa: &Isa, data: &mut [u8], addr: u64, value: u64) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::xtensa::exemplars::EXEMPLARS;
+    use crate::exemplars::EXEMPLARS;
 
     const ISAS: [Isa; 4] = [Isa::ESP8266, Isa::ESP32, Isa::ESP32S2, Isa::ESP32S3];
     const ADDR: u64 = 0x4008_1002;

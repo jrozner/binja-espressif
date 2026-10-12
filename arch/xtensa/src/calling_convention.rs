@@ -42,9 +42,9 @@ use binaryninja::types::{
 use binaryninja::variable::{RegisterValueType, Variable, VariableSourceType};
 use binaryninja::workflow::{Activity, AnalysisContext, Workflow, activity};
 
-use crate::xtensa::Core;
-use crate::xtensa::arch::Xtensa;
-use crate::xtensa::registers::Reg;
+use crate::Core;
+use crate::architecture::Xtensa;
+use crate::register::Reg;
 
 fn a(n: u8) -> RegisterId {
     Reg::A(n).id()
@@ -339,13 +339,9 @@ fn xtensa_locations(args: &[XtensaArg], permitted: &[bool]) -> Vec<XtensaLoc> {
         .collect()
 }
 
-pub struct Conventions {
-    pub call0: Ref<CoreCallingConvention>,
-    pub windowed: Option<Ref<CoreCallingConvention>>,
-}
-
 /// Registers the calling conventions of a core and sets its default.
-pub fn register(arch: &'static Xtensa) -> Conventions {
+/// Returns the `call0` convention.
+pub fn register(arch: &'static Xtensa) -> Ref<CoreCallingConvention> {
     // On the windowed cores, call0 functions are recognized by their missing
     // `entry` instruction (see `CALL0_STEP`) rather than heuristically:
     // the heuristics would prefer call0 for every windowed function, since
@@ -368,7 +364,7 @@ pub fn register(arch: &'static Xtensa) -> Conventions {
     if let Some(platform) = arch.standalone_platform() {
         platform.set_default_calling_convention(default);
     }
-    Conventions { call0, windowed }
+    call0
 }
 
 /// The analysis step that gives the functions on the windowed cores that
@@ -434,7 +430,7 @@ fn default_to_call0(bv: &BinaryView, func: &Function, call0: &CoreCallingConvent
     // has no room for `entry`; it is still a call0 function.
     let mut code = [0u8; 3];
     let len = bv.read(&mut code, func.start());
-    if len == 0 || crate::xtensa::is_entry_insn(&code[..len]) {
+    if len == 0 || crate::is_entry_insn(&code[..len]) {
         return;
     }
     if func
@@ -514,7 +510,7 @@ impl FunctionRecognizer for WindowRecognizer {
         }
         let mut code = [0u8; 3];
         let len = bv.read(&mut code, func.start());
-        if !crate::xtensa::is_entry_insn(&code[..len]) {
+        if !crate::is_entry_insn(&code[..len]) {
             return false;
         }
         let arch = func.arch();

@@ -6,10 +6,10 @@
 //! ```sh
 //! # Lifts ~1.5M encodings through the real core (needs a headless-capable
 //! # Binary Ninja license).
-//! cargo test --release --features liftcheck --lib liftcheck::lift_sweep
+//! cargo test --release -p arch_xtensa --features liftcheck --lib liftcheck::lift_sweep
 //! # Prints the decoded operands of every opcode, for checking what the
 //! # lifter assumes about them; needs no Binary Ninja.
-//! cargo test --no-default-features --features liftcheck --lib liftcheck::operands -- --ignored --nocapture
+//! cargo test -p arch_xtensa --no-default-features --features liftcheck --lib liftcheck::operands -- --ignored --nocapture
 //! ```
 
 use std::collections::{BTreeMap, HashSet};
@@ -20,9 +20,9 @@ use binaryninja::headless::Session;
 use binaryninja::low_level_il::LowLevelILMutableFunction;
 use binaryninja::rc::Ref;
 
-use crate::xtensa::Core;
-use crate::xtensa::exemplars::EXEMPLARS;
-use crate::xtensa::lift::UNIMPLEMENTED;
+use crate::Core;
+use crate::exemplars::EXEMPLARS;
+use crate::lift::UNIMPLEMENTED;
 
 /// The encodings the sweep lifts on `core`: every exemplar, every 2-byte
 /// word, a sample of the 3-byte words and, on the ESP32-S3, of the 4-byte
@@ -45,7 +45,7 @@ fn lift_sweep() {
     let _session = Session::new().expect(
         "the lift sweep needs Binary Ninja to initialize headlessly (the `core` feature and a headless-capable license)",
     );
-    assert!(crate::CorePluginInit());
+    crate::register();
 
     for core in Core::ALL {
         let arch = CoreArchitecture::by_name(core.arch_name()).expect("architecture registered");
