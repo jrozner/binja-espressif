@@ -1048,12 +1048,16 @@ def saved_state(bv):
     }
 
 
-def check_reopened(label, bv):
+def check_reopened(label, bv, sets_gp=True):
+    """Saves `bv` and reopens it twice. On RISC-V, `sets_gp` says the
+    plugin gives the view a gp value (firmware), or not (ROM ELF files,
+    whose gp the analysis may still record)."""
     bv.update_analysis_and_wait()
     saved = saved_state(bv)
     gp = bv.arch.get_reg_index("gp") if bv.arch.name == "rv32gc" else None
-    check(gp is None or saved["global pointer"] == saved["user global pointer"] != [],
-          f"{label}: has a global pointer value ({saved['global pointer']})")
+    if gp is not None and sets_gp:
+        check(saved["global pointer"] == saved["user global pointer"] != [],
+              f"{label}: has a global pointer value ({saved['global pointer']})")
     db = os.path.join(user_dir, f"reopened_{label.replace(' ', '_')}.bndb")
     bv.create_database(db)
     bv.file.close()
@@ -2200,6 +2204,9 @@ def rom_image_checks(tarball):
         else:
             check(platform not in supported, f"{name}, another chip's ROM, keeps {platform}")
         bv.file.close()
+    # Their databases restore as saved, as the firmware's do (check_reopened).
+    for chip in RISCV_CHIPS:
+        check_reopened(roms[chip][1], bn.load(os.path.join(elfs, roms[chip][1])), sets_gp=False)
 
     # A directory of ROM ELF files: the ROM region holds the chip's ROM, and
     # the typed ROM functions, their calls and databases are as without.
