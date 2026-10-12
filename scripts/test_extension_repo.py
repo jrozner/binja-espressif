@@ -49,12 +49,15 @@ from datetime import datetime, timezone
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from binja_xtensa_loader import core  # noqa: E402
+from binja_espressif_loader import core  # noqa: E402
 
-DEFAULT_REPOSITORY = "jrozner/binja-xtensa"
+DEFAULT_REPOSITORY = "jrozner/binja-espressif"
 MANIFESTS = "v2/manifests"
 EXTENSIONS = "extensions.json"
 VERSIONS = "versions.json"
+# The repository's name, which is also the folder Binary Ninja keeps its
+# plugins in (channels/<name>/). It predates the rename to binja-espressif
+# and stays, so an install made from this repository keeps its folder.
 MANIFEST_NAME = "binja-xtensa-test"
 # Download platforms of the extension server, by plugin.json platform.
 PLATFORMS = {

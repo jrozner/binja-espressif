@@ -12,7 +12,7 @@ Usage: scripts/gen_rom_types.py [--plugin LIB] [--older OLD]... HEADERS CHIP...
   espressif/idf docker image: ESP-IDF's components (headers and ROM linker
   scripts), the toolchains' newlib headers and each chip's default
   sdkconfig.h. LIB is the plugin build that registers the chip platforms
-  (default: target/release/libbinja_xtensa.so). Runs Binary Ninja from
+  (default: target/release/libbinja_espressif.so). Runs Binary Ninja from
   ~/binaryninja (or $BN_INSTALL_DIR) with a temporary user directory, as
   tests/test_headless.py does. Each OLD is an earlier ESP-IDF release's
   tree (fetch_rom_type_headers.sh DIR VERSION, or a checkout), of which
@@ -461,7 +461,7 @@ def build_library(bn, chip, objects, types, used):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--plugin", default=os.path.join(ROOT, "target", "release", "libbinja_xtensa.so"))
+    ap.add_argument("--plugin", default=os.path.join(ROOT, "target", "release", "libbinja_espressif.so"))
     ap.add_argument("--verbose", action="store_true", help="print the parser's errors for headers that parse")
     ap.add_argument("--dump", help="write each chip's prototypes, as text, to this directory")
     ap.add_argument("--older", action="append", default=[], metavar="HEADERS",

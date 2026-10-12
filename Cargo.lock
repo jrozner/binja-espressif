@@ -82,7 +82,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "binja-xtensa"
+name = "binja-espressif"
 version = "0.1.0"
 dependencies = [
  "arch_riscv_ilp32",

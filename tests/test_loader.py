@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests of the Python loader's logic (binja_xtensa_loader/core.py) and
+"""Unit tests of the Python loader's logic (binja_espressif_loader/core.py) and
 the release tooling (release_manifest.py, test_extension_repo.py). Standard
 library only; no Binary Ninja needed.
 
@@ -20,7 +20,7 @@ from unittest import mock
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from binja_xtensa_loader import core  # noqa: E402
+from binja_espressif_loader import core  # noqa: E402
 
 LIB = b"\x7fELF fake native library " * 1000
 
@@ -45,23 +45,23 @@ def manifest_text(assets, version="0.2.0", build=True):
     return json.dumps({
         "schema": 1,
         "version": version,
-        "repository": "jrozner/binja-xtensa",
+        "repository": "jrozner/binja-espressif",
         "build": {"commit": "a" * 40, "run_id": 1234} if build else None,
         "assets": assets,
     })
 
 
 MANIFEST = core.parse_manifest(manifest_text([
-    asset_entry("binja_xtensa-abi187-linux-x86_64.so"),
-    asset_entry("binja_xtensa-abi189-linux-x86_64.so", LIB + b"dev"),
-    asset_entry("binja_xtensa-abi187-windows-x86_64.dll"),
-    asset_entry("binja_xtensa-abi187-macos-universal.dylib"),
+    asset_entry("binja_espressif-abi187-linux-x86_64.so"),
+    asset_entry("binja_espressif-abi189-linux-x86_64.so", LIB + b"dev"),
+    asset_entry("binja_espressif-abi187-windows-x86_64.dll"),
+    asset_entry("binja_espressif-abi187-macos-universal.dylib"),
 ]))
 
 
 class TempDirTest(unittest.TestCase):
     def setUp(self):
-        self.dir = tempfile.mkdtemp(prefix="bn-xtensa-loader-test-")
+        self.dir = tempfile.mkdtemp(prefix="bn-espressif-loader-test-")
         self.addCleanup(shutil.rmtree, self.dir, True)
 
 
@@ -74,7 +74,7 @@ class TestManifest(unittest.TestCase):
         self.assertEqual((a.platform, a.abi, a.size), ("linux-x86_64", 187, len(LIB)))
         self.assertEqual(
             MANIFEST.asset_url(a),
-            "https://github.com/jrozner/binja-xtensa/releases/download/v0.2.0/binja_xtensa-abi187-linux-x86_64.so")
+            "https://github.com/jrozner/binja-espressif/releases/download/v0.2.0/binja_espressif-abi187-linux-x86_64.so")
 
     def test_round_trip(self):
         m = core.parse_manifest(core.manifest_json(MANIFEST))
@@ -82,23 +82,23 @@ class TestManifest(unittest.TestCase):
         self.assertEqual((m.version, m.repository, m.build), (MANIFEST.version, MANIFEST.repository, MANIFEST.build))
 
     def test_committed_manifest_parses(self):
-        m = core.load_manifest(os.path.join(ROOT, "binja_xtensa_loader", "manifest.json"))
+        m = core.load_manifest(os.path.join(ROOT, "binja_espressif_loader", "manifest.json"))
         version = core.read_plugin_version(os.path.join(ROOT, "plugin.json"))
         self.assertEqual(m.version, version, "manifest.json and plugin.json versions differ")
-        self.assertEqual(m.repository, "jrozner/binja-xtensa")
+        self.assertEqual(m.repository, "jrozner/binja-espressif")
 
     def test_placeholder_without_build(self):
         m = core.parse_manifest(manifest_text([], build=False))
         self.assertEqual(m.assets, ())
 
     def test_invalid(self):
-        good = asset_entry("binja_xtensa-abi187-linux-x86_64.so")
+        good = asset_entry("binja_espressif-abi187-linux-x86_64.so")
         cases = {
             "not json": "{",
             "wrong schema": json.dumps({"schema": 2}),
             "bad version": manifest_text([good], version="1.x"),
-            "unknown platform": manifest_text([asset_entry("binja_xtensa-abi187-linux-arm64.so")]),
-            "wrong extension": manifest_text([asset_entry("binja_xtensa-abi187-linux-x86_64.dll")]),
+            "unknown platform": manifest_text([asset_entry("binja_espressif-abi187-linux-arm64.so")]),
+            "wrong extension": manifest_text([asset_entry("binja_espressif-abi187-linux-x86_64.dll")]),
             "bad name": manifest_text([asset_entry("../../evil.so")]),
             "short hash": manifest_text([dict(good, sha256="abc")]),
             "uppercase hash": manifest_text([dict(good, sha256=good["sha256"].upper())]),
@@ -132,22 +132,22 @@ class TestManifest(unittest.TestCase):
             core.is_prerelease("0.1.0+x")
 
     def test_prerelease_manifest(self):
-        m = core.parse_manifest(manifest_text([asset_entry("binja_xtensa-abi187-linux-x86_64.so")],
+        m = core.parse_manifest(manifest_text([asset_entry("binja_espressif-abi187-linux-x86_64.so")],
                                               version="0.1.0-rc.1"))
         self.assertEqual(m.tag, "v0.1.0-rc.1")
         self.assertEqual(
             m.asset_url(m.assets[0]),
-            "https://github.com/jrozner/binja-xtensa/releases/download/v0.1.0-rc.1/binja_xtensa-abi187-linux-x86_64.so")
+            "https://github.com/jrozner/binja-espressif/releases/download/v0.1.0-rc.1/binja_espressif-abi187-linux-x86_64.so")
 
     def test_bad_build(self):
-        data = json.loads(manifest_text([asset_entry("binja_xtensa-abi187-linux-x86_64.so")]))
+        data = json.loads(manifest_text([asset_entry("binja_espressif-abi187-linux-x86_64.so")]))
         data["build"]["commit"] = "abc"
         with self.assertRaises(core.ManifestError):
             core.parse_manifest(json.dumps(data))
 
     def test_build_api(self):
         # Optional: manifests from before it was recorded have no api.
-        data = json.loads(manifest_text([asset_entry("binja_xtensa-abi189-linux-x86_64.so")]))
+        data = json.loads(manifest_text([asset_entry("binja_espressif-abi189-linux-x86_64.so")]))
         self.assertNotIn("api", core.parse_manifest(json.dumps(data)).build)
         for api in core.API_CHANNELS:
             data["build"].update(api=api, api_source=SOURCE)
@@ -182,12 +182,12 @@ class TestSelection(unittest.TestCase):
             return a and a.name
 
         # 6.0 stable core: ABI 187 only.
-        self.assertEqual(pick("linux-x86_64", 187, 187), "binja_xtensa-abi187-linux-x86_64.so")
+        self.assertEqual(pick("linux-x86_64", 187, 187), "binja_espressif-abi187-linux-x86_64.so")
         # A dev core accepting 188-189 gets the newest it accepts.
-        self.assertEqual(pick("linux-x86_64", 188, 189), "binja_xtensa-abi189-linux-x86_64.so")
-        self.assertEqual(pick("linux-x86_64", 187, 190), "binja_xtensa-abi189-linux-x86_64.so")
-        self.assertEqual(pick("windows-x86_64", 187, 187), "binja_xtensa-abi187-windows-x86_64.dll")
-        self.assertEqual(pick("macos-universal", 180, 187), "binja_xtensa-abi187-macos-universal.dylib")
+        self.assertEqual(pick("linux-x86_64", 188, 189), "binja_espressif-abi189-linux-x86_64.so")
+        self.assertEqual(pick("linux-x86_64", 187, 190), "binja_espressif-abi189-linux-x86_64.so")
+        self.assertEqual(pick("windows-x86_64", 187, 187), "binja_espressif-abi187-windows-x86_64.dll")
+        self.assertEqual(pick("macos-universal", 180, 187), "binja_espressif-abi187-macos-universal.dylib")
         # Unsupported ABI or platform.
         self.assertIsNone(pick("windows-x86_64", 188, 189))
         self.assertIsNone(pick("linux-x86_64", 190, 191))
@@ -238,7 +238,7 @@ class TestInstall(TempDirTest):
         self.addCleanup(self.server.shutdown)
         self.base = "http://127.0.0.1:{}".format(self.server.server_address[1])
         self.asset = MANIFEST.assets[0]
-        self.dest = os.path.join(self.dir, "binja_xtensa-native.so")
+        self.dest = os.path.join(self.dir, "binja_espressif-native.so")
 
     def install(self, asset=None):
         return core.install(MANIFEST, asset or self.asset, self.dir, test_base_url=self.base, timeout=5)
@@ -253,7 +253,7 @@ class TestInstall(TempDirTest):
                             progress=lambda done, total: seen.append((done, total)))
         self.assertEqual(path, self.dest)
         self.assertEqual(read(path), LIB)
-        self.assertEqual(self.listing(), ["binja_xtensa-native.so"])
+        self.assertEqual(self.listing(), ["binja_espressif-native.so"])
         self.assertEqual(seen[-1], (len(LIB), len(LIB)))
         if os.name == "posix":
             self.assertTrue(os.access(path, os.X_OK))
@@ -273,7 +273,7 @@ class TestInstall(TempDirTest):
         self.server.files[self.asset.name] = LIB[:-1] + b"!"
         with self.assertRaises(core.VerificationError):
             self.install()
-        self.assertEqual(self.listing(), ["binja_xtensa-native.so"])
+        self.assertEqual(self.listing(), ["binja_espressif-native.so"])
         self.assertEqual(read(self.dest), b"old version")
 
     def test_too_large_or_short(self):
@@ -295,7 +295,7 @@ class TestInstall(TempDirTest):
         self.assertEqual(core.installed_state(self.dest, self.asset), core.State.OUTDATED)
         self.server.files[self.asset.name] = LIB
         self.install()
-        self.assertEqual(self.listing(), ["binja_xtensa-native.so"])
+        self.assertEqual(self.listing(), ["binja_espressif-native.so"])
         self.assertEqual(read(self.dest), LIB)
 
     def test_replace_of_locked_file_sets_it_aside(self):
@@ -314,10 +314,10 @@ class TestInstall(TempDirTest):
 
         with mock.patch("os.replace", replace):
             self.install()
-        self.assertEqual(self.listing(), ["binja_xtensa-native.so", "binja_xtensa-native.so.old0"])
+        self.assertEqual(self.listing(), ["binja_espressif-native.so", "binja_espressif-native.so.old0"])
         self.assertEqual(read(self.dest), LIB)
         core.cleanup_stale(self.dir)
-        self.assertEqual(self.listing(), ["binja_xtensa-native.so"])
+        self.assertEqual(self.listing(), ["binja_espressif-native.so"])
 
     def test_redirect_to_other_host_refused(self):
         self.server.redirects[self.asset.name] = "http://example.com/" + self.asset.name
@@ -337,16 +337,64 @@ class TestInstall(TempDirTest):
         self.assertTrue(core.uninstall(self.dir, "linux-x86_64"))
         self.assertEqual(self.listing(), [])
 
+    def test_replaces_legacy_install(self):
+        # binja_xtensa-native.so, installed by the loader before the rename:
+        # an outdated install, removed once the new library is in place.
+        legacy = os.path.join(self.dir, "binja_xtensa-native.so")
+        with open(legacy, "wb") as f:
+            f.write(b"rc.3")
+        self.assertEqual(core.find_legacy_installs(self.dir), ["binja_xtensa-native.so"])
+        self.assertEqual(core.installed_state(self.dest, self.asset), core.State.MISSING)
+        self.assertEqual(core.installed_state(self.dest, self.asset, core.find_legacy_installs(self.dir)),
+                         core.State.OUTDATED)
+        self.server.files[self.asset.name] = LIB
+        self.assertEqual(self.install(), self.dest)
+        self.assertEqual(self.listing(), ["binja_espressif-native.so"])
+        self.assertEqual(core.find_legacy_installs(self.dir), [])
+
+    def test_failed_download_keeps_legacy_install(self):
+        open(os.path.join(self.dir, "binja_xtensa-native.so"), "wb").close()
+        with self.assertRaises(core.DownloadError):
+            self.install()
+        self.assertEqual(self.listing(), ["binja_xtensa-native.so"])
+
+    def test_locked_legacy_install_is_set_aside(self):
+        open(os.path.join(self.dir, "binja_xtensa-native.dll"), "wb").close()
+        self.server.files[self.asset.name] = LIB
+        real_remove = os.remove
+
+        def remove(path):
+            if path.endswith("binja_xtensa-native.dll"):
+                raise PermissionError("in use")
+            return real_remove(path)
+
+        with mock.patch("os.remove", remove):
+            self.install()
+        self.assertEqual(self.listing(), ["binja_espressif-native.so", "binja_xtensa-native.dll.old0"])
+        core.cleanup_stale(self.dir)
+        self.assertEqual(self.listing(), ["binja_espressif-native.so"])
+
+    def test_uninstall_removes_legacy_install(self):
+        open(os.path.join(self.dir, "binja_xtensa-native.so"), "wb").close()
+        self.assertTrue(core.uninstall(self.dir, "linux-x86_64"))
+        self.assertEqual(self.listing(), [])
+        open(os.path.join(self.dir, "binja_xtensa-native.so"), "wb").close()
+        open(self.dest, "wb").close()
+        self.assertTrue(core.uninstall(self.dir, "linux-x86_64"))
+        self.assertEqual(self.listing(), [])
+
     def test_cleanup_stale(self):
-        names = ["binja_xtensa-native.dll.old3", ".binja_xtensa-native-abc.part", ".binja_xtensa-native-new.part",
-                 "binja_xtensa-native.so", "libbinja_xtensa.so", "other.so.old0"]
+        names = ["binja_espressif-native.dll.old3", ".binja_espressif-native-abc.part", ".binja_espressif-native-new.part",
+                 "binja_espressif-native.so", "libbinja_espressif.so", "other.so.old0",
+                 "binja_xtensa-native.so.old0", ".binja_xtensa-native-abc.part", "libbinja_xtensa.so"]
         for name in names:
             open(os.path.join(self.dir, name), "wb").close()
         old = os.path.getmtime(os.path.join(self.dir, "other.so.old0")) - 7200
+        os.utime(os.path.join(self.dir, ".binja_espressif-native-abc.part"), (old, old))
         os.utime(os.path.join(self.dir, ".binja_xtensa-native-abc.part"), (old, old))
         core.cleanup_stale(self.dir)
-        self.assertEqual(self.listing(), [".binja_xtensa-native-new.part", "binja_xtensa-native.so",
-                                          "libbinja_xtensa.so", "other.so.old0"])
+        self.assertEqual(self.listing(), [".binja_espressif-native-new.part", "binja_espressif-native.so",
+                                          "libbinja_espressif.so", "libbinja_xtensa.so", "other.so.old0"])
 
 
 class TestUrls(unittest.TestCase):
@@ -369,30 +417,62 @@ class TestUrls(unittest.TestCase):
         with self.assertRaises(core.DownloadError):
             core.asset_url(MANIFEST, MANIFEST.assets[0], "http://evil.example:8000")
         self.assertEqual(core.asset_url(MANIFEST, MANIFEST.assets[0], "http://127.0.0.1:9/rel/"),
-                         "http://127.0.0.1:9/rel/binja_xtensa-abi187-linux-x86_64.so")
+                         "http://127.0.0.1:9/rel/binja_espressif-abi187-linux-x86_64.so")
 
 
 class TestDuplicates(TempDirTest):
     def test_find_other_copies(self):
-        for name in ["libbinja_xtensa.so", "binja_xtensa.dll", "libbinja_xtensa.dylib",
-                     "binja_xtensa-abi187-linux-x86_64.so", "binja_xtensa-native.so", "libother.so",
-                     "binja_xtensa.so.bak", ".binja_xtensa-native-1.part", "binja_xtensa-native.so.old0"]:
+        for name in ["libbinja_espressif.so", "binja_espressif.dll", "libbinja_espressif.dylib",
+                     "binja_espressif-abi187-linux-x86_64.so", "binja_espressif-native.so", "libother.so",
+                     "binja_espressif.so.bak", ".binja_espressif-native-1.part", "binja_espressif-native.so.old0"]:
             open(os.path.join(self.dir, name), "wb").close()
-        os.mkdir(os.path.join(self.dir, "binja-xtensa.so"))  # a directory, not a library
+        os.mkdir(os.path.join(self.dir, "binja-espressif.so"))  # a directory, not a library
         if hasattr(os, "symlink"):
             try:
-                os.symlink("/nonexistent/libbinja_xtensa.so", os.path.join(self.dir, "Binja_Xtensa_link.so"))
+                os.symlink("/nonexistent/libbinja_espressif.so", os.path.join(self.dir, "Binja_Espressif_link.so"))
             except OSError:
                 pass
-        found = core.find_other_copies(self.dir, "binja_xtensa-native.so")
-        expected = ["binja_xtensa-abi187-linux-x86_64.so", "binja_xtensa.dll", "libbinja_xtensa.dylib",
-                    "libbinja_xtensa.so"]
-        if os.path.islink(os.path.join(self.dir, "Binja_Xtensa_link.so")):
-            expected.insert(0, "Binja_Xtensa_link.so")
+        found = core.find_other_copies(self.dir, "binja_espressif-native.so")
+        expected = ["binja_espressif-abi187-linux-x86_64.so", "binja_espressif.dll", "libbinja_espressif.dylib",
+                    "libbinja_espressif.so"]
+        if os.path.islink(os.path.join(self.dir, "Binja_Espressif_link.so")):
+            expected.insert(0, "Binja_Espressif_link.so")
         self.assertEqual(found, expected)
+
+    def test_find_other_copies_from_before_the_rename(self):
+        # Built from source or downloaded by hand before the rename: the
+        # user's, left alone. binja_xtensa-native.so is a loader's install.
+        for name in ["libbinja_xtensa.so", "binja_xtensa.dll", "libbinja_xtensa.dylib",
+                     "binja_xtensa-abi189-linux-x86_64.so", "binja_xtensa-native.so", "binja_xtensa-native.dll",
+                     "binja_xtensa-native.so.old0", ".binja_xtensa-native-1.part", "libbinja_espressif.so"]:
+            open(os.path.join(self.dir, name), "wb").close()
+        self.assertEqual(core.find_other_copies(self.dir, "binja_espressif-native.so"), [
+            "binja_xtensa-abi189-linux-x86_64.so", "binja_xtensa.dll", "libbinja_espressif.so",
+            "libbinja_xtensa.dylib", "libbinja_xtensa.so"])
+        self.assertEqual(core.find_legacy_installs(self.dir), ["binja_xtensa-native.so", "binja_xtensa-native.dll"])
 
     def test_missing_dir(self):
         self.assertEqual(core.find_other_copies(os.path.join(self.dir, "nope"), "x"), [])
+        self.assertEqual(core.find_legacy_installs(os.path.join(self.dir, "nope")), [])
+
+    def test_find_legacy_extensions(self):
+        channel = os.path.join(self.dir, "channels", "binja-xtensa-test", "plugins")
+        old = os.path.join(channel, "jrozner_binjaxtensa")
+        new = os.path.join(channel, "jrozner_binjaespressif")
+        os.makedirs(os.path.join(old, "binja_xtensa_loader"))
+        open(os.path.join(old, "binja_xtensa_loader", "core.py"), "w").close()
+        os.makedirs(os.path.join(new, "binja_espressif_loader"))
+        os.makedirs(os.path.join(channel, "other"))
+        plugins = os.path.join(self.dir, "plugins")
+        os.makedirs(plugins)
+        open(os.path.join(plugins, "binja_xtensa_loader"), "w").close()  # a file, not a plugin folder
+        roots = [plugins, channel, os.path.join(self.dir, "nope")]
+        self.assertEqual(core.find_legacy_extensions(roots, new), [old])
+        # A plugin updated in place may keep the old package: never itself.
+        os.makedirs(os.path.join(new, "binja_xtensa_loader"))
+        open(os.path.join(new, "binja_xtensa_loader", "core.py"), "w").close()
+        self.assertEqual(core.find_legacy_extensions(roots, new), [old])
+        self.assertIn(old, core.legacy_extension_message([old]))
 
 
 class TestConsent(unittest.TestCase):
@@ -421,9 +501,9 @@ class TestConsent(unittest.TestCase):
         # or declined rc library doesn't stop the final being offered.
         rc = core.parse_manifest(manifest_text([asset_entry(self.asset.name, LIB + b"rc")], version="0.2.0-rc.1"))
         rc_asset = rc.assets[0]
-        d = tempfile.mkdtemp(prefix="bn-xtensa-loader-test-")
+        d = tempfile.mkdtemp(prefix="bn-espressif-loader-test-")
         self.addCleanup(shutil.rmtree, d, True)
-        path = os.path.join(d, "binja_xtensa-native.so")
+        path = os.path.join(d, "binja_espressif-native.so")
         with open(path, "wb") as f:
             f.write(LIB + b"rc")
         self.assertEqual(core.installed_state(path, rc_asset), core.State.CURRENT)
@@ -461,16 +541,16 @@ class TestConsent(unittest.TestCase):
     def test_nothing_with_other_copy(self):
         for state in core.State:
             for auto in (True, False):
-                p = self.plan(state=state, other_copies=["libbinja_xtensa.so"], auto_download=auto, ui=False)
+                p = self.plan(state=state, other_copies=["libbinja_espressif.so"], auto_download=auto, ui=False)
                 self.assertEqual(p.action, core.Action.NOTHING)
-                self.assertIn("libbinja_xtensa.so", p.message)
+                self.assertIn("libbinja_espressif.so", p.message)
                 self.assertIn("twice", p.message)
 
     def test_nothing_when_unsupported(self):
         self.assertEqual(self.plan(asset=None, state=None, auto_download=True).action, core.Action.NOTHING)
 
     def test_declined_file(self):
-        d = tempfile.mkdtemp(prefix="bn-xtensa-loader-test-")
+        d = tempfile.mkdtemp(prefix="bn-espressif-loader-test-")
         self.addCleanup(shutil.rmtree, d, True)
         path = os.path.join(d, "espressif", "loader.json")
         self.assertIsNone(core.read_declined(path))
@@ -626,14 +706,14 @@ class TestPluginGlue(TempDirTest):
         patcher = mock.patch.dict(sys.modules, self.bn.modules)
         patcher.start()
         self.addCleanup(patcher.stop)
-        sys.modules.pop("binja_xtensa_loader.plugin", None)
-        self.addCleanup(sys.modules.pop, "binja_xtensa_loader.plugin", None)
-        import binja_xtensa_loader.plugin as plugin
+        sys.modules.pop("binja_espressif_loader.plugin", None)
+        self.addCleanup(sys.modules.pop, "binja_espressif_loader.plugin", None)
+        import binja_espressif_loader.plugin as plugin
         self.plugin = plugin
 
         # A release of the running version with this platform's asset.
         self.platform = core.host_platform() or "linux-x86_64"
-        self.asset_name = "binja_xtensa-abi187-{}{}".format(self.platform, core.PLATFORM_EXTENSIONS[self.platform])
+        self.asset_name = "binja_espressif-abi187-{}{}".format(self.platform, core.PLATFORM_EXTENSIONS[self.platform])
         manifest = os.path.join(self.dir, "manifest.json")
         with open(manifest, "w") as f:
             f.write(manifest_text([asset_entry(self.asset_name)]))
@@ -773,31 +853,112 @@ class TestPluginGlue(TempDirTest):
 
     def test_install_command_refuses_second_copy(self):
         self.bn.ui = True
-        open(os.path.join(self.plugins, "libbinja_xtensa" + core.PLATFORM_EXTENSIONS[self.platform]), "wb").close()
+        open(os.path.join(self.plugins, "libbinja_espressif" + core.PLATFORM_EXTENSIONS[self.platform]), "wb").close()
         self.plugin.install_command()
         self.assertFalse(os.path.exists(self.installed))
         self.assertIn("twice", self.bn.messages[-1][0])
+
+    # Upgrading from binja-xtensa (up to 0.1.0-rc.3), whose loader installed
+    # binja_xtensa-native.<ext>.
+
+    def legacy(self):
+        path = os.path.join(self.plugins, "binja_xtensa-native" + core.PLATFORM_EXTENSIONS[self.platform])
+        with open(path, "wb") as f:
+            f.write(b"rc.3")
+        return path
+
+    def test_ui_upgrade_replaces_legacy_install(self):
+        legacy = self.legacy()
+        self.bn.ui = True
+        self.bn.loaded = True  # the rc.3 library is loaded
+        self.bn.answers = [self.bn.yes]
+        self.plugin.startup_check()
+        self.assertEqual(len(self.prompts()), 1)
+        self.assertIn("is out of date", self.prompts()[0])
+        self.assertIn(os.path.basename(legacy), self.prompts()[0])
+        self.assertEqual(read(self.installed), LIB)
+        self.assertFalse(os.path.lexists(legacy))
+        self.assertEqual(sorted(os.listdir(self.plugins)), [os.path.basename(self.installed)])
+        self.assertIn("which was removed", self.bn.messages[-1][0])
+
+    def test_ui_upgrade_declined_keeps_legacy_install(self):
+        legacy = self.legacy()
+        self.bn.ui = True
+        self.bn.loaded = True
+        self.bn.answers = [self.bn.no]
+        self.plugin.startup_check()
+        self.assertTrue(os.path.lexists(legacy))
+        self.assertFalse(os.path.lexists(self.installed))
+
+    def test_headless_upgrade(self):
+        legacy = self.legacy()
+        self.bn.loaded = True
+        self.plugin.startup_check()
+        self.assertTrue(os.path.lexists(legacy))
+        self.assertTrue(any("not up to date" in m for _, m in self.bn.logs))
+        self.bn.settings[self.plugin.AUTO_DOWNLOAD] = True
+        self.plugin.startup_check()
+        self.assertEqual(sorted(os.listdir(self.plugins)), [os.path.basename(self.installed)])
+
+    def test_legacy_install_next_to_current_is_removed(self):
+        # The old extension's loader installed its library again.
+        self.bn.settings[self.plugin.AUTO_DOWNLOAD] = True
+        self.plugin.startup_check()
+        legacy = self.legacy()
+        self.bn.loaded = True
+        self.plugin.startup_check()
+        self.assertFalse(os.path.lexists(legacy))
+        self.assertEqual(read(self.installed), LIB)
+        self.assertTrue(any("Removed " + os.path.basename(legacy) in m for _, m in self.bn.logs))
+
+    def test_remove_command_removes_legacy_install(self):
+        legacy = self.legacy()
+        self.bn.ui = True
+        self.bn.answers = [self.bn.yes]
+        self.plugin.remove_command()
+        self.assertFalse(os.path.lexists(legacy))
+
+    def test_self_built_library_from_before_the_rename_is_left_alone(self):
+        built = os.path.join(self.plugins, "libbinja_xtensa" + core.PLATFORM_EXTENSIONS[self.platform])
+        open(built, "wb").close()
+        self.bn.settings[self.plugin.AUTO_DOWNLOAD] = True
+        self.bn.loaded = True
+        self.plugin.startup_check()
+        self.assertEqual(os.listdir(self.plugins), [os.path.basename(built)])
+        self.assertTrue(any(os.path.basename(built) in m for _, m in self.bn.logs))
+
+    def test_legacy_extension_is_reported(self):
+        old = os.path.join(self.dir, "channels", "binja-xtensa-test", "plugins", "jrozner_binjaxtensa")
+        os.makedirs(os.path.join(old, "binja_xtensa_loader"))
+        open(os.path.join(old, "binja_xtensa_loader", "core.py"), "w").close()
+        self.legacy()
+        self.bn.ui = True
+        self.bn.loaded = True
+        self.bn.answers = [self.bn.yes]
+        self.plugin.startup_check()
+        self.assertTrue(any("'Espressif Xtensa'" in m and old in m for _, m in self.bn.logs))
+        self.assertIn("Uninstall it in the extension manager", self.bn.messages[-1][0])
 
 
 class TestReleaseTooling(TempDirTest):
     def test_generate(self):
         dist = os.path.join(self.dir, "dist")
         os.mkdir(dist)
-        for name, data in [("binja_xtensa-abi187-linux-x86_64.so", b"linux"),
-                           ("binja_xtensa-abi187-windows-x86_64.dll", b"windows")]:
+        for name, data in [("binja_espressif-abi187-linux-x86_64.so", b"linux"),
+                           ("binja_espressif-abi187-windows-x86_64.dll", b"windows")]:
             with open(os.path.join(dist, name), "wb") as f:
                 f.write(data)
         out = subprocess.run(
             [sys.executable, os.path.join(ROOT, "scripts", "release_manifest.py"), "generate", dist,
-             "--version", "1.2.3", "--repository", "jrozner/binja-xtensa", "--commit", "b" * 40, "--run-id", "42",
+             "--version", "1.2.3", "--repository", "jrozner/binja-espressif", "--commit", "b" * 40, "--run-id", "42",
              "--api", "dev", "--api-source", SOURCE],
             check=True, stdout=subprocess.PIPE).stdout
         m = core.parse_manifest(out)
         self.assertEqual(m.version, "1.2.3")
         self.assertEqual(m.build, {"commit": "b" * 40, "run_id": 42, "api": "dev", "api_source": SOURCE})
         self.assertEqual({a.name: a.sha256 for a in m.assets}, {
-            "binja_xtensa-abi187-linux-x86_64.so": sha(b"linux"),
-            "binja_xtensa-abi187-windows-x86_64.dll": sha(b"windows")})
+            "binja_espressif-abi187-linux-x86_64.so": sha(b"linux"),
+            "binja_espressif-abi187-windows-x86_64.dll": sha(b"windows")})
 
         # publish's check of the downloaded artifacts against the manifest.
         manifest = os.path.join(self.dir, "manifest.json")
@@ -811,26 +972,26 @@ class TestReleaseTooling(TempDirTest):
 
         self.assertEqual(verify(), 0)
         self.assertEqual(read(os.path.join(dist, "SHA256SUMS")).decode(), "{}  {}\n{}  {}\n".format(
-            sha(b"linux"), "binja_xtensa-abi187-linux-x86_64.so", sha(b"windows"), "binja_xtensa-abi187-windows-x86_64.dll"))
-        with open(os.path.join(dist, "binja_xtensa-abi187-linux-x86_64.so"), "wb") as f:
+            sha(b"linux"), "binja_espressif-abi187-linux-x86_64.so", sha(b"windows"), "binja_espressif-abi187-windows-x86_64.dll"))
+        with open(os.path.join(dist, "binja_espressif-abi187-linux-x86_64.so"), "wb") as f:
             f.write(b"linuX")
         self.assertNotEqual(verify(), 0)
-        with open(os.path.join(dist, "binja_xtensa-abi187-linux-x86_64.so"), "wb") as f:
+        with open(os.path.join(dist, "binja_espressif-abi187-linux-x86_64.so"), "wb") as f:
             f.write(b"linux")
         self.assertEqual(verify(), 0)
-        with open(os.path.join(dist, "binja_xtensa-abi187-macos-universal.dylib"), "wb") as f:
+        with open(os.path.join(dist, "binja_espressif-abi187-macos-universal.dylib"), "wb") as f:
             f.write(b"extra")
         self.assertNotEqual(verify(), 0)
 
     def test_generate_api(self):
         dist = os.path.join(self.dir, "dist")
         os.mkdir(dist)
-        with open(os.path.join(dist, "binja_xtensa-abi187-linux-x86_64.so"), "wb") as f:
+        with open(os.path.join(dist, "binja_espressif-abi187-linux-x86_64.so"), "wb") as f:
             f.write(b"linux")
 
         def generate(*api):
             return run_script("release_manifest.py", "generate", dist, "--version", "1.2.3",
-                              "--repository", "jrozner/binja-xtensa", "--commit", "b" * 40, "--run-id", "42", *api)
+                              "--repository", "jrozner/binja-espressif", "--commit", "b" * 40, "--run-id", "42", *api)
 
         r = generate("--api", "stable")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -841,10 +1002,10 @@ class TestReleaseTooling(TempDirTest):
     def test_generate_rejects_unknown_files(self):
         dist = os.path.join(self.dir, "dist")
         os.mkdir(dist)
-        open(os.path.join(dist, "libbinja_xtensa.so"), "wb").close()
+        open(os.path.join(dist, "libbinja_espressif.so"), "wb").close()
         r = subprocess.run(
             [sys.executable, os.path.join(ROOT, "scripts", "release_manifest.py"), "generate", dist,
-             "--version", "1.2.3", "--repository", "jrozner/binja-xtensa", "--commit", "b" * 40, "--run-id", "42",
+             "--version", "1.2.3", "--repository", "jrozner/binja-espressif", "--commit", "b" * 40, "--run-id", "42",
              "--api", "dev"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.assertNotEqual(r.returncode, 0)
@@ -859,12 +1020,12 @@ class TestReleaseTags(TempDirTest):
     """release_manifest.py check-tag and check-tree, which publish runs."""
 
     def release_files(self, root, version, assets=True):
-        os.makedirs(os.path.join(root, "binja_xtensa_loader"), exist_ok=True)
-        with open(os.path.join(root, "binja_xtensa_loader", "manifest.json"), "w") as f:
-            f.write(manifest_text([asset_entry("binja_xtensa-abi187-linux-x86_64.so")] if assets else [],
+        os.makedirs(os.path.join(root, "binja_espressif_loader"), exist_ok=True)
+        with open(os.path.join(root, "binja_espressif_loader", "manifest.json"), "w") as f:
+            f.write(manifest_text([asset_entry("binja_espressif-abi187-linux-x86_64.so")] if assets else [],
                                   version=version, build=assets))
         with open(os.path.join(root, "plugin.json"), "w") as f:
-            json.dump({"name": "Espressif Xtensa", "version": version}, f)
+            json.dump({"name": "Espressif", "version": version}, f)
 
     def check_tag(self, tag, *flags):
         return run_script("release_manifest.py", "check-tag", tag, "--root", self.dir, *flags)
@@ -985,8 +1146,8 @@ class TestTestExtensionRepo(TempDirTest):
         self.assertEqual(ext["author_name"], self.plugin["author"])
         self.assertEqual(ext["short_description"], self.plugin["description"])
         self.assertEqual(ext["categories"], [{"id": 2, "name": "architecture"}, {"id": 3, "name": "binaryview"}])
-        self.assertEqual(ext["homepage"], "https://github.com/jrozner/binja-xtensa")
-        self.assertEqual(ext["path"], "jrozner_binjaxtensa")
+        self.assertEqual(ext["homepage"], "https://github.com/jrozner/binja-espressif")
+        self.assertEqual(ext["path"], "jrozner_binjaespressif")
         self.assertEqual(ext["using_apis"], ["python3"])
         self.assertEqual((ext["type"], ext["state"], ext["official"], ext["is_paid"], ext["view_only"]),
                          (0, 0, False, False, False))
@@ -1003,7 +1164,7 @@ class TestTestExtensionRepo(TempDirTest):
         self.assertEqual(version["minimum_client_version"], self.plugin["minimumbinaryninjaversion"])
         self.assertEqual(version["created"], "2026-10-11T06:26:40+00:00")
         self.assertEqual((version["dependencies"], version["changelog"], version["subdir"]), ({}, "", ""))
-        url = "https://github.com/jrozner/binja-xtensa/archive/refs/tags/v0.1.0-rc.1.zip"
+        url = "https://github.com/jrozner/binja-espressif/archive/refs/tags/v0.1.0-rc.1.zip"
         self.assertEqual(sorted(p["platform"]["name"] for p in version["platform_versions"]),
                          ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64", "win-arm64", "win-x64"])
         for p in version["platform_versions"]:
@@ -1047,7 +1208,7 @@ class TestTestExtensionRepo(TempDirTest):
                 # The package is still the tag's archive of --repo, not of the hosting repository.
                 version = self.load("versions.json")["results"][0]
                 self.assertEqual({p["download_url"] for p in version["platform_versions"]},
-                                 {"https://github.com/jrozner/binja-xtensa/archive/refs/tags/v0.1.0-rc.1.zip"})
+                                 {"https://github.com/jrozner/binja-espressif/archive/refs/tags/v0.1.0-rc.1.zip"})
 
     def test_github_rejects(self):
         for args in [("--github", "binja-extensions-test"),
@@ -1079,7 +1240,7 @@ class TestTestExtensionRepo(TempDirTest):
     def test_rejects(self):
         for tag, args, base in [("v0.1.0", (), None),  # not plugin.json's version
                                 ("0.1.0-rc.1", (), None),
-                                ("v0.1.0-rc.1", ("--repo", "https://github.com/jrozner/binja-xtensa"), None),
+                                ("v0.1.0-rc.1", ("--repo", "https://github.com/jrozner/binja-espressif"), None),
                                 ("v0.1.0-rc.1", (), "127.0.0.1:8000"),
                                 ("v0.1.0-rc.1", (), "file:///tmp/repo")]:
             with self.subTest(tag=tag, args=args, base=base):

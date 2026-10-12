@@ -7,15 +7,15 @@ calling conventions, call-site arguments, zero-overhead loop recovery and the
 ESP image loader. Relocatable objects (tests/data/obj) are checked against
 the relocations objdump lists for them.
 
-Usage: tests/test_headless.py [path/to/libbinja_xtensa.so]
+Usage: tests/test_headless.py [path/to/libbinja_espressif.so]
 
 Runs Binary Ninja from ~/binaryninja (or $BN_INSTALL_DIR) with a temporary
 user directory that contains only this plugin and a link to your license.
 Everything the test writes goes in that directory, which is removed at exit
-unless $BN_XTENSA_KEEP_TMP is set to a non-empty value.
+unless $BN_ESPRESSIF_KEEP_TMP is set to a non-empty value.
 
 The mask ROM image checks need Espressif's esp-rom-elfs release archive (the
-one pinned in view/espressif/src/rom_images.rs): set $BN_XTENSA_ROM_TARBALL to
+one pinned in view/espressif/src/rom_images.rs): set $BN_ESPRESSIF_ROM_TARBALL to
 its path, or they are skipped. The other checks run without ROM images, as
 an ESP-IDF install's ROM ELF files are hidden from the plugin.
 """
@@ -35,14 +35,14 @@ import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(ROOT, "tests", "data")
-plugin = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "target", "release", "libbinja_xtensa.so"))
+plugin = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "target", "release", "libbinja_espressif.so"))
 install = os.environ.get("BN_INSTALL_DIR", os.path.expanduser("~/binaryninja"))
 
-user_dir = tempfile.mkdtemp(prefix="bn-xtensa-test-")
+user_dir = tempfile.mkdtemp(prefix="bn-espressif-test-")
 
 
 def remove_user_dir():
-    if os.environ.get("BN_XTENSA_KEEP_TMP"):
+    if os.environ.get("BN_ESPRESSIF_KEEP_TMP"):
         print(f"keeping {user_dir}")
     else:
         shutil.rmtree(user_dir, ignore_errors=True)
@@ -1510,7 +1510,7 @@ bv = load_bytes(tiny_image([(0x40080000, code + bytes(3) + bytes.fromhex("364100
 check(bv.get_function_at(0x40080008) is not None, "entry at the very end of a segment is found")
 
 print("Images of unsupported chips:")
-UNSUPPORTED = "is not supported by binja-xtensa"
+UNSUPPORTED = "is not supported by binja-espressif"
 
 
 def chip_image(chip_id, entry=0x40800000):
@@ -2283,7 +2283,7 @@ def rom_image_checks(tarball):
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     name = os.path.basename(release["url"])
-    os.environ["BN_XTENSA_ROM_TEST_URL"] = f"http://127.0.0.1:{server.server_address[1]}/{name}"
+    os.environ["BN_ESPRESSIF_ROM_TEST_URL"] = f"http://127.0.0.1:{server.server_address[1]}/{name}"
     with open(os.path.join(serve, name), "wb") as f:
         f.write(archive[:-1] + bytes([archive[-1] ^ 1]))  # corrupted
     cache = os.path.join(user_dir, "espressif", "rom-elfs")
@@ -2339,7 +2339,7 @@ def rom_image_checks(tarball):
     bv.file.close()
     settings.set_bool("espressif.rom.autoDownload", False)
     server.shutdown()
-    del os.environ["BN_XTENSA_ROM_TEST_URL"]
+    del os.environ["BN_ESPRESSIF_ROM_TEST_URL"]
     headless_download_checks(archive, release)
 
 
@@ -2412,7 +2412,7 @@ def headless_session(name, url, paths, together=False, env=None):
     script = os.path.join(user_dir, "session.py")
     with open(script, "w") as f:
         f.write(SESSION)
-    child_env = dict(os.environ, BN_USER_DIRECTORY=ud, HOME=ud, USERPROFILE=ud, BN_XTENSA_ROM_TEST_URL=url,
+    child_env = dict(os.environ, BN_USER_DIRECTORY=ud, HOME=ud, USERPROFILE=ud, BN_ESPRESSIF_ROM_TEST_URL=url,
                      **(env or {}))
     out = subprocess.run([sys.executable, script, install, "together" if together else "apart", *paths],
                          env=child_env, capture_output=True, text=True, timeout=600)
@@ -2501,17 +2501,17 @@ def headless_download_checks(archive, release):
     # stays stuck, and the command then downloads anew instead of waiting
     # for it.
     serve.update(body=archive, delays=[15])
-    command = zeros("a download that times out", {"BN_XTENSA_ROM_TEST_TIMEOUT": "2", "SESSION_COMMAND": "1"},
+    command = zeros("a download that times out", {"BN_ESPRESSIF_ROM_TEST_TIMEOUT": "2", "SESSION_COMMAND": "1"},
                     "did not finish in 2 s", together=True)
     check(command and command[0]["command"] == "esp32c3_rev0_rom.elf" and command[0]["seconds"] < 10,
           f"after a download that times out and stays stuck, the command downloads ({command})")
     server.shutdown()
 
 
-if os.environ.get("BN_XTENSA_ROM_TARBALL"):
-    rom_image_checks(os.environ["BN_XTENSA_ROM_TARBALL"])
+if os.environ.get("BN_ESPRESSIF_ROM_TARBALL"):
+    rom_image_checks(os.environ["BN_ESPRESSIF_ROM_TARBALL"])
 else:
-    print("  skipped: set BN_XTENSA_ROM_TARBALL to the esp-rom-elfs archive pinned in view/espressif/src/rom_images.rs")
+    print("  skipped: set BN_ESPRESSIF_ROM_TARBALL to the esp-rom-elfs archive pinned in view/espressif/src/rom_images.rs")
 
 # Each chip's ROM type library names its platform (gen_rom_types.py adds
 # it before finalizing), so the platform finds it. A library loaded from a

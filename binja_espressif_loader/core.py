@@ -40,8 +40,8 @@ PLATFORM_EXTENSIONS = {
 }
 LIBRARY_EXTENSIONS = (".so", ".dll", ".dylib")
 
-# binja_xtensa-abi<N>-<platform>.<ext>, as release.yml names the assets.
-ASSET_NAME = re.compile(r"^binja_xtensa-abi(?P<abi>[0-9]+)-(?P<platform>[a-z0-9_]+-[a-z0-9_]+)(?P<ext>\.[a-z]+)$")
+# binja_espressif-abi<N>-<platform>.<ext>, as release.yml names the assets.
+ASSET_NAME = re.compile(r"^binja_espressif-abi(?P<abi>[0-9]+)-(?P<platform>[a-z0-9_]+-[a-z0-9_]+)(?P<ext>\.[a-z]+)$")
 # X.Y or X.Y.Z, optionally with a semver pre-release suffix (0.2.0-rc.1),
 # which release.yml publishes as a GitHub pre-release. No build metadata (+).
 VERSION = re.compile(r"^(?P<release>[0-9]+\.[0-9]+(?:\.[0-9]+)?)(?:-(?P<prerelease>[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?\Z")
@@ -53,7 +53,21 @@ COMMIT = re.compile(r"^[0-9a-f]{40}$")
 # The library this loader installs into the user plugin directory: one name
 # per platform, whatever the version or ABI, so installing a new version
 # replaces the old one and two versions are never installed side by side.
-INSTALLED_STEM = "binja_xtensa-native"
+INSTALLED_STEM = "binja_espressif-native"
+# The names the loader installed under before the plugin was renamed from
+# binja-xtensa (up to 0.1.0-rc.3). A library with one of these names was
+# downloaded by an older loader, not built by the user: it is an outdated
+# install of this plugin, replaced (removed) when the current one is
+# installed, so the two never load side by side.
+LEGACY_INSTALLED_STEMS = ("binja_xtensa-native",)
+# The package of the loader before the rename. A plugin folder that has it
+# is the old extension ("Espressif Xtensa", from jrozner/binja-xtensa),
+# which the extension manager keeps as a separate plugin.
+LEGACY_LOADER_PACKAGE = "binja_xtensa_loader"
+# What a library of this plugin is named, whatever its version: built from
+# source (libbinja_espressif.so, binja_espressif.dll), a release asset
+# (binja_espressif-abi189-...), or the same from before the rename.
+LIBRARY_NAMES = ("binja_espressif", "binja-espressif", "binja_xtensa", "binja-xtensa")
 
 # Downloads start at github.com and may only be redirected to GitHub's
 # release asset storage.
@@ -73,7 +87,7 @@ NATIVE_ARCHITECTURE = "xtensa-esp32"
 
 BUILD_FROM_SOURCE = (
     "To use the plugin elsewhere, build it from source: see "
-    "https://github.com/jrozner/binja-xtensa#building-from-source"
+    "https://github.com/jrozner/binja-espressif#building-from-source"
 )
 
 
@@ -132,7 +146,7 @@ def parse_asset(entry) -> Asset:
     name = entry.get("name")
     _require(isinstance(name, str), "manifest asset has no name")
     m = ASSET_NAME.match(name)
-    _require(m is not None, "manifest asset name {!r} is not binja_xtensa-abi<N>-<platform>.<ext>".format(name))
+    _require(m is not None, "manifest asset name {!r} is not binja_espressif-abi<N>-<platform>.<ext>".format(name))
     platform = m.group("platform")
     _require(PLATFORM_EXTENSIONS.get(platform) == m.group("ext"),
              "manifest asset {!r}: unknown platform or wrong extension".format(name))
@@ -266,7 +280,7 @@ def describe_supported(manifest: Manifest) -> str:
 def unsupported_message(manifest: Manifest, platform: Optional[str], abi_min: int, abi_max: int) -> str:
     here = platform or "this OS/CPU"
     abis = str(abi_min) if abi_min == abi_max else "{}-{}".format(abi_min, abi_max)
-    return ("No prebuilt native library of binja-xtensa {} matches {} with core ABI {}; {}. {}".format(
+    return ("No prebuilt native library of binja-espressif {} matches {} with core ABI {}; {}. {}".format(
         manifest.version, here, abis, describe_supported(manifest), BUILD_FROM_SOURCE))
 
 
@@ -292,33 +306,49 @@ class State(Enum):
     CURRENT = "current"
 
 
-def installed_state(path: str, asset: Asset) -> State:
+def installed_state(path: str, asset: Asset, legacy: Iterable[str] = ()) -> State:
+    """The state of the library at `path`. A legacy install (see
+    find_legacy_installs) counts as an outdated one when `path` is missing."""
     if not os.path.lexists(path):
-        return State.MISSING
+        return State.OUTDATED if list(legacy) else State.MISSING
     try:
         return State.CURRENT if sha256_file(path) == asset.sha256 else State.OUTDATED
     except OSError:
         return State.OUTDATED
 
 
-def find_other_copies(plugin_dir: str, own_name: str) -> List[str]:
-    """Other libraries of this plugin in the plugin directory.
+def legacy_installed_names() -> List[str]:
+    return [stem + ext for stem in LEGACY_INSTALLED_STEMS for ext in LIBRARY_EXTENSIONS]
 
-    Matches what building from source produces (libbinja_xtensa.so,
-    binja_xtensa.dll, libbinja_xtensa.dylib), release assets downloaded by
-    hand (binja_xtensa-abi187-linux-x86_64.so), and links to either."""
+
+def find_legacy_installs(plugin_dir: str) -> List[str]:
+    """Libraries an older loader installed (binja_xtensa-native.so), which
+    this loader replaces."""
+    return [name for name in legacy_installed_names() if os.path.lexists(os.path.join(plugin_dir, name))]
+
+
+def find_other_copies(plugin_dir: str, own_name: str) -> List[str]:
+    """Other libraries of this plugin in the plugin directory, which the
+    user put there: the loader leaves them alone.
+
+    Matches what building from source produces (libbinja_espressif.so,
+    binja_espressif.dll, libbinja_espressif.dylib, or libbinja_xtensa.so from
+    before the rename), release assets downloaded by hand
+    (binja_espressif-abi187-linux-x86_64.so), and links to either. Not the
+    libraries a loader installed (own_name, and the legacy names)."""
     found = []
     try:
         names = os.listdir(plugin_dir)
     except OSError:
         return found
+    legacy = set(legacy_installed_names())
     for name in sorted(names):
         lower = name.lower()
-        if name == own_name or lower.startswith("."):
+        if name == own_name or name in legacy or lower.startswith("."):
             continue
         if not lower.endswith(LIBRARY_EXTENSIONS):
             continue
-        if "binja_xtensa" not in lower and "binja-xtensa" not in lower:
+        if not any(n in lower for n in LIBRARY_NAMES):
             continue
         path = os.path.join(plugin_dir, name)
         if os.path.isfile(path) or os.path.islink(path):
@@ -343,6 +373,33 @@ class Plan:
     message: str
 
 
+def find_legacy_extensions(roots: Iterable[str], own_root: str) -> List[str]:
+    """Folders of the old extension (any folder with the old loader package)
+    among the subfolders of `roots`, except this plugin's own `own_root`."""
+    own = os.path.normcase(os.path.realpath(own_root))
+    found = []
+    for root in roots:
+        try:
+            names = sorted(os.listdir(root))
+        except OSError:
+            continue
+        for name in names:
+            path = os.path.join(root, name)
+            if os.path.normcase(os.path.realpath(path)) == own:
+                continue
+            if os.path.isfile(os.path.join(path, LEGACY_LOADER_PACKAGE, "core.py")):
+                found.append(path)
+    return found
+
+
+def legacy_extension_message(paths: Iterable[str]) -> str:
+    return ("The old 'Espressif Xtensa' extension (binja-xtensa, the name of this plugin before 0.1.0) is still "
+            "installed in {}. Uninstall it in the extension manager (Plugins > Manage Plugins) and restart "
+            "Binary Ninja: it is replaced by this one, and its loader would install its own copy of the native "
+            "library (binja_xtensa-native) again. This loader removes that copy whenever it finds it next to "
+            "its own.".format(", ".join(paths)))
+
+
 def plan_startup(*, asset: Optional[Asset], state: Optional[State], other_copies: Iterable[str],
                  native_loaded: bool, ui: bool, auto_download: bool, declined: Optional[str],
                  setting: str, plugin_dir: str) -> Plan:
@@ -358,7 +415,7 @@ def plan_startup(*, asset: Optional[Asset], state: Optional[State], other_copies
         else:
             extra = ""
         return Plan(Action.NOTHING, (
-            "binja-xtensa's native library is already present in {} as {}, so the prebuilt library is not "
+            "binja-espressif's native library is already present in {} as {}, so the prebuilt library is not "
             "installed (two copies would register the same architectures twice). To use the prebuilt "
             "library instead, delete it and restart Binary Ninja.{}".format(
                 plugin_dir, ", ".join(other_copies), extra)))
@@ -366,7 +423,7 @@ def plan_startup(*, asset: Optional[Asset], state: Optional[State], other_copies
         if native_loaded:
             return Plan(Action.NOTHING, "")
         return Plan(Action.NOTHING, (
-            "binja-xtensa's native library is installed but not loaded: restart Binary Ninja to load it. "
+            "binja-espressif's native library is installed but not loaded: restart Binary Ninja to load it. "
             "If it is still not loaded after a restart, the log shows why (for example a core ABI mismatch)."))
     if state is State.MISSING and native_loaded:
         # Loaded from somewhere other than the user plugin directory.
@@ -376,12 +433,12 @@ def plan_startup(*, asset: Optional[Asset], state: Optional[State], other_copies
     if ui:
         if declined == asset.sha256:
             return Plan(Action.NOTHING, (
-                "binja-xtensa's native library is not installed (declined earlier). Install it with "
+                "binja-espressif's native library is not installed (declined earlier). Install it with "
                 "Plugins > Espressif > Install or Update Native Library."))
         return Plan(Action.PROMPT, "")
     verb = "installed" if state is State.MISSING else "up to date"
     return Plan(Action.INSTRUCT, (
-        "binja-xtensa's native library is not {}. Nothing is downloaded without consent: enable the "
+        "binja-espressif's native library is not {}. Nothing is downloaded without consent: enable the "
         "'{}' setting (in settings.json of the user directory, or once in the UI) and start Binary Ninja "
         "again to download {}, or install it from the UI with Plugins > Espressif > Install or Update "
         "Native Library.".format(verb, setting, asset.name)))
@@ -465,7 +522,7 @@ def download(url: str, asset: Asset, dest_dir: str, *, test_base_url: Optional[s
         h = hashlib.sha256()
         received = 0
         with os.fdopen(fd, "wb") as out:
-            request = urllib.request.Request(url, headers={"User-Agent": "binja-xtensa-loader"})
+            request = urllib.request.Request(url, headers={"User-Agent": "binja-espressif-loader"})
             try:
                 with opener.open(request, timeout=timeout) as response:
                     _check_url(response.geturl(), test_host)
@@ -537,9 +594,27 @@ def install_file(tmp: str, dest: str) -> None:
         os.replace(tmp, dest)
 
 
+def remove_legacy_installs(plugin_dir: str) -> List[str]:
+    """Removes (or sets aside, on Windows if loaded) the libraries an older
+    loader installed; returns their names. Raises OSError if one stays."""
+    removed = []
+    for name in find_legacy_installs(plugin_dir):
+        path = os.path.join(plugin_dir, name)
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        except PermissionError:
+            _set_aside(path)
+        removed.append(name)
+    return removed
+
+
 def install(manifest: Manifest, asset: Asset, plugin_dir: str, *, test_base_url: Optional[str] = None,
             timeout: float = TIMEOUT, progress: Optional[Callable[[int, int], None]] = None, opener=None) -> str:
-    """Downloads, verifies and installs `asset`; returns the installed path."""
+    """Downloads, verifies and installs `asset`, replacing a legacy install
+    (removing it once the new library is in place); returns the installed
+    path."""
     os.makedirs(plugin_dir, exist_ok=True)
     dest = os.path.join(plugin_dir, installed_name(asset.platform))
     tmp = download(asset_url(manifest, asset, test_base_url), asset, plugin_dir, test_base_url=test_base_url,
@@ -549,14 +624,20 @@ def install(manifest: Manifest, asset: Asset, plugin_dir: str, *, test_base_url:
     except BaseException:
         _remove(tmp)
         raise
+    try:
+        remove_legacy_installs(plugin_dir)
+    except OSError:
+        pass  # the caller finds it still there (find_legacy_installs)
     return dest
 
 
 def uninstall(plugin_dir: str, platform: str) -> bool:
-    """Removes the installed library; returns whether there was one."""
+    """Removes the installed library, and any legacy install; returns
+    whether there was one."""
     dest = os.path.join(plugin_dir, installed_name(platform))
+    removed = bool(remove_legacy_installs(plugin_dir))
     if not os.path.lexists(dest):
-        return False
+        return removed
     try:
         os.remove(dest)
     except PermissionError:
@@ -575,11 +656,12 @@ def cleanup_stale(plugin_dir: str, now: Optional[float] = None) -> None:
         return
     for name in names:
         path = os.path.join(plugin_dir, name)
-        if name.startswith(INSTALLED_STEM + ".") and ".old" in name[len(INSTALLED_STEM):]:
-            _remove(path)
-        elif name.startswith("." + INSTALLED_STEM + "-") and name.endswith(".part"):
-            try:
-                if now - os.path.getmtime(path) > 3600:
-                    _remove(path)
-            except OSError:
-                pass
+        for stem in (INSTALLED_STEM,) + LEGACY_INSTALLED_STEMS:
+            if name.startswith(stem + ".") and ".old" in name[len(stem):]:
+                _remove(path)
+            elif name.startswith("." + stem + "-") and name.endswith(".part"):
+                try:
+                    if now - os.path.getmtime(path) > 3600:
+                        _remove(path)
+                except OSError:
+                    pass

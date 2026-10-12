@@ -40,7 +40,7 @@ This crate is built two ways:
   `view_espressif.dll`), which exports `CorePluginInit` and needs the
   `arch_xtensa` and `arch_riscv_ilp32` plugins next to it. `CMakeLists.txt`
   builds it with `bn_add_rust_crate` from the binaryninja-api tree.
-- Bundled into the plugin the release ships (`binja-xtensa`, the repository
+- Bundled into the plugin the release ships (`binja-espressif`, the repository
   root), which links it as a Rust library with the `bundled` feature (no
   entry points of its own) and calls `register()` after registering the
   architectures.

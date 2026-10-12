@@ -215,7 +215,7 @@ class Tests(unittest.TestCase):
             with self.assertRaisesRegex(fetch.Error, "too large"):
                 fetch.download("https://example.invalid/a.tar.gz")
         request = urlopen.call_args[0][0]
-        self.assertEqual(request.get_header("User-agent"), "binja-xtensa")
+        self.assertEqual(request.get_header("User-agent"), "binja-espressif")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
-# binja-xtensa
+# binja-espressif
 
-A Binary Ninja architecture plugin for the Xtensa cores in Espressif's
+(Formerly binja-xtensa.) A Binary Ninja plugin for Espressif's chips: it
+adds architectures for the Xtensa cores in Espressif's
 **ESP8266**, **ESP32**, **ESP32-S2** and **ESP32-S3**, written in Rust against
 the [binaryninja-api](https://github.com/Vector35/binaryninja-api): `main`
 and releases build against its `dev` branch, for the Binary Ninja dev
@@ -392,7 +393,7 @@ Not supported for now:
   Ninja's `rv32gc` treats them as invalid instructions.
 - **ESP32-C61, H21, H4 and S31.** Their images are not loaded either: the
   log names the chip ("ESP image for ESP32-C61 (chip id 20) ... is not
-  supported by binja-xtensa"), or gives the raw `chip_id` of an image for
+  supported by binja-espressif"), or gives the raw `chip_id` of an image for
   a chip it does not know, and the file opens as it would without the
   plugin.
 - **Other relocations.** The dynamic and TLS relocations (Espressif
@@ -419,7 +420,7 @@ Not supported for now:
 The plugin is a native library, but Binary Ninja's extension manager only
 installs Python plugins, from the source of the latest release. So what it
 installs is a small Python loader (`__init__.py` and
-`binja_xtensa_loader/`), which installs the prebuilt native library from
+`binja_espressif_loader/`), which installs the prebuilt native library from
 the matching GitHub release into your
 [user plugin folder](https://docs.binary.ninja/guide/index.html#user-folder).
 Prebuilt libraries exist for Linux x86_64, Windows x86_64 and macOS
@@ -431,7 +432,7 @@ range doesn't include the release's (such as stable, or a much newer dev
 build), the loader logs what is available and does nothing;
 [build from source](#building-from-source) instead.
 
-1. Install **Espressif Xtensa** in the extension manager.
+1. Install **Espressif** in the extension manager.
 2. Nothing is downloaded without your consent:
    - In the UI, the loader asks once whether to download the library (it
      asks again only when a new version needs a different library). If you
@@ -449,14 +450,15 @@ build), the loader logs what is available and does nothing;
 The library is downloaded over HTTPS from this repository's GitHub release
 (redirects are only followed to GitHub's release asset storage), and is
 installed only if its size and SHA-256 match
-`binja_xtensa_loader/manifest.json`, which is part of the plugin's source as
+`binja_espressif_loader/manifest.json`, which is part of the plugin's source as
 the extension manager installed it; nothing fetched from the release is
 trusted. It is written to a temporary file in the plugin folder, checked,
-and then renamed to `binja_xtensa-native.so` (`.dll`, `.dylib`), so a new
+and then renamed to `binja_espressif-native.so` (`.dll`, `.dylib`), so a new
 version replaces the old one and only one is ever installed.
 
 If the plugin folder already has a copy of the plugin, such as a
-`libbinja_xtensa.so` you built (any `*binja_xtensa*` library), the loader
+`libbinja_espressif.so` you built (any `*binja_espressif*` library, or
+`*binja_xtensa*` from before the rename), the loader
 doesn't install a second one, which would register the same architectures
 twice, and logs why. If the native plugin is already loaded from elsewhere,
 it doesn't ask.
@@ -465,8 +467,30 @@ it doesn't ask.
 loader but not the native library. Run **Plugins > Espressif > Remove
 Native Library** first (it then doesn't ask about that version again, and
 turns `espressif.loader.autoDownload` off if it was on), or delete
-`binja_xtensa-native.so` (`.dll`, `.dylib`) from the user plugin folder
+`binja_espressif-native.so` (`.dll`, `.dylib`) from the user plugin folder
 yourself, then restart Binary Ninja.
+
+**Upgrading from binja-xtensa.** Up to 0.1.0-rc.3 the plugin was called
+binja-xtensa, listed as **Espressif Xtensa** from jrozner/binja-xtensa, and
+its loader installed the library as `binja_xtensa-native.so` (`.dll`,
+`.dylib`). The extension manager tells plugins apart by their install
+folder, which comes from the GitHub repository's name, so it shows
+**Espressif** as a separate plugin, not as an update of Espressif Xtensa.
+Install Espressif, then uninstall Espressif Xtensa in the extension
+manager and restart. Until then:
+
+- The new loader treats `binja_xtensa-native.*` as an out-of-date install
+  of its own: it asks (or, headless, downloads only with
+  `espressif.loader.autoDownload`) as for any update, and removes
+  `binja_xtensa-native.*` once `binja_espressif-native.*` is in place, so
+  only one of them loads after the restart. If you decline, the old library
+  stays and keeps working.
+- It logs that the old extension is still installed, and where, at every
+  start. The old loader stays quiet while the new library is loaded; should
+  it install `binja_xtensa-native.*` again, the new loader removes it at the
+  next start.
+- A library you built yourself (`libbinja_xtensa.so`, `binja_xtensa.dll`)
+  is left alone, as before.
 
 ## Building from source
 
@@ -480,7 +504,7 @@ override).
 
 ```sh
 cargo build --release
-cp target/release/libbinja_xtensa.so ~/.binaryninja/plugins/   # .dylib / .dll elsewhere
+cp target/release/libbinja_espressif.so ~/.binaryninja/plugins/   # .dylib / .dll elsewhere
 ```
 
 This builds the plugin the release ships, which holds all three crates (see
@@ -489,7 +513,7 @@ plugin of its own (`cargo build --release -p arch_xtensa -p
 arch_riscv_ilp32 -p view_espressif` gives `libarch_xtensa.so`,
 `libarch_riscv_ilp32.so` and `libview_espressif.so`), as Binary Ninja's own
 build would make them. Install either the three of them or
-`libbinja_xtensa.so`, never both: they register the same architectures,
+`libbinja_espressif.so`, never both: they register the same architectures,
 platforms and view.
 
 On Windows, run `git config --global core.longpaths true` first:
@@ -531,14 +555,15 @@ move to a newer stable release, update `STABLE_TAG` in
 A self-built library in the plugin folder takes precedence: if the
 extension manager's loader is installed too, it sees the library and
 installs nothing. Don't copy a self-built library into the plugin folder
-next to an installed `binja_xtensa-native.so`; remove that first. The
-loader only recognizes the bundled library (`*binja_xtensa*`), not the
+next to an installed `binja_espressif-native.so`; remove that first. The
+loader only recognizes the bundled library (`*binja_espressif*`, or
+`*binja_xtensa*` from before the rename), not the
 three crates built as plugins of their own.
 
 ### Repository layout
 
 ```
-Cargo.toml          the workspace, and the plugin the release ships (binja-xtensa)
+Cargo.toml          the workspace, and the plugin the release ships (binja-espressif)
 src/lib.rs          its entry points: registers the three plugins below
 arch/xtensa/        arch_xtensa: the Xtensa architectures, lifting, calling
                     conventions, loops, patching, ELF relocations
@@ -547,7 +572,7 @@ view/espressif/     view_espressif: the ESP view and flash dump container, ELF
                     fix-ups and chip recognition, chip platforms, ROM symbols
                     (data/rom_symbols), types (data/rom_types) and images, SVDs (svd/)
 xtensa/             the xtensa decoder crate
-binja_xtensa_loader/, __init__.py, plugin.json
+binja_espressif_loader/, __init__.py, plugin.json
                     the extension manager's Python loader
 scripts/            generators, fetchers and release tooling
 tests/              end-to-end tests (headless Binary Ninja) and their data
@@ -650,11 +675,11 @@ by `.github/workflows/release.yml` (manual only) in two runs:
    The platforms build independently, so one failing doesn't cancel the
    others, but the manifest is generated only when all three succeed.
    Each library's name carries its core ABI
-   (`binja_xtensa-abi189-windows-x86_64.dll`), and the loader picks the one
+   (`binja_espressif-abi189-windows-x86_64.dll`), and the loader picks the one
    the running core accepts, so the publish run doesn't need to know the
    API.
 2. **Commit and tag.** On top of the build commit, save the manifest as
-   `binja_xtensa_loader/manifest.json`, set `plugin.json`'s `version` to
+   `binja_espressif_loader/manifest.json`, set `plugin.json`'s `version` to
    the release version if it isn't already, and change nothing else.
    Commit that on top of the build commit (through a PR works too, as long
    as nothing else lands on `main` in between), then tag the commit
@@ -716,7 +741,7 @@ A stable Binary Ninja finds no library to install.
 
    (`api=dev` is the default.) On top of the build commit, on a branch rather than `main` (so `main`
    keeps the final version), commit the run's manifest as
-   `binja_xtensa_loader/manifest.json` with `plugin.json`'s version set to
+   `binja_espressif_loader/manifest.json` with `plugin.json`'s version set to
    `0.1.0-rc.1`, tag that commit `v0.1.0-rc.1`, push the tag, and publish:
 
    ```sh
@@ -743,7 +768,7 @@ A stable Binary Ninja finds no library to install.
    git clone https://github.com/jrozner/binja-extensions-test ../binja-extensions-test
    scripts/test_extension_repo.py v0.1.0-rc.1 --github jrozner/binja-extensions-test -o ../binja-extensions-test
    git -C ../binja-extensions-test add v2/manifests extensions.json versions.json
-   git -C ../binja-extensions-test commit -m "List binja-xtensa 0.1.0-rc.1"
+   git -C ../binja-extensions-test commit -m "List binja-espressif 0.1.0-rc.1"
    git -C ../binja-extensions-test push
    ```
 
@@ -806,14 +831,14 @@ A stable Binary Ninja finds no library to install.
    `http://127.0.0.1:8000`. The setting is *Unofficial 3rd Party Plugin
    Repository URLs* in Settings, too.
 
-4. **Install** *Espressif Xtensa* (version `0.1.0-rc.1`, from the
+4. **Install** *Espressif* (version `0.1.0-rc.1`, from the
    `binja-xtensa-test` repository) in the extension manager and restart.
 
 Then check:
 
 - The loader asks to download the library for this platform; accept it.
-  The log names the library (`binja_xtensa-abi189-<platform>`) and its
-  verified SHA-256, and `binja_xtensa-native.so` (`.dll`, `.dylib`) is in
+  The log names the library (`binja_espressif-abi189-<platform>`) and its
+  verified SHA-256, and `binja_espressif-native.so` (`.dll`, `.dylib`) is in
   `bn-test/plugins`. If it says no prebuilt library matches instead, your
   dev build's core ABI has moved on (see above).
 - After a restart, the library loads without errors in the log and an
@@ -837,7 +862,7 @@ done.
 
 ```sh
 # Unit tests: image formats, partitions, loops, intrinsics, patching, relocations
-cargo test -p arch_xtensa -p arch_riscv_ilp32 -p view_espressif -p binja-xtensa --lib --no-default-features
+cargo test -p arch_xtensa -p arch_riscv_ilp32 -p view_espressif -p binja-espressif --lib --no-default-features
 # Lifts ~1.5M encodings through the real core
 cargo test --release -p arch_xtensa --features liftcheck --lib liftcheck::lift_sweep
 cargo build --release && tests/test_headless.py
@@ -872,9 +897,9 @@ call into the mask ROM: the test checks the ELF fix-ups and the ROM types
 (the arguments of ROM calls and libgcc helpers, a ROM structure's fields,
 that reopening a database changes nothing, and that a database typed from
 another version of the library is brought up to date) on them and on
-images made from them. The user directory (`bn-xtensa-test-*` in the system temp
+images made from them. The user directory (`bn-espressif-test-*` in the system temp
 directory) also holds the databases and images the test writes, and is
-removed when the test exits; set `BN_XTENSA_KEEP_TMP=1` to keep it for
+removed when the test exits; set `BN_ESPRESSIF_KEEP_TMP=1` to keep it for
 debugging (the test prints its path).
 
 Those checks run without ROM images (ESP-IDF's are hidden from the plugin).
@@ -883,7 +908,7 @@ test does not download:
 
 ```sh
 curl -LO https://github.com/espressif/esp-rom-elfs/releases/download/20260528/esp-rom-elfs-20260528.tar.gz
-BN_XTENSA_ROM_TARBALL=$PWD/esp-rom-elfs-20260528.tar.gz tests/test_headless.py
+BN_ESPRESSIF_ROM_TARBALL=$PWD/esp-rom-elfs-20260528.tar.gz tests/test_headless.py
 ```
 
 They check the ROM types again with a directory of ROM ELF files (and in
@@ -892,7 +917,7 @@ named, with `espressif.rom.createFunctions` off), the revision chosen,
 `espressif.rom.elfDirectory` as a load option, the `espressif.rom`
 metadata, a view that maps an image found after it was loaded, and the
 download:
-served from a local HTTP server (through the `BN_XTENSA_ROM_TEST_URL`
+served from a local HTTP server (through the `BN_ESPRESSIF_ROM_TEST_URL`
 override, loopback only), not without consent, not when corrupted, and
 through the command.
 
@@ -903,11 +928,11 @@ on small synthetic archives.
 `tests/test_loader_headless.py` installs the loader into a throwaway user
 directory with a manifest listing the locally built library as the release
 asset for the running core's ABI, serves it from a local HTTP server (the
-loader fetches from `$BN_XTENSA_LOADER_TEST_BASE_URL` instead of GitHub; it
+loader fetches from `$BN_ESPRESSIF_LOADER_TEST_BASE_URL` instead of GitHub; it
 accepts only loopback addresses there, and still checks the manifest's hash),
 and runs headless Binary Ninja several times: it checks that nothing is
 downloaded without `espressif.loader.autoDownload`, that with it the library
-lands in the user plugin folder as `binja_xtensa-native.so` and loads after
+lands in the user plugin folder as `binja_espressif-native.so` and loads after
 a restart, and that a tampered asset or a self-built copy in the plugin
 folder means nothing is installed.
 

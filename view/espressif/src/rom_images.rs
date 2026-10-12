@@ -1129,7 +1129,7 @@ mod tests {
             size: gz.len() as u64,
         };
         let dir =
-            std::env::temp_dir().join(format!("binja-xtensa-rom-unpack-{}", std::process::id()));
+            std::env::temp_dir().join(format!("binja-espressif-rom-unpack-{}", std::process::id()));
         let dest = dir.join("cache");
         assert_eq!(unpack(&gz, &release, &dest), Ok(1));
         assert_eq!(
@@ -1148,14 +1148,15 @@ mod tests {
     }
 
     /// Checks Espressif's real ROM ELF files, in the directory
-    /// `$BN_XTENSA_ROM_ELFS` (an unpacked esp-rom-elfs release): each is
+    /// `$BN_ESPRESSIF_ROM_ELFS` (an unpacked esp-rom-elfs release): each is
     /// valid for its own chip only, and has contents at the start of the
     /// ROM. Run with `cargo test -- --ignored`.
     #[test]
     #[ignore]
     fn real_rom_elfs() {
         use crate::image::RegionKind::RomData;
-        let dir = PathBuf::from(std::env::var("BN_XTENSA_ROM_ELFS").expect("BN_XTENSA_ROM_ELFS"));
+        let dir =
+            PathBuf::from(std::env::var("BN_ESPRESSIF_ROM_ELFS").expect("BN_ESPRESSIF_ROM_ELFS"));
         let mut checked = 0;
         for entry in std::fs::read_dir(&dir).unwrap() {
             let path = entry.unwrap().path();
@@ -1226,7 +1227,7 @@ mod tests {
     #[test]
     fn finds_the_first_valid_image() {
         let dir =
-            std::env::temp_dir().join(format!("binja-xtensa-rom-find-{}", std::process::id()));
+            std::env::temp_dir().join(format!("binja-espressif-rom-find-{}", std::process::id()));
         let (a, b) = (dir.join("a"), dir.join("b"));
         std::fs::create_dir_all(&a).unwrap();
         std::fs::create_dir_all(&b).unwrap();

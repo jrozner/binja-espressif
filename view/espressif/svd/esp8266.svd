@@ -2,8 +2,8 @@
 <device schemaVersion="1.0" xmlns:xs="http://www.w3.org/2001/XMLSchema-instance" xs:noNamespaceSchemaLocation="CMSIS-SVD_Schema_1.0.xsd">
   <name>ESP8266</name>
   <version>1.0</version>
-  <description>ESP8266 (Xtensa LX106): esp-pacs' SVD with its svdtools patches and binja-xtensa's corrections</description>
-  <licenseText>Generated with svdtools from the ESP8266 SVD file and patches of esp-rs/esp-pacs (commit c01397fbba0bbf01c49918e050e71eed9bbdd2d5, esp8266/svd/), Copyright The esp-rs Project Developers, licensed under the MIT License or the Apache License, Version 2.0, at your option. esp-pacs generated its file from the register headers of Espressif's ESP8266 SDK (Apache-2.0). binja-xtensa's changes (view/espressif/svd/esp8266.yaml) are licensed under the MIT License.</licenseText>
+  <description>ESP8266 (Xtensa LX106): esp-pacs' SVD with its svdtools patches and binja-espressif's corrections</description>
+  <licenseText>Generated with svdtools from the ESP8266 SVD file and patches of esp-rs/esp-pacs (commit c01397fbba0bbf01c49918e050e71eed9bbdd2d5, esp8266/svd/), Copyright The esp-rs Project Developers, licensed under the MIT License or the Apache License, Version 2.0, at your option. esp-pacs generated its file from the register headers of Espressif's ESP8266 SDK (Apache-2.0). binja-espressif's changes (view/espressif/svd/esp8266.yaml) are licensed under the MIT License.</licenseText>
   <cpu>
     <name>Xtensa LX106</name>
     <revision>1</revision>
