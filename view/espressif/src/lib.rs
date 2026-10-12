@@ -708,7 +708,9 @@ const PLATFORM_OS: &str = "espressif";
 /// Registers a platform for every chip on its CPU's architecture, with the
 /// architecture's calling conventions. The default calling convention is
 /// the CPU's (see [`Cpu::default_calling_convention`]), or else that of the
-/// architecture's standalone platform.
+/// architecture's standalone platform. A chip whose architecture or default
+/// calling convention is not registered gets no platform, and is not
+/// supported.
 fn register_platforms() {
     for chip in Chip::ALL {
         let Some(arch) = CoreArchitecture::by_name(chip.arch_name()) else {
@@ -720,6 +722,18 @@ fn register_platforms() {
             );
             continue;
         };
+        // The RISC-V chips' code follows `ilp32`, which the arch_riscv_ilp32
+        // plugin registers; without it their analysis would be wrong.
+        if let Some(name) = chip.cpu().default_calling_convention()
+            && arch.calling_convention_by_name(name).is_none()
+        {
+            tracing::warn!(
+                "calling convention {name} of architecture {} is not registered (is the arch_riscv_ilp32 plugin missing?); {} is not supported",
+                chip.arch_name(),
+                chip.display_name()
+            );
+            continue;
+        }
         let platform = Platform::new(&arch, chip.platform_name());
         platform.register_os(PLATFORM_OS);
         for cc in arch.calling_conventions().iter() {
