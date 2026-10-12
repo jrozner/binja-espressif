@@ -57,8 +57,6 @@ EXTENSIONS = "extensions.json"
 VERSIONS = "versions.json"
 # The repository's name, which is also the folder Binary Ninja keeps its
 # plugins in (channels/<name>/): that of jrozner/binja-extensions-test.
-# Before 0.1.0 it was binja-xtensa-test (see the README's "Testing a release
-# privately" for what that leaves behind).
 MANIFEST_NAME = "binja-extensions-test"
 # Download platforms of the extension server, by plugin.json platform.
 PLATFORMS = {

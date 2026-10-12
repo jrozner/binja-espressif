@@ -1,9 +1,8 @@
 # binja-espressif
 
-(Formerly binja-xtensa.) A Binary Ninja plugin for Espressif's chips: it
-adds architectures for the Xtensa cores in Espressif's
-**ESP8266**, **ESP32**, **ESP32-S2** and **ESP32-S3**, written in Rust against
-the [binaryninja-api](https://github.com/Vector35/binaryninja-api): `main`
+A Binary Ninja plugin for Espressif's chips: it adds architectures for the
+Xtensa cores in Espressif's **ESP8266**, **ESP32**, **ESP32-S2** and
+**ESP32-S3**, written in Rust against the [binaryninja-api](https://github.com/Vector35/binaryninja-api): `main`
 and releases build against its `dev` branch, for the Binary Ninja dev
 channel. The code also builds against the latest stable release (6.0), and
 release builds for stable will follow later.
@@ -457,10 +456,9 @@ and then renamed to `binja_espressif-native.so` (`.dll`, `.dylib`), so a new
 version replaces the old one and only one is ever installed.
 
 If the plugin folder already has a copy of the plugin, such as a
-`libbinja_espressif.so` you built (any `*binja_espressif*` library, or
-`*binja_xtensa*` from before the rename), the loader
-doesn't install a second one, which would register the same architectures
-twice, and logs why. If the native plugin is already loaded from elsewhere,
+`libbinja_espressif.so` you built (any `*binja_espressif*` library), the
+loader doesn't install a second one, which would register the same
+architectures twice, and logs why. If the native plugin is already loaded from elsewhere,
 it doesn't ask.
 
 **Uninstalling.** Removing the plugin in the extension manager removes the
@@ -469,37 +467,6 @@ Native Library** first (it then doesn't ask about that version again, and
 turns `espressif.loader.autoDownload` off if it was on), or delete
 `binja_espressif-native.so` (`.dll`, `.dylib`) from the user plugin folder
 yourself, then restart Binary Ninja.
-
-**Upgrading from binja-xtensa.** Up to 0.1.0-rc.3 the plugin was called
-binja-xtensa, listed as **Espressif Xtensa** from jrozner/binja-xtensa, and
-its loader installed the library as `binja_xtensa-native.so` (`.dll`,
-`.dylib`). The extension manager tells plugins apart by their install
-folder, which comes from the GitHub repository's name, so it shows
-**Espressif** as a separate plugin, not as an update of Espressif Xtensa.
-Install Espressif, uninstall Espressif Xtensa in the extension manager,
-and restart:
-
-- While Espressif Xtensa is installed, the new loader installs nothing (its
-  old loader may be installing `binja_xtensa-native.*` at the same time,
-  and the two libraries must not both load). It says so at every start, in
-  the log and, in the UI, in a message (Binary Ninja also logs "Setting:
-  espressif.loader.autoDownload already registered!", as both loaders
-  register it). The old library keeps working meanwhile.
-- Once it is uninstalled, the new loader treats `binja_xtensa-native.*` as
-  an out-of-date install of its own: it asks (or, headless, downloads only
-  with `espressif.loader.autoDownload`) as for any update, and removes
-  `binja_xtensa-native.*` once `binja_espressif-native.*` is in place, so
-  only one of them loads after the next restart. If you decline, the old
-  library stays and keeps working. Should `binja_xtensa-native.*` ever
-  turn up next to the current library, the loader removes it at startup.
-- A library you built yourself (`libbinja_xtensa.so`, `binja_xtensa.dll`)
-  is left alone, as before.
-- The ROM type libraries have new GUIDs (they are named for
-  binja-espressif). A database saved by binja-xtensa names the old ones,
-  which no longer exist; the first time it is analyzed, it is brought up to
-  date with the new libraries (see **Mask ROM types** above), and keeps that
-  once saved. Until then Binary Ninja logs "Unable to deserialize type
-  library mapping information!" each time it is opened.
 
 ## Building from source
 
@@ -517,13 +484,11 @@ cp target/release/libbinja_espressif.so ~/.binaryninja/plugins/   # .dylib / .dl
 ```
 
 This builds the plugin the release ships, which holds all three crates (see
-[Repository layout](#repository-layout)). Each crate also builds as a
-plugin of its own (`cargo build --release -p arch_xtensa -p
-arch_riscv_ilp32 -p view_espressif` gives `libarch_xtensa.so`,
-`libarch_riscv_ilp32.so` and `libview_espressif.so`), as Binary Ninja's own
-build would make them. Install either the three of them or
-`libbinja_espressif.so`, never both: they register the same architectures,
-platforms and view.
+[Repository layout](#repository-layout)); install only this library. Each
+crate also builds as a plugin of its own (`cargo build --release -p
+arch_xtensa -p arch_riscv_ilp32 -p view_espressif`), as Binary Ninja's own
+build would make them: those builds are for building the crates inside
+binaryninja-api, not for installing next to `libbinja_espressif.so`.
 
 On Windows, run `git config --global core.longpaths true` first:
 binaryninja-api's `vendor/bindiff` submodule has paths longer than 260
@@ -564,10 +529,7 @@ move to a newer stable release, update `STABLE_TAG` in
 A self-built library in the plugin folder takes precedence: if the
 extension manager's loader is installed too, it sees the library and
 installs nothing. Don't copy a self-built library into the plugin folder
-next to an installed `binja_espressif-native.so`; remove that first. The
-loader only recognizes the bundled library (`*binja_espressif*`, or
-`*binja_xtensa*` from before the rename), not the
-three crates built as plugins of their own.
+next to an installed `binja_espressif-native.so`; remove that first.
 
 ### Repository layout
 
@@ -866,19 +828,6 @@ To try the update to the final release, regenerate the repository for
 extension manager offers it as an update, and the loader then asks to replace the library if it changed (not
 if the final release reuses the pre-release's build). Delete `bn-test` when
 done.
-
-**The repository was named `binja-xtensa-test` up to 0.1.0-rc.3**; the
-script now names it `binja-extensions-test`, as the GitHub repository is
-named. Binary Ninja keeps a repository's plugins in `channels/<name>/` of
-the user folder, and keeps listing a repository whose folder is there:
-once the regenerated files are served at the same URL, the extension
-manager lists both `binja-xtensa-test`, with what you installed from it
-still installed, and `binja-extensions-test`, each with the same plugins.
-To clean up, once: uninstall what you installed from `binja-xtensa-test`
-(Espressif Xtensa, or Espressif) in the extension manager, quit Binary
-Ninja, delete `channels/binja-xtensa-test/` from the user folder, and
-install Espressif from `binja-extensions-test`. The URL is the same, so
-`extensionManager.unofficialUrls` needs no change.
 
 ## Testing
 

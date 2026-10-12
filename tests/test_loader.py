@@ -337,64 +337,16 @@ class TestInstall(TempDirTest):
         self.assertTrue(core.uninstall(self.dir, "linux-x86_64"))
         self.assertEqual(self.listing(), [])
 
-    def test_replaces_legacy_install(self):
-        # binja_xtensa-native.so, installed by the loader before the rename:
-        # an outdated install, removed once the new library is in place.
-        legacy = os.path.join(self.dir, "binja_xtensa-native.so")
-        with open(legacy, "wb") as f:
-            f.write(b"rc.3")
-        self.assertEqual(core.find_legacy_installs(self.dir), ["binja_xtensa-native.so"])
-        self.assertEqual(core.installed_state(self.dest, self.asset), core.State.MISSING)
-        self.assertEqual(core.installed_state(self.dest, self.asset, core.find_legacy_installs(self.dir)),
-                         core.State.OUTDATED)
-        self.server.files[self.asset.name] = LIB
-        self.assertEqual(self.install(), self.dest)
-        self.assertEqual(self.listing(), ["binja_espressif-native.so"])
-        self.assertEqual(core.find_legacy_installs(self.dir), [])
-
-    def test_failed_download_keeps_legacy_install(self):
-        open(os.path.join(self.dir, "binja_xtensa-native.so"), "wb").close()
-        with self.assertRaises(core.DownloadError):
-            self.install()
-        self.assertEqual(self.listing(), ["binja_xtensa-native.so"])
-
-    def test_locked_legacy_install_is_set_aside(self):
-        open(os.path.join(self.dir, "binja_xtensa-native.dll"), "wb").close()
-        self.server.files[self.asset.name] = LIB
-        real_remove = os.remove
-
-        def remove(path):
-            if path.endswith("binja_xtensa-native.dll"):
-                raise PermissionError("in use")
-            return real_remove(path)
-
-        with mock.patch("os.remove", remove):
-            self.install()
-        self.assertEqual(self.listing(), ["binja_espressif-native.so", "binja_xtensa-native.dll.old0"])
-        core.cleanup_stale(self.dir)
-        self.assertEqual(self.listing(), ["binja_espressif-native.so"])
-
-    def test_uninstall_removes_legacy_install(self):
-        open(os.path.join(self.dir, "binja_xtensa-native.so"), "wb").close()
-        self.assertTrue(core.uninstall(self.dir, "linux-x86_64"))
-        self.assertEqual(self.listing(), [])
-        open(os.path.join(self.dir, "binja_xtensa-native.so"), "wb").close()
-        open(self.dest, "wb").close()
-        self.assertTrue(core.uninstall(self.dir, "linux-x86_64"))
-        self.assertEqual(self.listing(), [])
-
     def test_cleanup_stale(self):
         names = ["binja_espressif-native.dll.old3", ".binja_espressif-native-abc.part", ".binja_espressif-native-new.part",
-                 "binja_espressif-native.so", "libbinja_espressif.so", "other.so.old0",
-                 "binja_xtensa-native.so.old0", ".binja_xtensa-native-abc.part", "libbinja_xtensa.so"]
+                 "binja_espressif-native.so", "libbinja_espressif.so", "other.so.old0"]
         for name in names:
             open(os.path.join(self.dir, name), "wb").close()
         old = os.path.getmtime(os.path.join(self.dir, "other.so.old0")) - 7200
         os.utime(os.path.join(self.dir, ".binja_espressif-native-abc.part"), (old, old))
-        os.utime(os.path.join(self.dir, ".binja_xtensa-native-abc.part"), (old, old))
         core.cleanup_stale(self.dir)
         self.assertEqual(self.listing(), [".binja_espressif-native-new.part", "binja_espressif-native.so",
-                                          "libbinja_espressif.so", "libbinja_xtensa.so", "other.so.old0"])
+                                          "libbinja_espressif.so", "other.so.old0"])
 
 
 class TestUrls(unittest.TestCase):
@@ -439,40 +391,8 @@ class TestDuplicates(TempDirTest):
             expected.insert(0, "Binja_Espressif_link.so")
         self.assertEqual(found, expected)
 
-    def test_find_other_copies_from_before_the_rename(self):
-        # Built from source or downloaded by hand before the rename: the
-        # user's, left alone. binja_xtensa-native.so is a loader's install.
-        for name in ["libbinja_xtensa.so", "binja_xtensa.dll", "libbinja_xtensa.dylib",
-                     "binja_xtensa-abi189-linux-x86_64.so", "binja_xtensa-native.so", "binja_xtensa-native.dll",
-                     "binja_xtensa-native.so.old0", ".binja_xtensa-native-1.part", "libbinja_espressif.so"]:
-            open(os.path.join(self.dir, name), "wb").close()
-        self.assertEqual(core.find_other_copies(self.dir, "binja_espressif-native.so"), [
-            "binja_xtensa-abi189-linux-x86_64.so", "binja_xtensa.dll", "libbinja_espressif.so",
-            "libbinja_xtensa.dylib", "libbinja_xtensa.so"])
-        self.assertEqual(core.find_legacy_installs(self.dir), ["binja_xtensa-native.so", "binja_xtensa-native.dll"])
-
     def test_missing_dir(self):
         self.assertEqual(core.find_other_copies(os.path.join(self.dir, "nope"), "x"), [])
-        self.assertEqual(core.find_legacy_installs(os.path.join(self.dir, "nope")), [])
-
-    def test_find_legacy_extensions(self):
-        channel = os.path.join(self.dir, "channels", "binja-xtensa-test", "plugins")
-        old = os.path.join(channel, "jrozner_binjaxtensa")
-        new = os.path.join(channel, "jrozner_binjaespressif")
-        os.makedirs(os.path.join(old, "binja_xtensa_loader"))
-        open(os.path.join(old, "binja_xtensa_loader", "core.py"), "w").close()
-        os.makedirs(os.path.join(new, "binja_espressif_loader"))
-        os.makedirs(os.path.join(channel, "other"))
-        plugins = os.path.join(self.dir, "plugins")
-        os.makedirs(plugins)
-        open(os.path.join(plugins, "binja_xtensa_loader"), "w").close()  # a file, not a plugin folder
-        roots = [plugins, channel, os.path.join(self.dir, "nope")]
-        self.assertEqual(core.find_legacy_extensions(roots, new), [old])
-        # A plugin updated in place may keep the old package: never itself.
-        os.makedirs(os.path.join(new, "binja_xtensa_loader"))
-        open(os.path.join(new, "binja_xtensa_loader", "core.py"), "w").close()
-        self.assertEqual(core.find_legacy_extensions(roots, new), [old])
-        self.assertIn(old, core.legacy_extension_message([old]))
 
 
 class TestConsent(unittest.TestCase):
@@ -857,123 +777,6 @@ class TestPluginGlue(TempDirTest):
         self.plugin.install_command()
         self.assertFalse(os.path.exists(self.installed))
         self.assertIn("twice", self.bn.messages[-1][0])
-
-    # Upgrading from binja-xtensa (up to 0.1.0-rc.3), whose loader installed
-    # binja_xtensa-native.<ext>.
-
-    def legacy(self):
-        path = os.path.join(self.plugins, "binja_xtensa-native" + core.PLATFORM_EXTENSIONS[self.platform])
-        with open(path, "wb") as f:
-            f.write(b"rc.3")
-        return path
-
-    def test_ui_upgrade_replaces_legacy_install(self):
-        legacy = self.legacy()
-        self.bn.ui = True
-        self.bn.loaded = True  # the rc.3 library is loaded
-        self.bn.answers = [self.bn.yes]
-        self.plugin.startup_check()
-        self.assertEqual(len(self.prompts()), 1)
-        self.assertIn("is out of date", self.prompts()[0])
-        self.assertIn(os.path.basename(legacy), self.prompts()[0])
-        self.assertEqual(read(self.installed), LIB)
-        self.assertFalse(os.path.lexists(legacy))
-        self.assertEqual(sorted(os.listdir(self.plugins)), [os.path.basename(self.installed)])
-        self.assertIn("which was removed", self.bn.messages[-1][0])
-
-    def test_ui_upgrade_declined_keeps_legacy_install(self):
-        legacy = self.legacy()
-        self.bn.ui = True
-        self.bn.loaded = True
-        self.bn.answers = [self.bn.no]
-        self.plugin.startup_check()
-        self.assertTrue(os.path.lexists(legacy))
-        self.assertFalse(os.path.lexists(self.installed))
-
-    def test_headless_upgrade(self):
-        legacy = self.legacy()
-        self.bn.loaded = True
-        self.plugin.startup_check()
-        self.assertTrue(os.path.lexists(legacy))
-        self.assertTrue(any("not up to date" in m for _, m in self.bn.logs))
-        self.bn.settings[self.plugin.AUTO_DOWNLOAD] = True
-        self.plugin.startup_check()
-        self.assertEqual(sorted(os.listdir(self.plugins)), [os.path.basename(self.installed)])
-
-    def test_legacy_install_next_to_current_is_removed(self):
-        # The old extension's loader installed its library again.
-        self.bn.settings[self.plugin.AUTO_DOWNLOAD] = True
-        self.plugin.startup_check()
-        legacy = self.legacy()
-        self.bn.loaded = True
-        self.plugin.startup_check()
-        self.assertFalse(os.path.lexists(legacy))
-        self.assertEqual(read(self.installed), LIB)
-        self.assertTrue(any("Removed " + os.path.basename(legacy) in m for _, m in self.bn.logs))
-
-    def test_remove_command_removes_legacy_install(self):
-        legacy = self.legacy()
-        self.bn.ui = True
-        self.bn.answers = [self.bn.yes]
-        self.plugin.remove_command()
-        self.assertFalse(os.path.lexists(legacy))
-
-    def test_self_built_library_from_before_the_rename_is_left_alone(self):
-        built = os.path.join(self.plugins, "libbinja_xtensa" + core.PLATFORM_EXTENSIONS[self.platform])
-        open(built, "wb").close()
-        self.bn.settings[self.plugin.AUTO_DOWNLOAD] = True
-        self.bn.loaded = True
-        self.plugin.startup_check()
-        self.assertEqual(os.listdir(self.plugins), [os.path.basename(built)])
-        self.assertTrue(any(os.path.basename(built) in m for _, m in self.bn.logs))
-
-    def old_extension(self):
-        old = os.path.join(self.dir, "channels", "binja-xtensa-test", "plugins", "jrozner_binjaxtensa")
-        os.makedirs(os.path.join(old, "binja_xtensa_loader"))
-        open(os.path.join(old, "binja_xtensa_loader", "core.py"), "w").close()
-        return old
-
-    def test_nothing_installed_while_the_old_extension_is_installed(self):
-        # Its loader may install binja_xtensa-native in the same session, so
-        # installing too could leave both for the next start.
-        old = self.old_extension()
-        for legacy in (False, True):
-            with self.subTest(legacy=legacy):
-                if legacy:
-                    self.legacy()
-                self.bn.settings[self.plugin.AUTO_DOWNLOAD] = True
-                self.plugin.startup_check()
-                self.assertFalse(os.path.lexists(self.installed))
-                self.assertTrue(any("'Espressif Xtensa'" in m and old in m for _, m in self.bn.logs))
-                self.bn.ui = True
-                self.plugin.startup_check()  # no prompt (answers is empty)
-                self.assertIn("Uninstall it in the extension manager", self.bn.messages[-1][0])
-                self.plugin.install_command()
-                self.assertFalse(os.path.lexists(self.installed))
-                self.assertIn("Uninstall it in the extension manager", self.bn.messages[-1][0])
-                self.bn.ui = False
-
-    def test_legacy_install_removed_next_to_current_with_old_extension(self):
-        self.bn.settings[self.plugin.AUTO_DOWNLOAD] = True
-        self.plugin.startup_check()
-        self.old_extension()
-        legacy = self.legacy()
-        self.bn.loaded = True
-        self.plugin.startup_check()
-        self.assertFalse(os.path.lexists(legacy))
-        self.assertEqual(read(self.installed), LIB)
-
-    def test_upgrade_after_the_old_extension_is_uninstalled(self):
-        old = self.old_extension()
-        legacy = self.legacy()
-        self.bn.settings[self.plugin.AUTO_DOWNLOAD] = True
-        self.bn.loaded = True
-        self.plugin.startup_check()
-        self.assertTrue(os.path.lexists(legacy))
-        shutil.rmtree(old)
-        self.plugin.startup_check()
-        self.assertFalse(os.path.lexists(legacy))
-        self.assertEqual(read(self.installed), LIB)
 
 
 class TestReleaseTooling(TempDirTest):

@@ -7,7 +7,6 @@ native plugin loading honours, so the library is copied into the user
 plugin directory and Binary Ninja loads it at the next start.
 """
 
-import glob
 import os
 import threading
 import traceback
@@ -64,24 +63,11 @@ class Facts:
         self.own_name = core.installed_name(self.platform) if self.platform else None
         self.own_path = os.path.join(plugin_dir, self.own_name) if self.own_name else None
         self.other_copies = core.find_other_copies(plugin_dir, self.own_name or "")
-        self.legacy = core.find_legacy_installs(plugin_dir)
-        self.state = core.installed_state(self.own_path, self.asset, self.legacy) if self.asset else None
+        self.state = core.installed_state(self.own_path, self.asset) if self.asset else None
         self.native_loaded = native_loaded()
-        self.legacy_extensions = core.find_legacy_extensions(extension_roots(plugin_dir), PLUGIN_ROOT)
 
     def unsupported_message(self) -> str:
         return core.unsupported_message(self.manifest, self.platform, self.abi_min, self.abi_max)
-
-
-def extension_roots(plugin_dir: str):
-    """The folders plugins are installed in: the user plugin folder, and the
-    extension manager's folder of each repository."""
-    roots = [plugin_dir]
-    user = user_directory()
-    if user:
-        for channels in ("channels", "repositories"):
-            roots += sorted(glob.glob(os.path.join(glob.escape(user), channels, "*", "plugins")))
-    return roots
 
 
 def native_loaded() -> bool:
@@ -149,23 +135,6 @@ def _size(n: int) -> str:
 # Work
 
 
-def _remove_legacy(facts: Facts) -> None:
-    """With the current library installed, removes a binja_xtensa-native
-    library that is still there (the old extension's loader installed it
-    again, or removing it failed), so that only one of them loads."""
-    if facts.state is not core.State.CURRENT or not facts.legacy:
-        return
-    try:
-        removed = core.remove_legacy_installs(facts.plugin_dir)
-    except OSError as e:
-        LOG.log_error("Removing {} from {} failed: {}. Delete it by hand, or it loads along with {}.".format(
-            ", ".join(facts.legacy), facts.plugin_dir, e, facts.own_name))
-        return
-    LOG.log_warn("Removed {} from {}: it is binja-xtensa's native library (the name of this plugin before "
-                 "0.1.0), replaced by {}. Restart Binary Ninja so that only one of them is loaded.".format(
-                     ", ".join(removed), facts.plugin_dir, facts.own_name))
-
-
 def _download_and_install(facts: Facts, task: Optional[BackgroundTaskThread]) -> bool:
     asset = facts.asset
     test_base_url = os.environ.get(TEST_BASE_URL_ENV) or None
@@ -195,15 +164,6 @@ def _download_and_install(facts: Facts, task: Optional[BackgroundTaskThread]) ->
         pass
     text = ("Installed binja-espressif's native library {} (verified SHA-256 {}) as {}. Restart Binary Ninja "
             "to load it.".format(asset.name, asset.sha256, path))
-    if facts.legacy:
-        left = core.find_legacy_installs(facts.plugin_dir)
-        if left:
-            text += (" It replaces {}, binja-xtensa's library, but removing that failed: delete it from {} "
-                     "before restarting, or both load.".format(", ".join(left), facts.plugin_dir))
-            LOG.log_error(text)
-            _message(text, MessageBoxIcon.WarningIcon)
-            return True
-        text += " It replaces {}, binja-xtensa's library, which was removed.".format(", ".join(facts.legacy))
     LOG.log_warn(text)
     _message(text)
     return True
@@ -212,9 +172,6 @@ def _download_and_install(facts: Facts, task: Optional[BackgroundTaskThread]) ->
 def _prompt_text(facts: Facts) -> str:
     asset = facts.asset
     what = "is not installed" if facts.state is core.State.MISSING else "is out of date"
-    if facts.legacy:
-        what += " ({} is binja-xtensa's, the name of this plugin before 0.1.0, and is replaced)".format(
-            ", ".join(facts.legacy))
     return ("binja-espressif's native library (the Xtensa architectures and the Espressif loaders) {}.\n\n"
             "Download {} ({}) from {} and install it into {}?\n\n"
             "The download is verified against the SHA-256 hash shipped with this plugin. Binary Ninja must be "
@@ -229,15 +186,6 @@ def startup_check(task: Optional[BackgroundTaskThread] = None) -> None:
     try:
         facts = Facts()
         core.cleanup_stale(facts.plugin_dir)
-        _remove_legacy(facts)
-        if facts.legacy_extensions:
-            # Its loader may be installing binja_xtensa-native right now,
-            # so installing here could leave both libraries for the next
-            # start. Nothing is installed until it is uninstalled.
-            text = core.legacy_extension_message(facts.legacy_extensions)
-            LOG.log_warn(text)
-            _message(text, MessageBoxIcon.WarningIcon)
-            return
         if facts.asset is None:
             if facts.native_loaded:
                 return
@@ -278,10 +226,6 @@ def install_command(task: Optional[BackgroundTaskThread] = None) -> None:
             text = facts.unsupported_message()
             LOG.log_warn(text)
             _message(text, MessageBoxIcon.WarningIcon)
-        elif facts.legacy_extensions:
-            text = core.legacy_extension_message(facts.legacy_extensions)
-            LOG.log_warn(text)
-            _message(text, MessageBoxIcon.WarningIcon)
         elif facts.other_copies:
             text = ("binja-espressif's native library is already present in {} as {}. Not installing a second "
                     "copy, which would register the same architectures twice; delete it and restart Binary "
@@ -289,7 +233,6 @@ def install_command(task: Optional[BackgroundTaskThread] = None) -> None:
             LOG.log_warn(text)
             _message(text, MessageBoxIcon.WarningIcon)
         elif facts.state is core.State.CURRENT:
-            _remove_legacy(facts)
             text = "The native library {} is installed and up to date ({}).".format(facts.asset.name, facts.own_path)
             if not facts.native_loaded:
                 text += " It is not loaded yet: restart Binary Ninja."
@@ -314,13 +257,10 @@ def remove_command() -> None:
             _message("No prebuilt native library is installed on this platform.")
             return
         path = os.path.join(plugin_dir, core.installed_name(platform))
-        paths = [p for p in [path] if os.path.lexists(p)]
-        paths += [os.path.join(plugin_dir, name) for name in core.find_legacy_installs(plugin_dir)]
-        if not paths:
+        if not os.path.lexists(path):
             _message("The prebuilt native library is not installed ({} does not exist). A library you built "
                      "yourself has to be removed by hand.".format(path))
             return
-        path = ", ".join(paths)
         if not _ask("Remove binja-espressif's prebuilt native library {}? Restart Binary Ninja afterwards.".format(path)):
             return
         core.uninstall(plugin_dir, platform)

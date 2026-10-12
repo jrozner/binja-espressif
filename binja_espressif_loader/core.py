@@ -54,20 +54,10 @@ COMMIT = re.compile(r"^[0-9a-f]{40}$")
 # per platform, whatever the version or ABI, so installing a new version
 # replaces the old one and two versions are never installed side by side.
 INSTALLED_STEM = "binja_espressif-native"
-# The names the loader installed under before the plugin was renamed from
-# binja-xtensa (up to 0.1.0-rc.3). A library with one of these names was
-# downloaded by an older loader, not built by the user: it is an outdated
-# install of this plugin, replaced (removed) when the current one is
-# installed, so the two never load side by side.
-LEGACY_INSTALLED_STEMS = ("binja_xtensa-native",)
-# The package of the loader before the rename. A plugin folder that has it
-# is the old extension ("Espressif Xtensa", from jrozner/binja-xtensa),
-# which the extension manager keeps as a separate plugin.
-LEGACY_LOADER_PACKAGE = "binja_xtensa_loader"
 # What a library of this plugin is named, whatever its version: built from
-# source (libbinja_espressif.so, binja_espressif.dll), a release asset
-# (binja_espressif-abi189-...), or the same from before the rename.
-LIBRARY_NAMES = ("binja_espressif", "binja-espressif", "binja_xtensa", "binja-xtensa")
+# source (libbinja_espressif.so, binja_espressif.dll) or a release asset
+# (binja_espressif-abi189-...).
+LIBRARY_NAMES = ("binja_espressif", "binja-espressif")
 
 # Downloads start at github.com and may only be redirected to GitHub's
 # release asset storage.
@@ -306,25 +296,14 @@ class State(Enum):
     CURRENT = "current"
 
 
-def installed_state(path: str, asset: Asset, legacy: Iterable[str] = ()) -> State:
-    """The state of the library at `path`. A legacy install (see
-    find_legacy_installs) counts as an outdated one when `path` is missing."""
+def installed_state(path: str, asset: Asset) -> State:
+    """The state of the library at `path`."""
     if not os.path.lexists(path):
-        return State.OUTDATED if list(legacy) else State.MISSING
+        return State.MISSING
     try:
         return State.CURRENT if sha256_file(path) == asset.sha256 else State.OUTDATED
     except OSError:
         return State.OUTDATED
-
-
-def legacy_installed_names() -> List[str]:
-    return [stem + ext for stem in LEGACY_INSTALLED_STEMS for ext in LIBRARY_EXTENSIONS]
-
-
-def find_legacy_installs(plugin_dir: str) -> List[str]:
-    """Libraries an older loader installed (binja_xtensa-native.so), which
-    this loader replaces."""
-    return [name for name in legacy_installed_names() if os.path.lexists(os.path.join(plugin_dir, name))]
 
 
 def find_other_copies(plugin_dir: str, own_name: str) -> List[str]:
@@ -332,19 +311,17 @@ def find_other_copies(plugin_dir: str, own_name: str) -> List[str]:
     user put there: the loader leaves them alone.
 
     Matches what building from source produces (libbinja_espressif.so,
-    binja_espressif.dll, libbinja_espressif.dylib, or libbinja_xtensa.so from
-    before the rename), release assets downloaded by hand
-    (binja_espressif-abi187-linux-x86_64.so), and links to either. Not the
-    libraries a loader installed (own_name, and the legacy names)."""
+    binja_espressif.dll, libbinja_espressif.dylib), release assets downloaded
+    by hand (binja_espressif-abi187-linux-x86_64.so), and links to either.
+    Not the library this loader installed (own_name)."""
     found = []
     try:
         names = os.listdir(plugin_dir)
     except OSError:
         return found
-    legacy = set(legacy_installed_names())
     for name in sorted(names):
         lower = name.lower()
-        if name == own_name or name in legacy or lower.startswith("."):
+        if name == own_name or lower.startswith("."):
             continue
         if not lower.endswith(LIBRARY_EXTENSIONS):
             continue
@@ -371,33 +348,6 @@ class Action(Enum):
 class Plan:
     action: Action
     message: str
-
-
-def find_legacy_extensions(roots: Iterable[str], own_root: str) -> List[str]:
-    """Folders of the old extension (any folder with the old loader package)
-    among the subfolders of `roots`, except this plugin's own `own_root`."""
-    own = os.path.normcase(os.path.realpath(own_root))
-    found = []
-    for root in roots:
-        try:
-            names = sorted(os.listdir(root))
-        except OSError:
-            continue
-        for name in names:
-            path = os.path.join(root, name)
-            if os.path.normcase(os.path.realpath(path)) == own:
-                continue
-            if os.path.isfile(os.path.join(path, LEGACY_LOADER_PACKAGE, "core.py")):
-                found.append(path)
-    return found
-
-
-def legacy_extension_message(paths: Iterable[str]) -> str:
-    return ("The old 'Espressif Xtensa' extension (binja-xtensa, the name of this plugin before 0.1.0) is still "
-            "installed in {}. Uninstall it in the extension manager (Plugins > Manage Plugins) and restart "
-            "Binary Ninja. Until then this loader installs nothing: the old extension's loader installs its own "
-            "copy of the native library (binja_xtensa-native), and the two must not both be installed. Once it "
-            "is uninstalled, this loader replaces that copy.".format(", ".join(paths)))
 
 
 def plan_startup(*, asset: Optional[Asset], state: Optional[State], other_copies: Iterable[str],
@@ -594,27 +544,9 @@ def install_file(tmp: str, dest: str) -> None:
         os.replace(tmp, dest)
 
 
-def remove_legacy_installs(plugin_dir: str) -> List[str]:
-    """Removes (or sets aside, on Windows if loaded) the libraries an older
-    loader installed; returns their names. Raises OSError if one stays."""
-    removed = []
-    for name in find_legacy_installs(plugin_dir):
-        path = os.path.join(plugin_dir, name)
-        try:
-            os.remove(path)
-        except FileNotFoundError:
-            pass
-        except PermissionError:
-            _set_aside(path)
-        removed.append(name)
-    return removed
-
-
 def install(manifest: Manifest, asset: Asset, plugin_dir: str, *, test_base_url: Optional[str] = None,
             timeout: float = TIMEOUT, progress: Optional[Callable[[int, int], None]] = None, opener=None) -> str:
-    """Downloads, verifies and installs `asset`, replacing a legacy install
-    (removing it once the new library is in place); returns the installed
-    path."""
+    """Downloads, verifies and installs `asset`; returns the installed path."""
     os.makedirs(plugin_dir, exist_ok=True)
     dest = os.path.join(plugin_dir, installed_name(asset.platform))
     tmp = download(asset_url(manifest, asset, test_base_url), asset, plugin_dir, test_base_url=test_base_url,
@@ -624,20 +556,14 @@ def install(manifest: Manifest, asset: Asset, plugin_dir: str, *, test_base_url:
     except BaseException:
         _remove(tmp)
         raise
-    try:
-        remove_legacy_installs(plugin_dir)
-    except OSError:
-        pass  # the caller finds it still there (find_legacy_installs)
     return dest
 
 
 def uninstall(plugin_dir: str, platform: str) -> bool:
-    """Removes the installed library, and any legacy install; returns
-    whether there was one."""
+    """Removes the installed library; returns whether there was one."""
     dest = os.path.join(plugin_dir, installed_name(platform))
-    removed = bool(remove_legacy_installs(plugin_dir))
     if not os.path.lexists(dest):
-        return removed
+        return False
     try:
         os.remove(dest)
     except PermissionError:
@@ -656,12 +582,11 @@ def cleanup_stale(plugin_dir: str, now: Optional[float] = None) -> None:
         return
     for name in names:
         path = os.path.join(plugin_dir, name)
-        for stem in (INSTALLED_STEM,) + LEGACY_INSTALLED_STEMS:
-            if name.startswith(stem + ".") and ".old" in name[len(stem):]:
-                _remove(path)
-            elif name.startswith("." + stem + "-") and name.endswith(".part"):
-                try:
-                    if now - os.path.getmtime(path) > 3600:
-                        _remove(path)
-                except OSError:
-                    pass
+        if name.startswith(INSTALLED_STEM + ".") and ".old" in name[len(INSTALLED_STEM):]:
+            _remove(path)
+        elif name.startswith("." + INSTALLED_STEM + "-") and name.endswith(".part"):
+            try:
+                if now - os.path.getmtime(path) > 3600:
+                    _remove(path)
+            except OSError:
+                pass

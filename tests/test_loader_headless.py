@@ -14,12 +14,7 @@ GitHub release. Then, each in a fresh Binary Ninja process:
    exist) and nothing is downloaded again;
 4. with a tampered asset on the server and the installed library removed:
    nothing is installed;
-5. with a self-built copy in the plugin directory: nothing is installed,
-   also for one named as before the rename (libbinja_xtensa.so);
-6. over binja_xtensa-native.so, as binja-xtensa's loader (up to
-   0.1.0-rc.3) installed it: without consent it stays and nothing is
-   downloaded; with consent the library is installed and the old one
-   removed, so after the restart only one native library is loaded.
+5. with a self-built copy in the plugin directory: nothing is installed.
 
 Usage: tests/test_loader_headless.py [path/to/libbinja_espressif.so]
 
@@ -87,7 +82,7 @@ def write_settings(settings):
 # A child process runs Binary Ninja: plugins load once per process, and the
 # native library only loads at the next start after it is installed.
 CHILD = textwrap.dedent("""
-    import json, os, sys
+    import json, sys
     sys.path.insert(0, sys.argv[1])
     import binaryninja
     from binaryninja import _binaryninjacore as core
@@ -102,18 +97,14 @@ CHILD = textwrap.dedent("""
         loaded = True
     except KeyError:
         loaded = False
-    plugins = sys.argv[3]
-    with open("/proc/self/maps") as f:
-        libs = sorted({line.split()[-1] for line in f if line.split()[-1].startswith(plugins + "/")})
-    print("RESULT " + json.dumps({"loaded": loaded, "libraries": [os.path.basename(l) for l in libs]}))
+    print("RESULT " + json.dumps({"loaded": loaded}))
 """)
 
 
 def run_bn(phase):
     env = dict(os.environ, BN_USER_DIRECTORY=user_dir, BN_ESPRESSIF_LOADER_TEST_BASE_URL=base_url)
     env.pop("BN_DISABLE_USER_PLUGINS", None)
-    p = subprocess.run([sys.executable, "-c", CHILD, os.path.join(install, "python"), phase,
-                        os.path.realpath(plugins)], env=env,
+    p = subprocess.run([sys.executable, "-c", CHILD, os.path.join(install, "python"), phase], env=env,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=300)
     print(textwrap.indent(p.stdout.rstrip(), "    | "))
     if p.returncode != 0:
@@ -207,35 +198,6 @@ result, log = run_bn("self-built")
 check(not os.path.lexists(installed), "no second copy installed")
 check(requests == [], "nothing requested from the server")
 check(result["loaded"], "self-built copy loaded")
-os.remove(os.path.join(plugins, "libbinja_espressif.so"))
-os.symlink(library, os.path.join(plugins, "libbinja_xtensa.so"))
-result, log = run_bn("self-built-legacy-name")
-check(not os.path.lexists(installed), "no second copy installed next to libbinja_xtensa.so")
-check(requests == [], "nothing requested from the server")
-check(os.path.lexists(os.path.join(plugins, "libbinja_xtensa.so")), "libbinja_xtensa.so left alone")
-os.remove(os.path.join(plugins, "libbinja_xtensa.so"))
-
-print("6. upgrade over binja-xtensa's binja_xtensa-native.so")
-# Stands in for the rc.3 library binja-xtensa's loader downloaded: what
-# matters is its name, and that it registers the same architectures.
-legacy = os.path.join(plugins, "binja_xtensa-native.so")
-shutil.copy(library, legacy)
-write_settings({})
-result, log = run_bn("legacy-no-consent")
-check(os.path.lexists(legacy) and not os.path.lexists(installed), "without consent, the old library stays")
-check(requests == [], "nothing requested from the server")
-check("not up to date" in log, "the log says the library is not up to date")
-check(result["libraries"] == ["binja_xtensa-native.so"], "the old library is loaded")
-write_settings({"espressif.loader.autoDownload": True})
-result, log = run_bn("legacy-download")
-check(os.path.isfile(installed) and sha256(installed) == sha256(library), "binja_espressif-native.so installed")
-check(not os.path.lexists(legacy), "binja_xtensa-native.so removed")
-check(requests == ["/" + asset], "asset requested once")
-check("which was removed" in log, "the log says the old library was removed")
-result, log = run_bn("legacy-restart")
-check(result["loaded"], "native plugin loaded after the restart")
-check(result["libraries"] == ["binja_espressif-native.so"], "only binja_espressif-native.so is loaded")
-check(sorted(os.listdir(plugins)) == ["binja-espressif", "binja_espressif-native.so"], "no other files in the plugin directory")
 
 server.shutdown()
 if failures:
