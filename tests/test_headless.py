@@ -1698,6 +1698,13 @@ def rom_image_checks(tarball):
                   and len(bv.functions) > 500,
                   f"{name} opens as {chip} ({platform}, {bv.arch.name}, {len(bv.functions)} functions, "
                   f"ROM regions {own})")
+            # The file is the ROM: it is marked as the chip's ROM ELF file,
+            # and has no espressif.rom status (no ROM region, so neither
+            # zeros nor an image looked up for it).
+            marked = bv.query_metadata("espressif.rom.elf") if "espressif.rom.elf" in bv.metadata else None
+            held = bv.query_metadata("espressif.rom.image") if "espressif.rom.image" in bv.metadata else None
+            check(marked == chip and rom_status(bv) is None and held is None,
+                  f"{name}: espressif.rom.elf is {marked}, no espressif.rom status ({rom_status(bv)}, {held})")
             # Its ROM functions have the ROM type library's prototypes, pinned
             # (memset, and on the chips with a jump table, its entry too).
             memsets = [(str(f.type), f.has_user_type) for f in bv.functions if f.name == "memset"]
@@ -1735,6 +1742,14 @@ def rom_image_checks(tarball):
     # A directory of ROM ELF files: the ROM region holds the chip's ROM, and
     # the typed ROM functions, their calls and databases are as without.
     settings.set_string("espressif.rom.elfDirectory", elfs)
+    # A ROM ELF file opened with a directory of them set (as a load option
+    # too) still maps no image over itself and records no status.
+    bv = bn.load(os.path.join(elfs, roms["esp32c3"][1]), options={"espressif.rom.elfDirectory": elfs})
+    own = [r.name for r in bv.memory_map.regions if r.name.startswith("espressif.rom")]
+    check(not own and rom_status(bv) is None and "espressif.rom.image" not in bv.metadata,
+          f"{roms['esp32c3'][1]} with espressif.rom.elfDirectory set: no ROM regions ({own}) "
+          f"and no espressif.rom status ({rom_status(bv)})")
+    bv.file.close()
     for chip, chip_id in ROM_TYPED_CHIPS.items():
         check_rom_types_saved(chip, chip_id, lambda label, chip=chip: f"{chip}_rev0_rom.elf")
     elf = os.path.join(DATA, "idf_esp32.elf")

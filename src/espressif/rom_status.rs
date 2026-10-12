@@ -29,7 +29,10 @@
 //! itself.
 //!
 //! A view without the key has no ROM code region: its chip has no ROM
-//! types (the ESP8266), or the file maps the ROM itself. The older
+//! types (the ESP8266), or the file maps the ROM itself, such as a ROM
+//! dump or Espressif's ROM ELF file opened directly (marked by
+//! `espressif.rom.elf`, the chip's platform name): no image is looked up
+//! or downloaded for such a view, and it holds no zeros. The older
 //! `espressif.rom.image` key (the image's name, absent with zeros) is kept.
 //!
 //! The metadata is saved in databases, so it holds no absolute path, which

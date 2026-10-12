@@ -280,7 +280,9 @@ It provides:
   version of the latter two; `dataAlias` says whether the ROM's data bus
   alias (`espressif.rom.data`) is mapped too. It is saved in databases,
   so it names no absolute path. A view without it has no ROM region (the ESP8266, or a
-  file that maps the ROM itself). `espressif.rom.image`, the ROM ELF
+  file that maps the ROM itself, such as a chip's ROM ELF file opened
+  directly, whose `espressif.rom.elf` metadata names its chip).
+  `espressif.rom.image`, the ROM ELF
   file's name (`KeyError` with zeros), is kept too. A database keeps the
   ROM region it was saved with; to map the image into one saved with
   zeros, run the command on it and save:
