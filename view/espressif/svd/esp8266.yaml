@@ -1,0 +1,212 @@
+# The svdtools patches that make esp8266.svd from esp-pacs' ESP8266 SVD (see
+# README.md). scripts/fetch_svds.sh downloads esp-pacs' base file and
+# patches (the esp-pacs/ lines of SOURCES) to a temporary directory, applies
+# those patches to make esp-pacs/esp8266.esp-pacs.svd, and then this file.
+#
+# Register offsets and block sizes are from ESP8266_RTOS_SDK v3.4
+# (components/esp8266/include/esp8266/*.h), which this file was checked
+# against. Binary Ninja's SVD loader (svd_ninja) maps each address block as
+# a segment and section typed as one structure, and adds a register's fields
+# to its structure as bit fields, a later one overwriting an earlier one it
+# overlaps: so blocks must not overlap each other, nor a register's fields.
+_svd: esp-pacs/esp8266.esp-pacs.svd
+
+_modify:
+  description: >-
+    ESP8266 (Xtensa LX106): esp-pacs' SVD with its svdtools patches and
+    binja-xtensa's corrections
+  licenseText: >-
+    Generated with svdtools from the ESP8266 SVD file and patches of
+    esp-rs/esp-pacs (commit c01397fbba0bbf01c49918e050e71eed9bbdd2d5,
+    esp8266/svd/), Copyright The esp-rs Project Developers, licensed under
+    the MIT License or the Apache License, Version 2.0, at your option.
+    esp-pacs generated its file from the register headers of Espressif's
+    ESP8266 SDK (Apache-2.0). binja-xtensa's changes
+    (view/espressif/svd/esp8266.yaml) are licensed under the MIT License.
+  cpu:
+    # The LX106 has no floating point unit.
+    fpuPresent: false
+  # The blocks cover the registers the SDK defines and end before the next
+  # peripheral (esp-pacs' sizes overlap 8 of them).
+  DPORT: {addressBlock: {offset: 0, size: 0x50, usage: registers}}
+  EFUSE: {addressBlock: {offset: 0, size: 0x10, usage: registers}}
+  RNG: {addressBlock: {offset: 0, size: 0x4, usage: registers}}
+  UART0: {addressBlock: {offset: 0, size: 0x80, usage: registers}}
+  UART1: {addressBlock: {offset: 0, size: 0x80, usage: registers}}
+  SPI0: {addressBlock: {offset: 0, size: 0x100, usage: registers}}
+  SPI1: {addressBlock: {offset: 0, size: 0x100, usage: registers}}
+  GPIO: {addressBlock: {offset: 0, size: 0x74, usage: registers}}
+  TIMER: {addressBlock: {offset: 0, size: 0x34, usage: registers}}
+  RTC: {addressBlock: {offset: 0, size: 0x100, usage: registers}}
+  IO_MUX: {addressBlock: {offset: 0, size: 0x44, usage: registers}}
+  WDT: {addressBlock: {offset: 0, size: 0x20, usage: registers}}
+  SLC: {addressBlock: {offset: 0, size: 0x100, usage: registers}}
+  I2S: {addressBlock: {offset: 0, size: 0x30, usage: registers}}
+  # esp-pacs' RTCCNTL is not the RTC control block (that is RTC) but the
+  # internal I2C master that talks to the analog blocks (the PLL).
+  RTCCNTL:
+    name: I2C_ANA
+    description: Internal I2C master of the analog blocks (PLL)
+
+# idf2svd's whole-register placeholder field, `Register`, overlaps the real
+# fields where a register has them.
+"*":
+  "*":
+    _delete: [Register]
+
+# Where it is a register's only field, the register would be a structure
+# with one bit field, `UART0.X.Register`; without fields svd_ninja types it
+# as a plain integer. svdtools cannot leave a register with no fields, so
+# these are deleted and added again as they were (read-write, reset value
+# 0), without the field.
+EFUSE:
+  _delete: [EFUSE_DATA0, EFUSE_DATA1, EFUSE_DATA2, EFUSE_DATA3]
+  _add:
+    EFUSE_DATA0: {description: EFUSE_DATA0, addressOffset: 0x00, size: 32, access: read-write, resetValue: 0}
+    EFUSE_DATA1: {description: EFUSE_DATA1, addressOffset: 0x04, size: 32, access: read-write, resetValue: 0}
+    EFUSE_DATA2: {description: EFUSE_DATA2, addressOffset: 0x08, size: 32, access: read-write, resetValue: 0}
+    EFUSE_DATA3: {description: EFUSE_DATA3, addressOffset: 0x0c, size: 32, access: read-write, resetValue: 0}
+
+SLC:
+  _delete:
+    - SLC_CONF1
+    - SLC_STATE0
+    - SLC_STATE1
+    - SLC_RX_EOF_DES_ADDR
+    - SLC_TX_EOF_DES_ADDR
+    - SLC_RX_EOF_BFR_DES_ADDR
+    - SLC_TXLINK_DSCR
+    - SLC_TXLINK_DSCR_BF0
+    - SLC_TXLINK_DSCR_BF1
+    - SLC_RXLINK_DSCR
+    - SLC_RXLINK_DSCR_BF0
+    - SLC_RXLINK_DSCR_BF1
+    - SLC_DATE
+    - SLC_ID
+  _add:
+    SLC_CONF1: {description: SLC_CONF1, addressOffset: 0x38, size: 32, access: read-write, resetValue: 0}
+    SLC_STATE0: {description: SLC_STATE0, addressOffset: 0x3c, size: 32, access: read-write, resetValue: 0}
+    SLC_STATE1: {description: SLC_STATE1, addressOffset: 0x40, size: 32, access: read-write, resetValue: 0}
+    SLC_RX_EOF_DES_ADDR: {description: SLC_RX_EOF_DES_ADDR, addressOffset: 0x48, size: 32, access: read-write, resetValue: 0}
+    SLC_TX_EOF_DES_ADDR: {description: SLC_TX_EOF_DES_ADDR, addressOffset: 0x4c, size: 32, access: read-write, resetValue: 0}
+    SLC_RX_EOF_BFR_DES_ADDR: {description: SLC_RX_EOF_BFR_DES_ADDR, addressOffset: 0x50, size: 32, access: read-write, resetValue: 0}
+    SLC_TXLINK_DSCR: {description: SLC_TXLINK_DSCR, addressOffset: 0x60, size: 32, access: read-write, resetValue: 0}
+    SLC_TXLINK_DSCR_BF0: {description: SLC_TXLINK_DSCR_BF0, addressOffset: 0x64, size: 32, access: read-write, resetValue: 0}
+    SLC_TXLINK_DSCR_BF1: {description: SLC_TXLINK_DSCR_BF1, addressOffset: 0x68, size: 32, access: read-write, resetValue: 0}
+    SLC_RXLINK_DSCR: {description: SLC_RXLINK_DSCR, addressOffset: 0x6c, size: 32, access: read-write, resetValue: 0}
+    SLC_RXLINK_DSCR_BF0: {description: SLC_RXLINK_DSCR_BF0, addressOffset: 0x70, size: 32, access: read-write, resetValue: 0}
+    SLC_RXLINK_DSCR_BF1: {description: SLC_RXLINK_DSCR_BF1, addressOffset: 0x74, size: 32, access: read-write, resetValue: 0}
+    SLC_DATE: {description: SLC_DATE, addressOffset: 0x78, size: 32, access: read-write, resetValue: 0}
+    SLC_ID: {description: SLC_ID, addressOffset: 0x7c, size: 32, access: read-write, resetValue: 0}
+
+WDT:
+  _delete: [WDT_OP, WDT_OP_ND, WDT_RST]
+  _add:
+    WDT_OP: {description: Reload value for stage 0, addressOffset: 0x04, size: 32, access: read-write, resetValue: 0}
+    WDT_OP_ND: {description: Reload value for stage 1, addressOffset: 0x08, size: 32, access: read-write, resetValue: 0}
+    WDT_RST: {description: Watchdog reset, addressOffset: 0x14, size: 32, access: read-write, resetValue: 0}
+
+# Two views of the same bits each: keep one.
+"SPI[01]":
+  SPI_ADDR:
+    # The SDK's `addr` is a plain 32-bit value; esp-pacs' address/size split
+    # is only how the flash commands use it.
+    _delete: [address, size]
+    _modify:
+      iodata_start_addr:
+        name: addr
+        description: Address to send to the slave, or received from the master
+  SPI_SLAVE:
+    # The SDK names the five interrupt enable bits one by one.
+    _delete: [spi_int_en]
+    _modify:
+      sta_enable:
+        description: Enable read/write status
+
+"UART[01]":
+  UART_FIFO:
+    # One byte register: a read takes it from the RX FIFO, a write puts it
+    # in the TX FIFO.
+    _delete: [rxfifo_write_byte]
+    _modify:
+      rxfifo_rd_byte:
+        name: rw_byte
+        description: Read a byte from the RX FIFO, or write one to the TX FIFO
+
+GPIO:
+  # esp-pacs has the values of these two the wrong way round: 1 is open
+  # drain (the SDK's GPIO_PAD_DRIVER_ENABLE) and sigma-delta, as the fields'
+  # own descriptions say.
+  "GPIO_PIN*":
+    _clear: ["GPIO_PIN*_DRIVER", "GPIO_PIN*_SOURCE"]
+    "GPIO_PIN*_DRIVER":
+      normal: [0, "normal"]
+      open_drain: [1, "open drain"]
+    "GPIO_PIN*_SOURCE":
+      gpio_data: [0, "GPIO_DATA"]
+      sigma_delta: [1, "sigma-delta"]
+
+TIMER:
+  # The control registers' whole-byte field, beside esp-pacs' bit fields.
+  "FRC[12]_CTRL":
+    _delete: ["frc*_ctrl"]
+
+I2S:
+  _delete: [I2STXFIFO, I2SRXFIFO]
+  _add:
+    I2STXFIFO: {description: I2STXFIFO, addressOffset: 0x00, size: 32, access: read-write, resetValue: 0}
+    I2SRXFIFO: {description: I2SRXFIFO, addressOffset: 0x04, size: 32, access: read-write, resetValue: 0}
+    I2SCONF_CHAN:
+      description: I2S channel mode
+      addressOffset: 0x2c
+      size: 32
+      access: read-write
+      resetValue: 0
+      fields:
+        TX_CHAN_MOD: {description: Transmit channel mode, bitOffset: 0, bitWidth: 3}
+        RX_CHAN_MOD: {description: Receive channel mode, bitOffset: 3, bitWidth: 2}
+
+# The registers the SDK's eagle_soc.h and rtc_register.h name that esp-pacs
+# lacks. The SDK does not say which are read-only; they are read-write like
+# esp-pacs' other RTC registers.
+RTC:
+  _delete: [RTC_STORE0, RTC_STATE1]
+  _add:
+    RTC_STORE0: {description: RTC_STORE0, addressOffset: 0x30, size: 32, access: read-write, resetValue: 0}
+    RTC_STATE1: {description: RTC_STATE1, addressOffset: 0x14, size: 32, access: read-write, resetValue: 0}
+    RTC_SLP_VAL:
+      description: Target value of the RTC counter for waking from light or deep sleep
+      addressOffset: 0x04
+      size: 32
+      access: read-write
+      resetValue: 0
+    RTC_STATE2:
+      description: RTC_STATE2
+      addressOffset: 0x18
+      size: 32
+      access: read-write
+      resetValue: 0
+    RTC_SLP_CNT_VAL:
+      description: Current value of the RTC counter
+      addressOffset: 0x1c
+      size: 32
+      access: read-write
+      resetValue: 0
+    RTC_STORE1:
+      description: Scratch register kept across a watchdog reset (RTC_SCRATCH1)
+      addressOffset: 0x34
+      size: 32
+      access: read-write
+      resetValue: 0
+    RTC_STORE2:
+      description: Scratch register kept across a watchdog reset (RTC_SCRATCH2)
+      addressOffset: 0x38
+      size: 32
+      access: read-write
+      resetValue: 0
+    RTC_STORE3:
+      description: Scratch register kept across a watchdog reset (RTC_SCRATCH3)
+      addressOffset: 0x3c
+      size: 32
+      access: read-write
+      resetValue: 0

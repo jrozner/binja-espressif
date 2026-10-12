@@ -458,8 +458,38 @@ check(not bv.get_symbols(0x3FF40000, 1), "the bundled SVD is not applied as well
 bv = bn.load(image, options={"espressif.svd.autoLoad": False})
 check(not bv.get_symbols(0x3FF48000, 1), "espressif.svd.autoLoad = false leaves peripherals unnamed")
 
-bv = load_bytes(elf_to_image(os.path.join(DATA, "esp8266.elf"), None), ".bin")
-check({s.name for s in bv.get_symbols(0x60000000, 1)} == {"uart0"}, "ESP8266 peripherals are named (no official SVD)")
+# The ESP8266's SVD is made from esp-pacs' (Espressif published none). The
+# SDK's linker script names (uart0, frc1, ...) stay as aliases.
+esp8266_image = os.path.join(user_dir, "svd-esp8266.bin")
+with open(esp8266_image, "wb") as f:
+    f.write(elf_to_image(os.path.join(DATA, "esp8266.elf"), None))
+bv = bn.load(esp8266_image)
+esp8266_blocks = {
+    0x3FF00000: ("DPORT", 0x50), 0x3FF00050: ("EFUSE", 0x10), 0x3FF20E44: ("RNG", 0x4),
+    0x60000000: ("UART0", 0x80), 0x60000100: ("SPI1", 0x100), 0x60000200: ("SPI0", 0x100),
+    0x60000300: ("GPIO", 0x74), 0x60000600: ("TIMER", 0x34), 0x60000700: ("RTC", 0x100),
+    0x60000800: ("IO_MUX", 0x44), 0x60000900: ("WDT", 0x20), 0x60000B00: ("SLC", 0x100),
+    0x60000D00: ("I2C_ANA", 0x20), 0x60000E00: ("I2S", 0x30), 0x60000F00: ("UART1", 0x80),
+}
+for addr, (name, size) in esp8266_blocks.items():
+    sym, var, seg = bv.get_symbol_at(addr), bv.get_data_var_at(addr), bv.get_segment_at(addr)
+    check(sym is not None and sym.name == name, f"esp8266: bundled SVD names {name} at {addr:#x} ({sym and sym.name})")
+    check(var is not None and str(var.type) == f"struct {name}", f"esp8266: bundled SVD types {name} ({var and var.type})")
+    check(seg is not None and (seg.start, seg.end) == (addr, addr + size),
+          f"esp8266: {name} is mapped at [{addr:#x}, {addr + size:#x})")
+check({s.name for s in bv.get_symbols(0x60000000, 1)} == {"UART0", "uart0"}, "esp8266: the SDK's name uart0 stays")
+rtc = bv.get_type_by_name("RTC")
+check(rtc is not None and {m.name: m.offset for m in rtc.members}.get("RTC_SLP_CNT_VAL") == 0x1C,
+      "esp8266: the SVD has the RTC registers esp-pacs lacks")
+gpio = bv.get_type_by_name("GPIO")
+pin0 = next((m.type for m in gpio.members if m.name == "GPIO_PIN0"), None) if gpio else None
+driver = next((m.type for m in pin0.members if m.name == "GPIO_PIN0_DRIVER"), None) if pin0 else None
+values = {m.name: m.value for m in driver.members} if isinstance(driver, bn.EnumerationType) else None
+check(values == {"normal": 0, "open_drain": 1}, f"esp8266: GPIO pin driver 1 is open drain ({values})")
+
+bv = bn.load(esp8266_image, options={"espressif.svd.autoLoad": False})
+check({s.name for s in bv.get_symbols(0x60000000, 1)} == {"uart0"},
+      "esp8266: espressif.svd.autoLoad = false leaves the SDK's names")
 
 print("Chip platforms:")
 for chip in CHIPS:

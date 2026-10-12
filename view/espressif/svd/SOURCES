@@ -12,3 +12,23 @@ esp32c6.svd    espressif/svd        be20aa12560889d6125d144cdb48cf615ac17628  sv
 esp32h2.svd    espressif/svd        be20aa12560889d6125d144cdb48cf615ac17628  svd/esp32h2.svd             78b63a839a7968e178a61495a024857cb93f12c8b80c74fd70470c3e8671080a
 esp32c5.svd    espressif/esp-bist   539234dfae1c4ed8c568b660537c5a60b036b830  src/soc/esp32c5/esp32c5.svd 4d861ca315943cc57f3cc73195ca872fdf60d9612fe91299b73ec01ec07fef8a
 LICENSE        espressif/svd        be20aa12560889d6125d144cdb48cf615ac17628  LICENSE                     258d0cdc26654510786f1bf1313d95e4039d220cd8ac6cdbdd973f8cb6ce831b
+#
+# The ESP8266 has no SVD from Espressif. esp8266.svd is made with svdtools
+# (a "svdtools <version> <patch file>" line) from esp-rs/esp-pacs' last
+# ESP8266 file and patches: the esp-pacs/ lines are inputs and intermediates,
+# kept in a temporary directory only. A patch file without a directory is
+# the one in this directory.
+esp-pacs/esp8266.base.svd              esp-rs/esp-pacs c01397fbba0bbf01c49918e050e71eed9bbdd2d5  esp8266/svd/esp8266.base.svd             a9635cbf87bebf55a4bf1ad70f08442e600a05f555628ebb2ed37b3d88c3b0d7
+esp-pacs/patches/esp8266.yaml          esp-rs/esp-pacs c01397fbba0bbf01c49918e050e71eed9bbdd2d5  esp8266/svd/patches/esp8266.yaml         b4d38b5e350a179c9bac1fb6d9c14f4a39a9b69711d8497604f1aa2d1b6a0079
+esp-pacs/patches/_dport.yaml           esp-rs/esp-pacs c01397fbba0bbf01c49918e050e71eed9bbdd2d5  esp8266/svd/patches/_dport.yaml          7ce712ac87ded1b4d90ceb0a59984026ca77599da9c7881bd73d7fe098ac7e80
+esp-pacs/patches/_gpio.yaml            esp-rs/esp-pacs c01397fbba0bbf01c49918e050e71eed9bbdd2d5  esp8266/svd/patches/_gpio.yaml           32530310b6d4414e9d8a2f2dd55a146a7a71de57cca4514c5f27cab78c19825f
+esp-pacs/patches/_io_mux.yaml          esp-rs/esp-pacs c01397fbba0bbf01c49918e050e71eed9bbdd2d5  esp8266/svd/patches/_io_mux.yaml         1453147273d1d1e3a08d0264ce0549c64fb66114de077cb4c10a95fbfa56defd
+esp-pacs/patches/_misc.yaml            esp-rs/esp-pacs c01397fbba0bbf01c49918e050e71eed9bbdd2d5  esp8266/svd/patches/_misc.yaml           d34b0fdf6f6ceccb127bfd7713ea66c52812e81e537a60bcbc60d4b33ce11e0b
+esp-pacs/patches/_rtc.yaml             esp-rs/esp-pacs c01397fbba0bbf01c49918e050e71eed9bbdd2d5  esp8266/svd/patches/_rtc.yaml            4ed2a92d5d80eb1f9b13a2756f1a2e814cc9d386e80fc5f6e90743145d0fa2b5
+esp-pacs/patches/_spi.yaml             esp-rs/esp-pacs c01397fbba0bbf01c49918e050e71eed9bbdd2d5  esp8266/svd/patches/_spi.yaml            ff44d6b5ec4b8ad3bae405b438cb2e6f271b7311094d4391ad00efb5b7223b29
+esp-pacs/patches/_timer.yaml           esp-rs/esp-pacs c01397fbba0bbf01c49918e050e71eed9bbdd2d5  esp8266/svd/patches/_timer.yaml          37586a952049b0adbbfe1b0deb7b82a27e9c81aa9272dff742e9df71c344e4ac
+esp-pacs/patches/_uart.yaml            esp-rs/esp-pacs c01397fbba0bbf01c49918e050e71eed9bbdd2d5  esp8266/svd/patches/_uart.yaml           8516d9346a17c19969a4f9bd8d4076bee9177aaae1179001445412403ec01e7f
+esp-pacs/esp8266.esp-pacs.svd          svdtools        0.5.0                                     esp-pacs/patches/esp8266.yaml            56265e6f30a6a7b13299ec2edd8d898775416319957a0cdb2c59972abb817f87
+esp8266.svd                            svdtools        0.5.0                                     esp8266.yaml                             0c9d060ac38a7ebe3b1a22f4beb633103fdf92d62b2abff4147c6ffad16f2b1a
+LICENSE-esp-pacs-MIT                   esp-rs/esp-pacs c01397fbba0bbf01c49918e050e71eed9bbdd2d5  LICENSE-MIT                              0c36ae7b0588ad2fc7eb33247fcd509fba55bc40c441b81fccfe3af6acf779f5
+LICENSE-esp-pacs-APACHE                esp-rs/esp-pacs c01397fbba0bbf01c49918e050e71eed9bbdd2d5  LICENSE-APACHE                           848fc7ee04a6bfa0d84dbbf756b45997993e8a0137ef4e622912bf3c5c7f2630
