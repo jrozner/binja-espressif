@@ -1,6 +1,6 @@
 //! Re-encoding an instruction's address or immediate field, shared by the
-//! patches (`crate::xtensa::patch`) and the ELF relocations
-//! (`crate::xtensa::reloc`). Pure functions on instruction words and byte
+//! patches (`crate::patch`) and the ELF relocations
+//! (`crate::relocation`). Pure functions on instruction words and byte
 //! slices.
 //!
 //! Every new encoding is checked by decoding it: an instruction is only
@@ -235,7 +235,7 @@ pub fn jump(isa: &Isa, pc: u32, target: u32) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::xtensa::exemplars::EXEMPLARS;
+    use crate::exemplars::EXEMPLARS;
     use xtensa_isa::{ControlFlow, Features};
 
     const ISAS: [Isa; 4] = [Isa::ESP8266, Isa::ESP32, Isa::ESP32S2, Isa::ESP32S3];

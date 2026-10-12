@@ -1,0 +1,33 @@
+[package]
+name = "arch_xtensa"
+version = "0.1.0"
+authors = ["Joe Rozner"]
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+# cdylib: the plugin on its own, as Binary Ninja's build makes it; rlib: for
+# the plugin that bundles it (the repository root's binja-xtensa).
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["core"]
+# Link against the installed Binary Ninja core. Without it, a stub core library
+# is built and linked instead, so the plugin builds where Binary Ninja is not
+# installed (e.g. CI).
+core = ["binaryninja/core", "binaryninjacore-sys/core"]
+# Built into another plugin, which registers it (see `register`): the crate
+# then exports no plugin entry points of its own.
+bundled = []
+# Developer checks of the lifter, as unit tests (src/liftcheck.rs): a sweep
+# that lifts ~1.5M encodings through the real core (needs `core` and a
+# headless-capable Binary Ninja license), and a listing of the decoded
+# operands of every opcode.
+liftcheck = []
+
+[dependencies]
+binaryninja.workspace = true
+binaryninjacore-sys.workspace = true
+xtensa-isa.workspace = true
+tracing = "0.1"

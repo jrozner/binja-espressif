@@ -6,29 +6,35 @@ description = "Binary Ninja plugin for Espressif chips: Xtensa architectures (ES
 license = "MIT"
 publish = false
 
-# The plugin is the root package; xtensa/ is the instruction decoder it uses.
+# The root package is the plugin the release ships: one library that
+# registers the plugins in arch/ and view/, linked in as Rust libraries (with
+# their `bundled` feature). Each of those is also a Binary Ninja plugin of
+# its own, shaped like the Rust plugins in the binaryninja-api tree.
+# xtensa/ is the instruction decoder.
 [workspace]
-members = [".", "xtensa"]
+members = [".", "xtensa", "arch/xtensa"]
+
+[workspace.dependencies]
+binaryninja = { git = "https://github.com/Vector35/binaryninja-api.git", rev = "f15f46d6517159243a6907674dcc1170f10fb0d3", default-features = false }
+binaryninjacore-sys = { git = "https://github.com/Vector35/binaryninja-api.git", rev = "f15f46d6517159243a6907674dcc1170f10fb0d3", default-features = false }
+xtensa-isa = { package = "xtensa", path = "xtensa" }
+arch_xtensa = { path = "arch/xtensa", default-features = false }
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [features]
 default = ["core"]
 # Link against the installed Binary Ninja core. Without it, a stub core library
 # is built and linked instead, so the plugin builds where Binary Ninja is not
 # installed (e.g. CI).
-core = ["binaryninja/core", "binaryninjacore-sys/core"]
-# Developer checks of the Xtensa lifter, as unit tests (src/xtensa/liftcheck.rs):
-# a sweep that lifts ~1.5M encodings through the real core (needs `core` and
-# a headless-capable Binary Ninja license), and a listing of the decoded
-# operands of every opcode.
-liftcheck = []
+core = ["binaryninja/core", "binaryninjacore-sys/core", "arch_xtensa/core"]
 
 [dependencies]
-binaryninja = { git = "https://github.com/Vector35/binaryninja-api.git", rev = "f15f46d6517159243a6907674dcc1170f10fb0d3", default-features = false }
-binaryninjacore-sys = { git = "https://github.com/Vector35/binaryninja-api.git", rev = "f15f46d6517159243a6907674dcc1170f10fb0d3", default-features = false }
-xtensa-isa = { package = "xtensa", path = "xtensa" }
+binaryninja.workspace = true
+binaryninjacore-sys.workspace = true
+xtensa-isa.workspace = true
+arch_xtensa = { workspace = true, features = ["bundled"] }
 tracing = "0.1"
 serde_json = "1"
 flate2 = "1"

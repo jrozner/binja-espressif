@@ -36,7 +36,16 @@ jobs:
       # The liftcheck feature's lift sweep needs a licensed Binary Ninja
       # core, so it is only linted (below), not run.
       - name: Test
-        run: cargo test -p binja-xtensa --no-default-features --lib
+        run: cargo test -p binja-xtensa -p arch_xtensa --no-default-features --lib
+
+      # The plugins in arch/ and view/ also build on their own, exporting
+      # their own entry points. A workspace build has their `bundled` feature
+      # on (the root package's dependency enables it), so this builds each
+      # one alone.
+      - name: Build the plugins on their own
+        run: |
+          cargo build -p arch_xtensa --no-default-features
+          nm -D --defined-only target/debug/libarch_xtensa.so | grep -w CorePluginInit
 
   # The decoder (xtensa/) on its own, also on its minimum supported Rust
   # version (rust-version in xtensa/Cargo.toml). The exhaustive tests take
@@ -109,7 +118,8 @@ jobs:
       - name: Clippy
         run: |
           cargo clippy --workspace --no-default-features --all-targets -- -D warnings
-          cargo clippy -p binja-xtensa --no-default-features --features liftcheck --all-targets -- -D warnings
+          cargo clippy -p arch_xtensa --no-default-features --features liftcheck --all-targets -- -D warnings
+          cargo clippy -p arch_xtensa --no-default-features --all-targets -- -D warnings
 
   # The Python loader (binja_xtensa_loader/), the release manifest tooling
   # and scripts/fetch_rom_elfs.py; standard library only, no Binary Ninja
@@ -158,4 +168,4 @@ jobs:
         run: cargo clippy --workspace --no-default-features --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test -p binja-xtensa --no-default-features --lib
+        run: cargo test -p binja-xtensa -p arch_xtensa --no-default-features --lib

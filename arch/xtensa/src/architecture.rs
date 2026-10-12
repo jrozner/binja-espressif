@@ -12,13 +12,13 @@ use binaryninja::disassembly::InstructionTextToken;
 use binaryninja::low_level_il::LowLevelILMutableFunction;
 use xtensa_isa::{ControlFlow, Features, Instruction, Isa};
 
-use crate::xtensa::flags::{Flag, FlagClass, FlagGroup, FlagWrite};
-use crate::xtensa::intrinsics::{self, Intrinsic};
-use crate::xtensa::lift::Lifter;
-use crate::xtensa::loops::Loops;
-use crate::xtensa::patch;
-use crate::xtensa::registers::Reg;
-use crate::xtensa::{Core, tokens};
+use crate::flag::{Flag, FlagClass, FlagGroup, FlagWrite};
+use crate::intrinsic::{self, Intrinsic};
+use crate::lift::Lifter;
+use crate::loops::Loops;
+use crate::patch;
+use crate::register::Reg;
+use crate::{Core, token};
 
 pub struct Xtensa {
     handle: CoreArchitecture,
@@ -43,7 +43,7 @@ impl Xtensa {
             custom_handle,
             core,
             isa,
-            intrinsics: intrinsics::build(&isa),
+            intrinsics: intrinsic::build(&isa),
             registers: Reg::all(&isa),
             loops: isa.has(Features::LOOP).then(Loops::default),
         }
@@ -204,7 +204,7 @@ impl Architecture for Xtensa {
     ) -> Option<(usize, Vec<InstructionTextToken>)> {
         guard("instruction_text", addr, || {
             let insn = self.decode(data, addr)?;
-            Some((insn.len(), tokens::tokens(&insn)))
+            Some((insn.len(), token::tokens(&insn)))
         })
     }
 
@@ -225,7 +225,7 @@ impl Architecture for Xtensa {
         // A lifter bug must not take the whole process down.
         if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lifter.lift())).is_err() {
             tracing::error!("failed to lift {insn} at {addr:#x}");
-            crate::xtensa::lift::unimplemented(il);
+            crate::lift::unimplemented(il);
         }
         Some((insn.len(), true))
     }
