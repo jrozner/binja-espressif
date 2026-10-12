@@ -139,6 +139,9 @@ jobs:
       - name: Test fetch_rom_elfs.py
         run: python3 tests/test_fetch_rom_elfs.py -v
 
+      - name: Test the ROM table generators' conflicting-name rule
+        run: python3 tests/test_gen_rom.py -v
+
   # main and releases build against the binaryninja-api dev revision pinned
   # in Cargo.toml. This checks that the code still builds and passes against
   # the stable API, which the release workflow builds with api=stable.

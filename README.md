@@ -580,7 +580,12 @@ per chip, embedded in the plugin; `view/espressif/src/rom_symbols.rs`
 describes the format) are generated from the ROM linker scripts of ESP-IDF
 v6.1 by `scripts/gen_rom_symbols.py` (see its header for the sources and
 commands); the Xtensa chips' keep the names ESP-IDF v5.3 gave and v6.1
-dropped or renamed (`gpio_matrix_out`, now `rom_gpio_matrix_out`). The ROM
+dropped or renamed (`gpio_matrix_out`, now `rom_gpio_matrix_out`). It
+reads Espressif's ROM ELF files too (`--rom-elfs`, fetched by
+`scripts/fetch_rom_elfs.py`): where two linker scripts name one address
+differently, the names the ROM does not give it are left out (ESP-IDF's
+`esp32s3.rom.bt_funcs.ld` puts Bluetooth hooks at the ROM's CRC and MD5
+functions), and the type libraries do not type them. The ROM
 type libraries in `view/espressif/data/rom_types/` are generated, offline,
 by `scripts/gen_rom_types.py`, which runs headless Binary Ninja with a
 plugin build (for the chip platforms) and parses the headers of the ESP-IDF
