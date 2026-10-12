@@ -877,11 +877,11 @@ impl UnsupportedImage {
         let id = self.chip_id;
         match chip_name_from_id(id) {
             Some(name) => format!(
-                "ESP image for {name} (chip id {id}) at file offset {:#x} is not supported by binja-xtensa",
+                "ESP image for {name} (chip id {id}) at file offset {:#x} is not supported by binja-espressif",
                 self.start
             ),
             None => format!(
-                "ESP image with unknown chip id {id} ({id:#x}) at file offset {:#x} is not supported by binja-xtensa",
+                "ESP image with unknown chip id {id} ({id:#x}) at file offset {:#x} is not supported by binja-espressif",
                 self.start
             ),
         }
@@ -1144,15 +1144,15 @@ mod tests {
         for (id, message) in [
             (
                 20,
-                "ESP image for ESP32-C61 (chip id 20) at file offset 0x0 is not supported by binja-xtensa",
+                "ESP image for ESP32-C61 (chip id 20) at file offset 0x0 is not supported by binja-espressif",
             ),
             (
                 18,
-                "ESP image for ESP32-P4 (chip id 18) at file offset 0x0 is not supported by binja-xtensa",
+                "ESP image for ESP32-P4 (chip id 18) at file offset 0x0 is not supported by binja-espressif",
             ),
             (
                 0x7F,
-                "ESP image with unknown chip id 127 (0x7f) at file offset 0x0 is not supported by binja-xtensa",
+                "ESP image with unknown chip id 127 (0x7f) at file offset 0x0 is not supported by binja-espressif",
             ),
         ] {
             let d = image(0xE9, Some(ext(id)), 0x4FF0_0000, seg);

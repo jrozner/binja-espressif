@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Release tooling for the loader's manifest (binja_xtensa_loader/manifest.json).
+"""Release tooling for the loader's manifest (binja_espressif_loader/manifest.json).
 
 Used by .github/workflows/release.yml; see "Releasing" in the README.
 
@@ -32,9 +32,9 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from binja_xtensa_loader import core  # noqa: E402
+from binja_espressif_loader import core  # noqa: E402
 
-MANIFEST = "binja_xtensa_loader/manifest.json"
+MANIFEST = "binja_espressif_loader/manifest.json"
 PLUGIN_JSON = "plugin.json"
 # What may differ between the build commit and the tag.
 RELEASE_FILES = {MANIFEST, PLUGIN_JSON}

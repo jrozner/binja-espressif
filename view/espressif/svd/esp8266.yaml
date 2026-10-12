@@ -14,14 +14,14 @@ _svd: esp-pacs/esp8266.esp-pacs.svd
 _modify:
   description: >-
     ESP8266 (Xtensa LX106): esp-pacs' SVD with its svdtools patches and
-    binja-xtensa's corrections
+    binja-espressif's corrections
   licenseText: >-
     Generated with svdtools from the ESP8266 SVD file and patches of
     esp-rs/esp-pacs (commit c01397fbba0bbf01c49918e050e71eed9bbdd2d5,
     esp8266/svd/), Copyright The esp-rs Project Developers, licensed under
     the MIT License or the Apache License, Version 2.0, at your option.
     esp-pacs generated its file from the register headers of Espressif's
-    ESP8266 SDK (Apache-2.0). binja-xtensa's changes
+    ESP8266 SDK (Apache-2.0). binja-espressif's changes
     (view/espressif/svd/esp8266.yaml) are licensed under the MIT License.
   cpu:
     # The LX106 has no floating point unit.

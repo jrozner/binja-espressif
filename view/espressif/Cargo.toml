@@ -8,7 +8,7 @@ publish = false
 
 [lib]
 # cdylib: the plugin on its own, as Binary Ninja's build makes it; rlib: for
-# the plugin that bundles it (the repository root's binja-xtensa).
+# the plugin that bundles it (the repository root's binja-espressif).
 crate-type = ["cdylib", "rlib"]
 
 [features]

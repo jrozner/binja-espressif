@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Downloads Espressif's ROM ELF files for binja-xtensa, without Binary Ninja.
+"""Downloads Espressif's ROM ELF files for binja-espressif, without Binary Ninja.
 
 Fetches the esp-rom-elfs release the plugin pins (its tag, URL, size and
 SHA-256 are read from view/espressif/src/rom_images.rs, the one place they are
@@ -201,7 +201,7 @@ def unpack(archive, release, dest):
 
 
 def download(url):
-    request = urllib.request.Request(url, headers={"User-Agent": "binja-xtensa"})
+    request = urllib.request.Request(url, headers={"User-Agent": "binja-espressif"})
     with urllib.request.urlopen(request, timeout=60) as response:
         data = response.read(MAX_DOWNLOAD + 1)
     if len(data) > MAX_DOWNLOAD:

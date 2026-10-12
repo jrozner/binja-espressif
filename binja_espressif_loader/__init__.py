@@ -1,4 +1,4 @@
-"""Python loader for binja-xtensa's native plugin.
+"""Python loader for binja-espressif's native plugin.
 
 Binary Ninja's extension manager installs only Python plugins, from the
 repository's source at a release tag. This package installs the matching

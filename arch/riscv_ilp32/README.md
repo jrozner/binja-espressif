@@ -21,7 +21,7 @@ proposed there.
 On its own: `cargo build --release -p arch_riscv_ilp32` builds
 `libarch_riscv_ilp32.so` (`.dylib`, `arch_riscv_ilp32.dll`), a plugin that
 needs `arch_riscv`. `CMakeLists.txt` builds it with `bn_add_rust_crate` from
-the binaryninja-api tree. The release's plugin (`binja-xtensa`, the
+the binaryninja-api tree. The release's plugin (`binja-espressif`, the
 repository root) links it with the `bundled` feature and calls `register()`.
 
 ```sh

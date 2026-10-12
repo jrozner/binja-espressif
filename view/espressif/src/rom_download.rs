@@ -71,14 +71,14 @@ const MIN_REVISION_METADATA: &str = "espressif.rom.minChipRevision";
 /// Only for tests/test_headless.py: download from this URL, which must be
 /// on a loopback address, instead of the release. The download is still
 /// verified against [`RELEASE`].
-const TEST_URL_ENV: &str = "BN_XTENSA_ROM_TEST_URL";
+const TEST_URL_ENV: &str = "BN_ESPRESSIF_ROM_TEST_URL";
 /// Only for tests/test_headless.py, with [`TEST_URL_ENV`]: wait this many
 /// seconds for a headless download instead of [`INLINE_TIMEOUT`].
-const TEST_TIMEOUT_ENV: &str = "BN_XTENSA_ROM_TEST_TIMEOUT";
+const TEST_TIMEOUT_ENV: &str = "BN_ESPRESSIF_ROM_TEST_TIMEOUT";
 /// How long a headless load waits for the automatic download (4.9 MB).
 pub const INLINE_TIMEOUT: Duration = Duration::from_secs(30);
 
-const TITLE: &str = "Espressif (binja-xtensa)";
+const TITLE: &str = "Espressif (binja-espressif)";
 const COMMAND: &str = "Espressif\\Download ROM Images";
 /// The largest download accepted.
 const MAX_DOWNLOAD: usize = 64 << 20;
@@ -239,7 +239,7 @@ pub fn register_settings() {
             "title": "Download Espressif's ROM images automatically",
             "type": "boolean",
             "default": false,
-            "description": "Let binja-xtensa download Espressif's ROM ELF files (esp-rom-elfs, Apache-2.0; the ROM code is closed source, with third-party components) from GitHub, without asking, when a view would use one and none is available (the download is verified against a SHA-256 hash shipped with the plugin). This is the only way it downloads in headless Binary Ninja.",
+            "description": "Let binja-espressif download Espressif's ROM ELF files (esp-rom-elfs, Apache-2.0; the ROM code is closed source, with third-party components) from GitHub, without asking, when a view would use one and none is available (the download is verified against a SHA-256 hash shipped with the plugin). This is the only way it downloads in headless Binary Ninja.",
             "ignore": ["SettingsProjectScope", "SettingsResourceScope"]
         }"#,
     );
@@ -762,7 +762,7 @@ fn fetch(url: &str, task: &BackgroundTask, cancel: Arc<AtomicBool>) -> Result<Ve
             !progress_task.is_cancelled() && !progress_cancel.load(Ordering::SeqCst)
         })),
     };
-    let headers = [("User-Agent".to_string(), "binja-xtensa".to_string())];
+    let headers = [("User-Agent".to_string(), "binja-espressif".to_string())];
     let response = instance.perform_custom_request("GET", url, headers, &callbacks)?;
     drop(callbacks);
     if task.is_cancelled() || cancel.load(Ordering::SeqCst) {

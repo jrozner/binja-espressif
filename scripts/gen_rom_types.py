@@ -12,7 +12,7 @@ Usage: scripts/gen_rom_types.py [--plugin LIB] [--older OLD]... HEADERS CHIP...
   espressif/idf docker image: ESP-IDF's components (headers and ROM linker
   scripts), the toolchains' newlib headers and each chip's default
   sdkconfig.h. LIB is the plugin build that registers the chip platforms
-  (default: target/release/libbinja_xtensa.so). Runs Binary Ninja from
+  (default: target/release/libbinja_espressif.so). Runs Binary Ninja from
   ~/binaryninja (or $BN_INSTALL_DIR) with a temporary user directory, as
   tests/test_headless.py does. Each OLD is an earlier ESP-IDF release's
   tree (fetch_rom_type_headers.sh DIR VERSION, or a checkout), of which
@@ -329,7 +329,7 @@ def rom_names(idf, chip, table, older=()):
 
 def setup_binaryninja(plugin):
     install = os.environ.get("BN_INSTALL_DIR", os.path.expanduser("~/binaryninja"))
-    user_dir = tempfile.mkdtemp(prefix="bn-xtensa-romtypes-")
+    user_dir = tempfile.mkdtemp(prefix="bn-espressif-romtypes-")
     atexit.register(shutil.rmtree, user_dir, True)
     os.makedirs(os.path.join(user_dir, "plugins"))
     os.symlink(plugin, os.path.join(user_dir, "plugins", os.path.basename(plugin)))
@@ -346,7 +346,7 @@ def setup_binaryninja(plugin):
 
 def parse_chip(bn, idf, chip, verbose):
     platform = bn.Platform[chip]
-    work = tempfile.mkdtemp(prefix="bn-xtensa-romtypes-config-")
+    work = tempfile.mkdtemp(prefix="bn-espressif-romtypes-config-")
     atexit.register(shutil.rmtree, work, True)
     dirs = include_dirs(idf, chip, work)
     options = parser_options(idf, chip)
@@ -445,7 +445,7 @@ def assign(names, code, functions, variables):
 def build_library(bn, chip, objects, types, used):
     platform = bn.Platform[chip]
     lib = bn.TypeLibrary.new(platform.arch, f"espressif-rom-{chip}")
-    lib.guid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://github.com/jrozner/binja-xtensa/rom-types/{chip}"))
+    lib.guid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://github.com/jrozner/binja-espressif/rom-types/{chip}"))
     # The only place the platform is named: the plugin loads the finalized
     # library and registers it as it is.
     lib.add_platform(platform)
@@ -461,7 +461,7 @@ def build_library(bn, chip, objects, types, used):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--plugin", default=os.path.join(ROOT, "target", "release", "libbinja_xtensa.so"))
+    ap.add_argument("--plugin", default=os.path.join(ROOT, "target", "release", "libbinja_espressif.so"))
     ap.add_argument("--verbose", action="store_true", help="print the parser's errors for headers that parse")
     ap.add_argument("--dump", help="write each chip's prototypes, as text, to this directory")
     ap.add_argument("--older", action="append", default=[], metavar="HEADERS",

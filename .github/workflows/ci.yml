@@ -36,7 +36,7 @@ jobs:
       # The liftcheck feature's lift sweep needs a licensed Binary Ninja
       # core, so it is only linted (below), not run.
       - name: Test
-        run: cargo test -p binja-xtensa -p arch_xtensa -p arch_riscv_ilp32 -p view_espressif --no-default-features --lib
+        run: cargo test -p binja-espressif -p arch_xtensa -p arch_riscv_ilp32 -p view_espressif --no-default-features --lib
 
       # The plugins in arch/ and view/ also build on their own, exporting
       # their own entry points. A workspace build has their `bundled` feature
@@ -125,7 +125,7 @@ jobs:
             cargo clippy -p "$plugin" --no-default-features --all-targets -- -D warnings
           done
 
-  # The Python loader (binja_xtensa_loader/), the release manifest tooling
+  # The Python loader (binja_espressif_loader/), the release manifest tooling
   # and scripts/fetch_rom_elfs.py; standard library only, no Binary Ninja
   # needed.
   loader:
@@ -172,4 +172,4 @@ jobs:
         run: cargo clippy --workspace --no-default-features --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test -p binja-xtensa -p arch_xtensa -p arch_riscv_ilp32 -p view_espressif --no-default-features --lib
+        run: cargo test -p binja-espressif -p arch_xtensa -p arch_riscv_ilp32 -p view_espressif --no-default-features --lib
