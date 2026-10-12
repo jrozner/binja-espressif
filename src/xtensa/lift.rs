@@ -1299,7 +1299,9 @@ impl<'a> Lifter<'a> {
 
     /// `wsr.sar`, `xsr.sar`: SAR is six bits. The shift amount pseudo
     /// registers ([`ShiftReg`]) split SAR and 32 - SAR in halves, which is
-    /// exact for the shift amounts 0 to 32.
+    /// exact for the shift amounts 0 to 32. That covers every defined shift:
+    /// the ISA's legal range for SAR is 0 to 32, and `sll`, `srl`, `sra` and
+    /// `src` are undefined with SAR above 32.
     fn write_sar(&self, sar: Reg, value: Expr<'a>) {
         let il = self.il;
         let half = |r: ShiftReg, amount: &dyn Fn() -> Expr<'a>, other: ShiftReg| {
