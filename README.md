@@ -476,21 +476,22 @@ its loader installed the library as `binja_xtensa-native.so` (`.dll`,
 `.dylib`). The extension manager tells plugins apart by their install
 folder, which comes from the GitHub repository's name, so it shows
 **Espressif** as a separate plugin, not as an update of Espressif Xtensa.
-Install Espressif, then uninstall Espressif Xtensa in the extension
-manager and restart. Until then:
+Install Espressif, uninstall Espressif Xtensa in the extension manager,
+and restart:
 
-- The new loader treats `binja_xtensa-native.*` as an out-of-date install
-  of its own: it asks (or, headless, downloads only with
-  `espressif.loader.autoDownload`) as for any update, and removes
-  `binja_xtensa-native.*` once `binja_espressif-native.*` is in place, so
-  only one of them loads after the restart. If you decline, the old library
-  stays and keeps working.
-- It logs that the old extension is still installed, and where, at every
-  start (as does Binary Ninja, with "Setting:
+- While Espressif Xtensa is installed, the new loader installs nothing (its
+  old loader may be installing `binja_xtensa-native.*` at the same time,
+  and the two libraries must not both load). It says so at every start, in
+  the log and, in the UI, in a message (Binary Ninja also logs "Setting:
   espressif.loader.autoDownload already registered!", as both loaders
-  register it). The old loader stays quiet while the new library is loaded;
-  should it install `binja_xtensa-native.*` again, the new loader removes it
-  at the next start.
+  register it). The old library keeps working meanwhile.
+- Once it is uninstalled, the new loader treats `binja_xtensa-native.*` as
+  an out-of-date install of its own: it asks (or, headless, downloads only
+  with `espressif.loader.autoDownload`) as for any update, and removes
+  `binja_xtensa-native.*` once `binja_espressif-native.*` is in place, so
+  only one of them loads after the next restart. If you decline, the old
+  library stays and keeps working. Should `binja_xtensa-native.*` ever
+  turn up next to the current library, the loader removes it at startup.
 - A library you built yourself (`libbinja_xtensa.so`, `binja_xtensa.dll`)
   is left alone, as before.
 

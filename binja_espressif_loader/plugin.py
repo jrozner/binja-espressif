@@ -204,8 +204,6 @@ def _download_and_install(facts: Facts, task: Optional[BackgroundTaskThread]) ->
             _message(text, MessageBoxIcon.WarningIcon)
             return True
         text += " It replaces {}, binja-xtensa's library, which was removed.".format(", ".join(facts.legacy))
-    if facts.legacy_extensions:
-        text += "\n\n" + core.legacy_extension_message(facts.legacy_extensions)
     LOG.log_warn(text)
     _message(text)
     return True
@@ -231,9 +229,15 @@ def startup_check(task: Optional[BackgroundTaskThread] = None) -> None:
     try:
         facts = Facts()
         core.cleanup_stale(facts.plugin_dir)
-        if facts.legacy_extensions:
-            LOG.log_warn(core.legacy_extension_message(facts.legacy_extensions))
         _remove_legacy(facts)
+        if facts.legacy_extensions:
+            # Its loader may be installing binja_xtensa-native right now,
+            # so installing here could leave both libraries for the next
+            # start. Nothing is installed until it is uninstalled.
+            text = core.legacy_extension_message(facts.legacy_extensions)
+            LOG.log_warn(text)
+            _message(text, MessageBoxIcon.WarningIcon)
+            return
         if facts.asset is None:
             if facts.native_loaded:
                 return
@@ -272,6 +276,10 @@ def install_command(task: Optional[BackgroundTaskThread] = None) -> None:
         facts = Facts()
         if facts.asset is None:
             text = facts.unsupported_message()
+            LOG.log_warn(text)
+            _message(text, MessageBoxIcon.WarningIcon)
+        elif facts.legacy_extensions:
+            text = core.legacy_extension_message(facts.legacy_extensions)
             LOG.log_warn(text)
             _message(text, MessageBoxIcon.WarningIcon)
         elif facts.other_copies:

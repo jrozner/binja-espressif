@@ -395,9 +395,9 @@ def find_legacy_extensions(roots: Iterable[str], own_root: str) -> List[str]:
 def legacy_extension_message(paths: Iterable[str]) -> str:
     return ("The old 'Espressif Xtensa' extension (binja-xtensa, the name of this plugin before 0.1.0) is still "
             "installed in {}. Uninstall it in the extension manager (Plugins > Manage Plugins) and restart "
-            "Binary Ninja: it is replaced by this one, and its loader would install its own copy of the native "
-            "library (binja_xtensa-native) again. This loader removes that copy whenever it finds it next to "
-            "its own.".format(", ".join(paths)))
+            "Binary Ninja. Until then this loader installs nothing: the old extension's loader installs its own "
+            "copy of the native library (binja_xtensa-native), and the two must not both be installed. Once it "
+            "is uninstalled, this loader replaces that copy.".format(", ".join(paths)))
 
 
 def plan_startup(*, asset: Optional[Asset], state: Optional[State], other_copies: Iterable[str],

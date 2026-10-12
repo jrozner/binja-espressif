@@ -927,17 +927,53 @@ class TestPluginGlue(TempDirTest):
         self.assertEqual(os.listdir(self.plugins), [os.path.basename(built)])
         self.assertTrue(any(os.path.basename(built) in m for _, m in self.bn.logs))
 
-    def test_legacy_extension_is_reported(self):
+    def old_extension(self):
         old = os.path.join(self.dir, "channels", "binja-xtensa-test", "plugins", "jrozner_binjaxtensa")
         os.makedirs(os.path.join(old, "binja_xtensa_loader"))
         open(os.path.join(old, "binja_xtensa_loader", "core.py"), "w").close()
-        self.legacy()
-        self.bn.ui = True
-        self.bn.loaded = True
-        self.bn.answers = [self.bn.yes]
+        return old
+
+    def test_nothing_installed_while_the_old_extension_is_installed(self):
+        # Its loader may install binja_xtensa-native in the same session, so
+        # installing too could leave both for the next start.
+        old = self.old_extension()
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy):
+                if legacy:
+                    self.legacy()
+                self.bn.settings[self.plugin.AUTO_DOWNLOAD] = True
+                self.plugin.startup_check()
+                self.assertFalse(os.path.lexists(self.installed))
+                self.assertTrue(any("'Espressif Xtensa'" in m and old in m for _, m in self.bn.logs))
+                self.bn.ui = True
+                self.plugin.startup_check()  # no prompt (answers is empty)
+                self.assertIn("Uninstall it in the extension manager", self.bn.messages[-1][0])
+                self.plugin.install_command()
+                self.assertFalse(os.path.lexists(self.installed))
+                self.assertIn("Uninstall it in the extension manager", self.bn.messages[-1][0])
+                self.bn.ui = False
+
+    def test_legacy_install_removed_next_to_current_with_old_extension(self):
+        self.bn.settings[self.plugin.AUTO_DOWNLOAD] = True
         self.plugin.startup_check()
-        self.assertTrue(any("'Espressif Xtensa'" in m and old in m for _, m in self.bn.logs))
-        self.assertIn("Uninstall it in the extension manager", self.bn.messages[-1][0])
+        self.old_extension()
+        legacy = self.legacy()
+        self.bn.loaded = True
+        self.plugin.startup_check()
+        self.assertFalse(os.path.lexists(legacy))
+        self.assertEqual(read(self.installed), LIB)
+
+    def test_upgrade_after_the_old_extension_is_uninstalled(self):
+        old = self.old_extension()
+        legacy = self.legacy()
+        self.bn.settings[self.plugin.AUTO_DOWNLOAD] = True
+        self.bn.loaded = True
+        self.plugin.startup_check()
+        self.assertTrue(os.path.lexists(legacy))
+        shutil.rmtree(old)
+        self.plugin.startup_check()
+        self.assertFalse(os.path.lexists(legacy))
+        self.assertEqual(read(self.installed), LIB)
 
 
 class TestReleaseTooling(TempDirTest):
