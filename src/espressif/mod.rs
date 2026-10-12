@@ -309,18 +309,8 @@ impl Chip {
     /// those only in the ROM of a minimum chip revision (major * 100 +
     /// minor) and later.
     pub fn rom_symbols(self) -> (Symbols, &'static [(u16, Symbols)]) {
-        use rom_symbols as r;
-        match self {
-            Chip::Esp8266 => (r::ESP8266, r::ESP8266_REVISIONS),
-            Chip::Esp32 => (r::ESP32, r::ESP32_REVISIONS),
-            Chip::Esp32S2 => (r::ESP32S2, r::ESP32S2_REVISIONS),
-            Chip::Esp32S3 => (r::ESP32S3, r::ESP32S3_REVISIONS),
-            Chip::Esp32C2 => (r::ESP32C2, r::ESP32C2_REVISIONS),
-            Chip::Esp32C3 => (r::ESP32C3, r::ESP32C3_REVISIONS),
-            Chip::Esp32C6 => (r::ESP32C6, r::ESP32C6_REVISIONS),
-            Chip::Esp32H2 => (r::ESP32H2, r::ESP32H2_REVISIONS),
-            Chip::Esp32C5 => (r::ESP32C5, r::ESP32C5_REVISIONS),
-        }
+        let tables = rom_symbols::of(self);
+        (tables.base, tables.revisions)
     }
 
     /// The mask ROM symbols of an image that requires chip revision
@@ -367,15 +357,7 @@ impl Chip {
     /// code and data share an address range (from Espressif's ROM ELF
     /// files). On the others the memory map tells them apart.
     pub fn rom_code(self) -> Option<&'static [(u32, u32)]> {
-        use rom_symbols as r;
-        match self {
-            Chip::Esp8266 | Chip::Esp32 | Chip::Esp32S2 | Chip::Esp32S3 => None,
-            Chip::Esp32C2 => Some(r::ESP32C2_ROM_CODE),
-            Chip::Esp32C3 => Some(r::ESP32C3_ROM_CODE),
-            Chip::Esp32C6 => Some(r::ESP32C6_ROM_CODE),
-            Chip::Esp32H2 => Some(r::ESP32H2_ROM_CODE),
-            Chip::Esp32C5 => Some(r::ESP32C5_ROM_CODE),
-        }
+        rom_symbols::of(self).code
     }
 
     /// Is the ROM symbol at `addr` a function (rather than data)?

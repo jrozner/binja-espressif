@@ -6,3 +6,7 @@
 # keep their bytes as downloaded (no CRLF conversion). GitHub collapses their
 # multi-megabyte diffs in pull requests; git still diffs them as text.
 svd/*.svd -text linguist-generated
+
+# The generated ROM symbol tables (scripts/gen_rom_symbols.py), embedded in
+# the plugin: LF everywhere, and collapsed in pull request diffs.
+data/rom_symbols/*.txt text eol=lf linguist-generated

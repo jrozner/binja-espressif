@@ -496,8 +496,10 @@ next to an installed `binja_xtensa-native.so`; remove that first.
 
 ### Regenerating the ROM tables and types
 
-`src/espressif/rom_symbols.rs` is generated from the ROM linker scripts by
-`scripts/gen_rom_symbols.py` (see its header for the sources). The ROM type
+The ROM symbol tables in `data/rom_symbols/` (one text file per chip,
+embedded in the plugin; `src/espressif/rom_symbols.rs` describes the format)
+are generated from the ROM linker scripts by `scripts/gen_rom_symbols.py`
+(see its header for the sources). The ROM type
 libraries in `data/rom_types/` are generated, offline, by
 `scripts/gen_rom_types.py`, which runs headless Binary Ninja with a plugin
 build (for the chip platforms) and parses the headers of the ESP-IDF version

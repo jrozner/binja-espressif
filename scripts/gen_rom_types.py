@@ -35,7 +35,7 @@ What goes into a chip's library:
   fields wrongly), newlib's headers in place of the host's, the chip's
   default sdkconfig.h, and the include directories of an ESP-IDF build.
 * Names: every name of a ROM function or variable of the chip that has a
-  declaration: those of src/espressif/rom_symbols.rs (of any chip revision),
+  declaration: those of data/rom_symbols/<chip>.txt (of any chip revision),
   those of the ESP-IDF version's ROM linker scripts and its esp_rom API
   aliases (`esp_rom_printf = ets_printf`), which ELF files carry. Names
   without a declaration take that of another name at the same address, and
@@ -62,7 +62,7 @@ import uuid
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "data", "rom_types")
-ROM_SYMBOLS = os.path.join(ROOT, "src", "espressif", "rom_symbols.rs")
+ROM_SYMBOLS = os.path.join(ROOT, "data", "rom_symbols")
 EXTRA = os.path.join(ROOT, "scripts", "rom_types_extra.h")
 
 IDF_VERSION = "v5.4.1"
@@ -71,8 +71,8 @@ CHIPS = ["esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3", "esp32c6", "esp32h
 XTENSA = {"esp32", "esp32s2", "esp32s3"}
 
 # The ROM's code on the Xtensa chips: the chip's "rom" region in
-# src/espressif/image.rs. The RISC-V chips' ranges are read from
-# rom_symbols.rs (<CHIP>_ROM_CODE).
+# src/espressif/image.rs. The RISC-V chips' ranges are read from their
+# ROM symbol files (`code` lines).
 XTENSA_ROM = {"esp32": (0x40000000, 0x40070000), "esp32s2": (0x40000000, 0x40020000),
               "esp32s3": (0x40000000, 0x40060000)}
 
@@ -182,25 +182,22 @@ def headers(idf, chip):
 
 def rom_tables():
     """{chip: ({name: addr} of every revision's tables, [(start, end)] code)}
-    from rom_symbols.rs."""
-    text = open(ROM_SYMBOLS).read()
+    from data/rom_symbols/<chip>.txt (see src/espressif/rom_symbols.rs for
+    the format)."""
     out = {}
-    for m in re.finditer(r"pub static (\w+): &\[\(&str, u32\)\] = &\[(.*?)\];", text, re.S):
-        # ESP32, ESP32_ECO3, ESP32C3_ECO7, ...
-        chip = m.group(1).split("_")[0].lower()
-        if chip not in CHIPS:
-            continue
-        syms = out.setdefault(chip, ({}, []))[0]
-        for name, addr in re.findall(r'\("([^"]+)", (0x[0-9a-f]+)\)', m.group(2)):
-            syms.setdefault(name, int(addr, 16))
-    for m in re.finditer(r"pub static (\w+)_ROM_CODE: &\[\(u32, u32\)\] = &\[(.*?)\];", text, re.S):
-        chip = m.group(1).lower()
-        if chip in out:
-            out[chip][1].extend((int(s, 16), int(e, 16)) for s, e in
-                                re.findall(r"\((0x[0-9a-f]+), (0x[0-9a-f]+)\)", m.group(2)))
+    for chip in CHIPS:
+        syms, code = out.setdefault(chip, ({}, []))
+        with open(os.path.join(ROM_SYMBOLS, f"{chip}.txt")) as f:
+            for line in f:
+                words = line.split()
+                if not words or words[0].startswith("#") or words[0] == "revision":
+                    continue
+                if words[0] == "code":
+                    code.append((int(words[1], 16), int(words[2], 16)))
+                else:
+                    syms.setdefault(words[1], int(words[0], 16))
     for chip, rom in XTENSA_ROM.items():
-        if chip in out:
-            out[chip][1].append(rom)
+        out[chip][1].append(rom)
     return out
 
 
@@ -217,7 +214,7 @@ def ld_symbols(path):
 
 def rom_names(idf, chip, table):
     """{name: address} of every name of the chip's ROM functions and data:
-    those of rom_symbols.rs, then those of the ESP-IDF version's ROM linker
+    those of its ROM symbol file, then those of the ESP-IDF version's ROM linker
     scripts (which may name more, or name them differently: ELF files carry
     those), then the esp_rom API aliases (`PROVIDE ( esp_rom_printf =
     ets_printf );`, in <chip>.rom.api.ld and, on the RISC-V chips,
@@ -399,7 +396,7 @@ def main():
         rom_funcs = [n for n, a in table.items() if any(s <= a < e for s, e in code)]
         typed = sum(1 for n in rom_funcs if n in objects)
         data = sum(1 for o in objects.values() if o[0] == "data")
-        print(f"{chip}: {typed}/{len(rom_funcs)} of rom_symbols.rs's ROM functions typed "
+        print(f"{chip}: {typed}/{len(rom_funcs)} of the ROM symbol file's functions typed "
               f"({100 * typed / len(rom_funcs):.0f}%), {data} variables, {len(objects)} objects in all, "
               f"{os.path.getsize(path)} bytes")
         if args.dump:
