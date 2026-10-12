@@ -15,7 +15,7 @@ Everything the test writes goes in that directory, which is removed at exit
 unless $BN_XTENSA_KEEP_TMP is set to a non-empty value.
 
 The mask ROM image checks need Espressif's esp-rom-elfs release archive (the
-one pinned in src/espressif/rom_images.rs): set $BN_XTENSA_ROM_TARBALL to
+one pinned in view/espressif/src/rom_images.rs): set $BN_XTENSA_ROM_TARBALL to
 its path, or they are skipped. The other checks run without ROM images, as
 an ESP-IDF install's ROM ELF files are hidden from the plugin.
 """
@@ -1854,8 +1854,8 @@ print("Mask ROM images:")
 
 
 def pinned_release():
-    """The esp-rom-elfs release pinned in src/espressif/rom_images.rs."""
-    src = open(os.path.join(ROOT, "src", "espressif", "rom_images.rs")).read()
+    """The esp-rom-elfs release pinned in view/espressif/src/rom_images.rs."""
+    src = open(os.path.join(ROOT, "view", "espressif", "src", "rom_images.rs")).read()
     body = src[src.index("pub const RELEASE: Release"):]
     return {k: re.search(rf'{k}: "([^"]+)"', body).group(1) for k in ("tag", "url", "sha256")}
 
@@ -2419,7 +2419,7 @@ def headless_download_checks(archive, release):
 if os.environ.get("BN_XTENSA_ROM_TARBALL"):
     rom_image_checks(os.environ["BN_XTENSA_ROM_TARBALL"])
 else:
-    print("  skipped: set BN_XTENSA_ROM_TARBALL to the esp-rom-elfs archive pinned in src/espressif/rom_images.rs")
+    print("  skipped: set BN_XTENSA_ROM_TARBALL to the esp-rom-elfs archive pinned in view/espressif/src/rom_images.rs")
 
 # Each chip's ROM type library names its platform (gen_rom_types.py adds
 # it before finalizing), so the platform finds it. A library loaded from a

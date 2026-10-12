@@ -18,7 +18,7 @@
 //!   segments. The `irom0` data is mapped at `0x40200000 + flash offset`.
 //! * **Flash dumps**: dumps with a partition table at 0x8000 are split into
 //!   their bootloader, partition table and partitions by the `EspFlash`
-//!   container transform (see [`crate::espressif::container`]). Where the
+//!   container transform (see [`crate::container`]). Where the
 //!   view is given the whole dump instead, only one image of it is loaded:
 //!   the factory (or first OTA) application, or the app partition or
 //!   bootloader the `files.espressif.partition` setting selects. ESP8266
@@ -27,7 +27,7 @@
 
 use std::collections::HashSet;
 
-use crate::espressif::{Chip, EntryHint, Family};
+use crate::{Chip, EntryHint, Family};
 
 pub const IMAGE_MAGIC: u8 = 0xE9;
 pub const IMAGE_V2_MAGIC: u8 = 0xEA;

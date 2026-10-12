@@ -20,7 +20,7 @@
 
 use std::sync::OnceLock;
 
-use crate::espressif::{Chip, Symbols};
+use crate::{Chip, Symbols};
 
 /// A chip's ROM symbol tables.
 #[derive(Debug)]
@@ -38,39 +38,36 @@ pub struct RomSymbols {
 static FILES: [(Chip, &str); 9] = [
     (
         Chip::Esp8266,
-        include_str!("../../data/rom_symbols/esp8266.txt"),
+        include_str!("../data/rom_symbols/esp8266.txt"),
     ),
-    (
-        Chip::Esp32,
-        include_str!("../../data/rom_symbols/esp32.txt"),
-    ),
+    (Chip::Esp32, include_str!("../data/rom_symbols/esp32.txt")),
     (
         Chip::Esp32S2,
-        include_str!("../../data/rom_symbols/esp32s2.txt"),
+        include_str!("../data/rom_symbols/esp32s2.txt"),
     ),
     (
         Chip::Esp32S3,
-        include_str!("../../data/rom_symbols/esp32s3.txt"),
+        include_str!("../data/rom_symbols/esp32s3.txt"),
     ),
     (
         Chip::Esp32C2,
-        include_str!("../../data/rom_symbols/esp32c2.txt"),
+        include_str!("../data/rom_symbols/esp32c2.txt"),
     ),
     (
         Chip::Esp32C3,
-        include_str!("../../data/rom_symbols/esp32c3.txt"),
+        include_str!("../data/rom_symbols/esp32c3.txt"),
     ),
     (
         Chip::Esp32C6,
-        include_str!("../../data/rom_symbols/esp32c6.txt"),
+        include_str!("../data/rom_symbols/esp32c6.txt"),
     ),
     (
         Chip::Esp32H2,
-        include_str!("../../data/rom_symbols/esp32h2.txt"),
+        include_str!("../data/rom_symbols/esp32h2.txt"),
     ),
     (
         Chip::Esp32C5,
-        include_str!("../../data/rom_symbols/esp32c5.txt"),
+        include_str!("../data/rom_symbols/esp32c5.txt"),
     ),
 ];
 

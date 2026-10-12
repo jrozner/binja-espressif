@@ -2,11 +2,11 @@
 # workflow), where checkouts otherwise get CRLF line endings.
 *.sh text eol=lf
 
-# The vendored SVD files are checked against the SHA-256s in svd/SOURCES:
+# The vendored SVD files are checked against the SHA-256s in view/espressif/svd/SOURCES:
 # keep their bytes as downloaded (no CRLF conversion). GitHub collapses their
 # multi-megabyte diffs in pull requests; git still diffs them as text.
-svd/*.svd -text linguist-generated
+view/espressif/svd/*.svd -text linguist-generated
 
 # The generated ROM symbol tables (scripts/gen_rom_symbols.py), embedded in
 # the plugin: LF everywhere, and collapsed in pull request diffs.
-data/rom_symbols/*.txt text eol=lf linguist-generated
+view/espressif/data/rom_symbols/*.txt text eol=lf linguist-generated

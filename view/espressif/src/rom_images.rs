@@ -26,8 +26,8 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use crate::espressif::elf::elf_symbols;
-use crate::espressif::{Chip, Family};
+use crate::elf::elf_symbols;
+use crate::{Chip, Family};
 
 /// A release of esp-rom-elfs: the archive the plugin downloads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -322,7 +322,7 @@ impl RomElf {
             .partition(|s| s.function);
         functions.sort_by_key(|s| s.value);
         labels.sort_by_key(|s| s.value);
-        let pairs = |v: Vec<&crate::espressif::elf::ElfSymbol>| -> Vec<(String, u32)> {
+        let pairs = |v: Vec<&crate::elf::ElfSymbol>| -> Vec<(String, u32)> {
             v.into_iter().map(|s| (s.name.clone(), s.value)).collect()
         };
         let elf = RomElf {
@@ -393,7 +393,7 @@ impl RomElf {
     /// [`RegionKind::RomData`]): the address of its first byte and the bytes
     /// up to its last, zero between segments; `None` if there is none.
     ///
-    /// [`RegionKind::RomData`]: crate::espressif::image::RegionKind::RomData
+    /// [`RegionKind::RomData`]: crate::image::RegionKind::RomData
     pub fn data_alias(&self, start: u32, end: u32) -> Option<(u32, Vec<u8>)> {
         let inside: Vec<_> = self
             .aliased
@@ -1154,7 +1154,7 @@ mod tests {
     #[test]
     #[ignore]
     fn real_rom_elfs() {
-        use crate::espressif::image::RegionKind::RomData;
+        use crate::image::RegionKind::RomData;
         let dir = PathBuf::from(std::env::var("BN_XTENSA_ROM_ELFS").expect("BN_XTENSA_ROM_ELFS"));
         let mut checked = 0;
         for entry in std::fs::read_dir(&dir).unwrap() {

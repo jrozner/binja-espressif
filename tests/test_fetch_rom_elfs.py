@@ -79,7 +79,7 @@ class Tests(unittest.TestCase):
                 fetch.pinned_release(path)
 
     def test_chips_match_the_plugin(self):
-        src = read(os.path.join(ROOT, "src", "espressif", "mod.rs")).decode()
+        src = read(os.path.join(ROOT, "view", "espressif", "src", "lib.rs")).decode()
         body = src[src.index("pub fn platform_name"):]
         body = body[:body.index("\n    }\n")]
         self.assertEqual(sorted(re.findall(r'=> "(\w+)"', body)), sorted(fetch.CHIPS))

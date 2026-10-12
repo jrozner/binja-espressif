@@ -53,8 +53,8 @@ use binaryninja::rc::Ref;
 use binaryninja::settings::{QueryOptions, Settings};
 use binaryninja::workflow::{Activity, AnalysisContext, Workflow, activity};
 
-use crate::espressif::rom_images::{self, Found, LICENSE, NOTICE, RELEASE, Release, SOURCE};
-use crate::espressif::{Chip, cache, rom_status, rom_types, view::EspViewType};
+use crate::rom_images::{self, Found, LICENSE, NOTICE, RELEASE, Release, SOURCE};
+use crate::{Chip, cache, rom_status, rom_types, view::EspViewType};
 
 /// A directory of ROM ELF files, searched first.
 pub const ELF_DIRECTORY: &str = "espressif.rom.elfDirectory";
@@ -468,7 +468,7 @@ pub fn register_activity() {
     });
     let registered = Workflow::cloned("core.module.metaAnalysis")
         .ok_or(())
-        .and_then(|w| w.activity_before(&step, crate::espressif::elf::FIRST_STEP))
+        .and_then(|w| w.activity_before(&step, crate::elf::FIRST_STEP))
         .and_then(|w| w.register());
     if registered.is_err() {
         tracing::error!("cannot register the Espressif ROM image step");

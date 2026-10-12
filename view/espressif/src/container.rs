@@ -32,9 +32,7 @@ use binaryninja::transform::{
 };
 use sha2::{Digest, Sha256};
 
-use crate::espressif::image::{
-    self, DUMP_BASES, PARTITION_TABLE_OFFSET, PARTITION_TABLE_SIZE, Partition,
-};
+use crate::image::{self, DUMP_BASES, PARTITION_TABLE_OFFSET, PARTITION_TABLE_SIZE, Partition};
 
 /// The setting that chooses the file of a flash dump to open headless: a
 /// partition's label, [`BOOTLOADER`], [`PARTITION_TABLE`], empty for the

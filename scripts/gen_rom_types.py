@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Generates data/rom_types/<chip>.bntl: a Binary Ninja type library for each
+"""Generates view/espressif/data/rom_types/<chip>.bntl: a Binary Ninja type library for each
 chip's mask ROM, with the prototypes of its functions and the types of its
 data, from ESP-IDF's ROM headers and newlib's headers.
 
 The plugin embeds the libraries and types the ROM functions an image or ELF
-calls with them (see src/espressif/rom_types.rs), so that their call sites
+calls with them (see view/espressif/src/rom_types.rs), so that their call sites
 decompile with the right arguments and return values.
 
 Usage: scripts/gen_rom_types.py [--plugin LIB] HEADERS CHIP...
@@ -35,7 +35,7 @@ What goes into a chip's library:
   fields wrongly), newlib's headers in place of the host's, the chip's
   default sdkconfig.h, and the include directories of an ESP-IDF build.
 * Names: every name of a ROM function or variable of the chip that has a
-  declaration: those of data/rom_symbols/<chip>.txt (of any chip revision),
+  declaration: those of view/espressif/data/rom_symbols/<chip>.txt (of any chip revision),
   those of the ESP-IDF version's ROM linker scripts and its esp_rom API
   aliases (`esp_rom_printf = ets_printf`), which ELF files carry. Names
   without a declaration take that of another name at the same address, and
@@ -61,8 +61,8 @@ import tempfile
 import uuid
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, "data", "rom_types")
-ROM_SYMBOLS = os.path.join(ROOT, "data", "rom_symbols")
+OUT = os.path.join(ROOT, "view", "espressif", "data", "rom_types")
+ROM_SYMBOLS = os.path.join(ROOT, "view", "espressif", "data", "rom_symbols")
 EXTRA = os.path.join(ROOT, "scripts", "rom_types_extra.h")
 
 IDF_VERSION = "v5.4.1"
@@ -71,7 +71,7 @@ CHIPS = ["esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3", "esp32c6", "esp32h
 XTENSA = {"esp32", "esp32s2", "esp32s3"}
 
 # The ROM's code on the Xtensa chips: the chip's "rom" region in
-# src/espressif/image.rs. The RISC-V chips' ranges are read from their
+# view/espressif/src/image.rs. The RISC-V chips' ranges are read from their
 # ROM symbol files (`code` lines).
 XTENSA_ROM = {"esp32": (0x40000000, 0x40070000), "esp32s2": (0x40000000, 0x40020000),
               "esp32s3": (0x40000000, 0x40060000)}
@@ -182,7 +182,7 @@ def headers(idf, chip):
 
 def rom_tables():
     """{chip: ({name: addr} of every revision's tables, [(start, end)] code)}
-    from data/rom_symbols/<chip>.txt (see src/espressif/rom_symbols.rs for
+    from view/espressif/data/rom_symbols/<chip>.txt (see view/espressif/src/rom_symbols.rs for
     the format)."""
     out = {}
     for chip in CHIPS:

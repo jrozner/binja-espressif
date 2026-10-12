@@ -52,8 +52,8 @@ use binaryninja::binary_view::{BinaryView, MetadataStoreFlags};
 use binaryninja::metadata::Metadata;
 use binaryninja::rc::Ref;
 
-use crate::espressif::rom_images::{Found, parse_member_name};
-use crate::espressif::{Chip, rom_download, rom_types};
+use crate::rom_images::{Found, parse_member_name};
+use crate::{Chip, rom_download, rom_types};
 
 /// The view metadata key.
 pub const METADATA: &str = "espressif.rom";

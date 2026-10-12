@@ -1,7 +1,9 @@
-//! The `ilp32` calling convention for Binary Ninja's `rv32gc` architecture,
-//! the soft-float RISC-V integer ABI that ESP-IDF uses on Espressif's
-//! RISC-V cores. Nothing here knows about Espressif's chips or firmware
-//! (see `crate::espressif`).
+//! Binary Ninja plugin adding the `ilp32` calling convention to Binary
+//! Ninja's `rv32gc` architecture (the `arch_riscv` plugin): the soft-float
+//! RISC-V integer ABI that ESP-IDF uses on Espressif's RISC-V cores, which
+//! have no FPU. Nothing here knows about Espressif's chips or firmware (see
+//! `view_espressif`). It belongs in `arch_riscv` itself, and is kept here
+//! until it is proposed there.
 
 use binaryninja::architecture::{ArchitectureExt, CoreArchitecture, Register, RegisterId};
 use binaryninja::binary_view::BinaryView;
@@ -366,6 +368,31 @@ pub fn register() {
         gp,
     };
     register_calling_convention(&arch, ILP32, |core| Ilp32 { core, regs });
+}
+
+/// The plugin's entry point when it is built on its own (without the
+/// `bundled` feature, which leaves it to the plugin that links this crate).
+#[cfg(not(feature = "bundled"))]
+#[unsafe(no_mangle)]
+#[allow(non_snake_case)]
+pub extern "C" fn CorePluginInit() -> bool {
+    binaryninja::tracing_init!("RISC-V");
+    register();
+    true
+}
+
+/// See [`CorePluginInit`].
+#[cfg(not(feature = "bundled"))]
+#[unsafe(no_mangle)]
+#[allow(non_snake_case)]
+pub extern "C" fn CorePluginDependencies() {
+    plugin_dependencies();
+}
+
+/// Declares the plugins this one needs loaded first: Binary Ninja's RISC-V
+/// architecture plugin, whose `rv32gc` gets the convention.
+pub fn plugin_dependencies() {
+    binaryninja::add_optional_plugin_dependency("arch_riscv");
 }
 
 #[cfg(test)]
