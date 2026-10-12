@@ -48,7 +48,9 @@ What goes into a chip's library:
   those of the ESP-IDF version's ROM linker scripts and its esp_rom API
   aliases (`esp_rom_printf = ets_printf`), which ELF files carry, and those
   the older releases' (--older) give the same addresses, which ELF files
-  built with them carry (see rom_names). Names without a declaration take
+  built with them carry (see rom_names), but not the names that the ROM
+  symbol file leaves out because the ROM names their address otherwise
+  (see conflicting()). Names without a declaration take
   that of `rom_<name>` (ESP-IDF v6 renamed the ROM's gpio_matrix_out
   rom_gpio_matrix_out) or of another name at the same address; a
   `<name>_rom` or `_rom_<name>` ROM function takes the prototype of
@@ -268,18 +270,44 @@ def ld_symbols(path):
     linker script, as (name, address or name). A script that sets every name
     to one address is a placeholder (esp32s3.rom.ble_*.ld, see
     gen_rom_symbols.py) and gives none."""
-    text = re.sub(r"/\*.*?\*/", "", open(path).read(), flags=re.S)
+    with open(path) as f:
+        text = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
     syms = [(name, int(value, 16) if value.startswith("0x") else value) for name, value in LD_SYMBOL.findall(text)]
     if len(syms) > 1 and len({value for _, value in syms}) == 1 and isinstance(syms[0][1], int):
         return []
     return syms
 
 
-def idf_names(idf, chip, names):
+def conflicting(scripts, table):
+    """The names that linker scripts ([(file, [(name, address)])]) give an
+    address another script gives a name of the ROM symbol file (table,
+    {name: address}), and that the file does not have, as {(name, address)}:
+    those gen_rom_symbols.py left out, since the ROM names the address
+    otherwise (its "Conflicting names"; esp32s3.rom.bt_funcs.ld's
+    r_lld_con_frm_isr_hook = 0x40001c98, the ROM's crc32_le). Aliases from
+    one script are kept."""
+    at = {}
+    for f, syms in scripts:
+        for name, addr in syms:
+            at.setdefault(addr, {}).setdefault(name, set()).add(f)
+    out = set()
+    for addr, named in at.items():
+        tabled = [n for n in named if table.get(n) == addr]
+        files = set().union(*(named[n] for n in tabled))
+        for name, fs in named.items():
+            if tabled and name not in tabled and not fs & files:
+                out.add((name, addr))
+    return out
+
+
+def idf_names(idf, chip, names, table, left_out=None):
     """Adds to names ({name: address}) those of an ESP-IDF tree's ROM linker
     scripts, with the ones ESP-IDF v6 moved out of esp_rom (MOVED_SCRIPTS),
-    then its esp_rom API aliases (`PROVIDE ( esp_rom_printf = ets_printf );`,
-    in <chip>.rom.api.ld and, on the RISC-V chips, riscv/ld/rom.api.ld)."""
+    but not the conflicting ones (see conflicting(); table is the ROM symbol
+    file's {name: address}), then its esp_rom API aliases (`PROVIDE (
+    esp_rom_printf = ets_printf );`, in <chip>.rom.api.ld and, on the RISC-V
+    chips, riscv/ld/rom.api.ld). The conflicting names are added to left_out
+    ({(name, address)}), if given."""
     ld = os.path.join(idf, "components", "esp_rom", chip, "ld")
     api = [os.path.join(ld, f"{chip}.rom.api.ld")]
     if chip not in XTENSA:
@@ -287,11 +315,16 @@ def idf_names(idf, chip, names):
     paths = [os.path.join(ld, f) for f in sorted(os.listdir(ld))]
     for pattern in MOVED_SCRIPTS:
         paths += sorted(glob.glob(os.path.join(idf, "components", pattern.format(chip=chip))))
-    for path in paths:
-        if path.endswith(".ld") and path not in api:
-            for name, addr in ld_symbols(path):
-                if isinstance(addr, int) and addr:
-                    names.setdefault(name, addr)
+    scripts = [(os.path.basename(path), [(name, addr) for name, addr in ld_symbols(path)
+                                         if isinstance(addr, int) and addr])
+               for path in paths if path.endswith(".ld") and path not in api]
+    conflicts = conflicting(scripts, table)
+    if left_out is not None:
+        left_out |= conflicts
+    for _, syms in scripts:
+        for name, addr in syms:
+            if (name, addr) not in conflicts:
+                names.setdefault(name, addr)
     for path in api:
         if os.path.exists(path):
             for name, target in ld_symbols(path):
@@ -303,7 +336,8 @@ def idf_names(idf, chip, names):
 
 def idf_version(idf):
     """(major, minor) of an ESP-IDF tree, from esp_idf_version.h."""
-    text = open(os.path.join(idf, "components", "esp_common", "include", "esp_idf_version.h")).read()
+    with open(os.path.join(idf, "components", "esp_common", "include", "esp_idf_version.h")) as f:
+        text = f.read()
     return tuple(int(re.search(rf"#define ESP_IDF_VERSION_{part}\s+(\d+)", text).group(1)) for part in ("MAJOR", "MINOR"))
 
 
@@ -314,14 +348,19 @@ def rom_names(idf, chip, table, older=()):
     ELF files carry those; see idf_names), then the other names that earlier
     ESP-IDF releases (`older`) give the addresses these name: ELF files built
     with those releases carry them (gpio_matrix_out, now rom_gpio_matrix_out;
-    esp_rom_regi2c_read, an alias of the ROM's rom_i2c_readReg until v6.0)."""
-    names = idf_names(idf, chip, dict(table))
+    esp_rom_regi2c_read, an alias of the ROM's rom_i2c_readReg until v6.0).
+    The names that the ROM symbol file leaves out because the ROM names
+    their address otherwise are left out here too (see conflicting()), and
+    a name left out of a release is not taken from an older one (ESP-IDF
+    v5.3 has the S3's hooks in esp32s3.rom.ld, with the CRC functions)."""
+    left_out = set()
+    names = idf_names(idf, chip, dict(table), table, left_out)
     named = set(names.values())
     for old in older:
         if idf_version(old) < OLDER_MIN_VERSION.get(chip, (0, 0)):
             continue
-        for name, addr in idf_names(old, chip, {}).items():
-            if name not in names and addr in named:
+        for name, addr in idf_names(old, chip, {}, table, left_out).items():
+            if name not in names and addr in named and (name, addr) not in left_out:
                 names[name] = addr
     return names
 
@@ -500,4 +539,5 @@ def main():
                     f.write(f"{kind} {name}: {t}" + (f"  [via {via}]" if via != name else "") + "\n")
 
 
-main()
+if __name__ == "__main__":
+    main()
