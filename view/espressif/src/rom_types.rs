@@ -1033,12 +1033,16 @@ pub fn apply<'a>(view: &BinaryView, chip: Chip, symbols: impl IntoIterator<Item 
 ///   take its definition. Those imported under an earlier GUID, which the
 ///   view no longer finds the library of, are imported again under this
 ///   one; importing them as they are would add duplicates (`__uint32_t_1`).
+/// * The ROM table's names the view has no symbol for yet are defined, as
+///   the view's loading defines them (an ELF file's fix-ups do not run
+///   again for a database).
 /// * The ROM functions and variables are typed as [`apply`] types them
 ///   ([`pick_typed`] over the ROM symbols the view has), in the ROM code
 ///   regions the database keeps: the ones not typed yet get the library's
 ///   prototype, and the typed ones whose prototype changed get the new one.
 ///   Each is recorded as imported from the library, whatever it was
-///   recorded as before.
+///   recorded as before. A variable the user defined is left alone, unless
+///   it is recorded as imported from the library.
 /// * With a ROM image in the regions, their prototypes are pinned and the
 ///   functions the jump table entries among them jump to are typed, as
 ///   [`use_image`] does. The chip's ROM ELF file is typed again as
@@ -1142,6 +1146,7 @@ fn retype(view: &BinaryView, chip: Chip, lib: &TypeLibrary, platform: &Platform)
         .iter()
         .map(|o| (o.name.to_string(), o.ty.type_class()))
         .collect();
+    define_missing_rom_symbols(view, chip);
     let symbols = view_rom_symbols(view, chip);
     let (functions, data): (Vec<_>, Vec<_>) = symbols
         .iter()
@@ -1224,14 +1229,49 @@ fn retype(view: &BinaryView, chip: Chip, lib: &TypeLibrary, platform: &Platform)
             continue;
         };
         match view.data_variable_at_address(addr) {
-            Some(var) if !var.auto_discovered => continue, // the user's
             Some(var) if *var.ty.contents == *ty && recorded(addr, name) => continue,
+            // The user's, typed from the library before.
+            Some(var) if !var.auto_discovered => {
+                let imported = view
+                    .lookup_imported_object_library(addr, platform)
+                    .is_some_and(|(l, _)| l.name() == lib.name());
+                if !imported {
+                    continue;
+                }
+                view.define_user_data_var(addr, &*ty);
+            }
             _ => view.define_auto_data_var(addr, &*ty),
         }
         view.record_imported_object_library(lib, name.as_str(), addr, platform);
         typed += 1;
     }
     typed
+}
+
+/// Defines the ROM table's names that the view has no symbol for, at
+/// addresses without one: an ESP image's revision's (see
+/// [`Chip::rom_symbols_for_revision`]), or for an ELF file, every
+/// revision's, as the ELF fix-ups define them.
+fn define_missing_rom_symbols(view: &BinaryView, chip: Chip) {
+    let names: Vec<(&str, u32)> = if view.view_type() == "ELF" {
+        chip.rom_symbols().0.to_vec()
+    } else {
+        chip.rom_symbols_for_revision(rom_download::min_revision(view))
+            .copied()
+            .collect()
+    };
+    for (name, addr) in names {
+        let addr64 = addr as u64;
+        if view.symbol_by_address(addr64).is_some() || view.symbol_by_raw_name(name).is_some() {
+            continue;
+        }
+        let kind = if chip.is_rom_function(addr) {
+            SymbolType::ImportedFunction
+        } else {
+            SymbolType::Data
+        };
+        view.define_auto_symbol(&SymbolBuilder::new(kind, name, addr64).create());
+    }
 }
 
 /// The ROM symbols the view has, by preference as [`apply`] takes them:

@@ -1348,11 +1348,15 @@ def check_rom_types_updated(chip, chip_id, image):
     ets_status = bv.get_type_by_name("ETS_STATUS")
     removed = next(f for f in rom_functions(bv) if f.start in records and f.name != "memset")
     removed_name = removed.name
+    # A ROM variable the user retyped.
+    variable = next(v for v in bv.data_vars.values() if bv.lookup_imported_object_library(v.address, platform))
+    variable_type = str(variable.type)
     check("espressif.rom.typeLibrary" in bv.metadata, f"{label}: records the library it is typed from")
     bv.remove_metadata("espressif.rom.typeLibrary")
     memset.type = bn.Type.function(bn.Type.int(4), [])
     bv.define_type(bv.get_type_id("ETS_STATUS"), "ETS_STATUS", bn.Type.int(4))
     bv.remove_function(removed)
+    bv.define_user_data_var(variable.address, bn.Type.int(2))
     bv.update_analysis_and_wait()
     check(bv.get_function_at(removed.start) is None and str(func(bv, "memset").type) != types[memset.start],
           f"{label}: changed before it is saved")
@@ -1369,6 +1373,9 @@ def check_rom_types_updated(chip, chip_id, image):
         check(f is not None and f.name == removed_name, f"{label} {reopen}: {removed_name} is typed again")
         check(recorded(bv) == records, f"{label} {reopen}: imported from the library ({len(recorded(bv))} of {len(records)})")
         check(str(bv.get_type_by_name("ETS_STATUS")) == str(ets_status), f"{label} {reopen}: ETS_STATUS is the library's")
+        var = bv.get_data_var_at(variable.address)
+        check(var is not None and str(var.type) == variable_type,
+              f"{label} {reopen}: the variable at {variable.address:#x} is the library's {variable_type} ({var and var.type})")
         check([l.name for l in bv.type_libraries] == [f"espressif-rom-{chip}"], f"{label} {reopen}: lists the library")
         if chip in ("esp32", "esp32s2", "esp32s3"):
             call0 = [f.name for f in rom_functions(bv) if f.calling_convention.name == "call0"]

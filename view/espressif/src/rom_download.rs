@@ -306,6 +306,14 @@ pub fn record_min_revision(view: &BinaryView, rev: u16) {
     );
 }
 
+/// The minimum chip revision an ESP image requires, as recorded by
+/// [`record_min_revision`], or 0.
+pub fn min_revision(view: &BinaryView) -> u16 {
+    view.get_metadata::<u64>(MIN_REVISION_METADATA)
+        .and_then(|r| u16::try_from(r).ok())
+        .unwrap_or(0)
+}
+
 /// A chip revision as `v3.0`, `3.0` or `300` (major * 100 + minor).
 pub fn parse_revision(text: &str) -> Option<u16> {
     let text = text.trim();
