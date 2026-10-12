@@ -57,6 +57,13 @@ It provides:
   architecture's own `default` passes floating point values in `fa0`–`fa7`),
   is the RISC-V chip platforms' default.
 - **Zero-overhead loops** (`loop`/`loopnez`/`loopgtz`) recovered as real loops.
+- **Windowed stack frames**: the register save areas at the top of an
+  `entry` frame (32 bytes, as GCC lays it out) end the function's locals,
+  so a local whose address is passed on keeps its size instead of growing
+  into an array that reaches the top of the frame. `entry` reads the bottom
+  word of the save areas into an unused temporary for this (`temp0 =
+  var_20` in the MLIL); the read is not one the processor makes, and dead
+  code elimination leaves it out of the HLIL.
 - **Patching** on the Xtensa architectures: converting to nops (`nop`,
   `nop.n`), never branch, invert branch (every conditional branch, narrow
   `beqz.n`/`bnez.n` included) and always branch (a 3-byte branch becomes a

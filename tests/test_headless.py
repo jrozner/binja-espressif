@@ -625,6 +625,36 @@ check(len(esp32.get_instruction_info(nop, 0x40080021).branches) == 2, "ESP32: lo
 check(not bn.Architecture["xtensa-esp8266"].get_instruction_info(nop, 0x40080021).branches,
       "ESP8266: no loop edge from an ESP32 loop at the same address")
 
+print("Windowed stack frames:")
+# A local just below the register save areas at the top of the frame, whose
+# address goes to a callee that takes a uint32_t *: it stays a uint32_t,
+# not an array reaching the top of the frame (uint32_t out[0x9]).
+frame_code = bytes.fromhex(
+    "366100"  # entry a1, 48
+    "cbb1"    # addi.n a11, a1, 12
+    "0c0a"    # movi.n a10, 0
+    "a50100"  # call8 0x20
+    "2831"    # l32i.n a2, a1, 12
+    "1df0"    # retw.n
+).ljust(0x20, b"\0") + bytes.fromhex(
+    "364100"  # entry a1, 32
+    "2903"    # s32i.n a2, a3, 0
+    "1df0"    # retw.n
+)
+esp32_platform = bn.Platform["esp32"]
+bv = bn.BinaryView.new(frame_code)
+bv.platform = esp32_platform
+bv.arch = esp32_platform.arch
+callee = bv.create_user_function(0x20, esp32_platform)
+callee.type = bv.parse_type_string("int32_t get(int32_t zero, uint32_t *out)")[0]
+f = bv.create_user_function(0, esp32_platform)
+bv.update_analysis_and_wait()
+out = f.get_stack_var_at_frame_offset(-0x24, 0)
+check(out is not None and str(out.type) == "uint32_t", f"the topmost local keeps its size: {out.type if out else None}")
+text = hlil_text(f)
+check(text.count("\n") == 2 and "sub_20(0, &out)" in text and "return out" in text and "var_" not in text,
+      f"nothing of the save area in the HLIL: {text!r}")
+
 print("RISC-V images:")
 
 
