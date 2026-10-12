@@ -465,12 +465,24 @@ fn default_to_call0(bv: &BinaryView, func: &Function, call0: &CoreCallingConvent
 ///   are left alone, and so are calls through a typed function pointer: the
 ///   core types those from the pointer itself, at full confidence, on every
 ///   analysis, so the pointer's type needs `__convention("call0")`.
+///
+/// The typed ROM functions (see
+/// [`crate::espressif::rom_types::rom_function_name`]) only get the second:
+/// their type and what they clobber come from the ROM's API (see
+/// [`crate::espressif::rom_types::RomRecognizer`]), but the calls they make
+/// are theirs.
 pub struct WindowRecognizer {
     pub call0: Ref<CoreCallingConvention>,
 }
 
-/// The confidence of the `callx0` sites' types: below the user's.
-const CALL_TYPE_CONFIDENCE: u8 = 128;
+/// The confidence of the `callx0` sites' types: below the user's, but not
+/// below Binary Ninja's heuristic confidence (`BN_HEURISTIC_CONFIDENCE`).
+/// In a function with a user type (a typed ROM function's, say), a call
+/// through a parameter of a pointer type that is not a function pointer
+/// (`memset`'s `void *`) loses a call type below that on every analysis:
+/// typed again each time, the function would be analyzed again until Binary
+/// Ninja skipped its analysis.
+const CALL_TYPE_CONFIDENCE: u8 = 192;
 
 impl FunctionRecognizer for WindowRecognizer {
     fn recognize_low_level_il(
@@ -479,13 +491,15 @@ impl FunctionRecognizer for WindowRecognizer {
         func: &Function,
         llil: &LowLevelILRegularFunction,
     ) -> bool {
+        // A ROM function's own calls are analyzed like any other's.
+        self.type_call0_sites(bv, func, llil);
         // Mask ROM functions are typed from the ROM type library: their
-        // type says how to call them. Their region holds zeros, or a ROM
-        // image whose jump table entries have no `entry` either.
+        // type says how to call them, and `RomRecognizer` says what they
+        // clobber. Their region holds zeros, or a ROM image whose jump table
+        // entries have no `entry` either.
         if crate::espressif::rom_types::rom_function_name(bv, func).is_some() {
             return false;
         }
-        self.type_call0_sites(bv, func, llil);
         let mut code = [0u8; 3];
         let len = bv.read(&mut code, func.start());
         if !crate::xtensa::is_entry_insn(&code[..len]) {
