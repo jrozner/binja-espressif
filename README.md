@@ -178,7 +178,14 @@ It provides:
   *Open with Options* → *Platform*, or
   `bn.load(path, options={"loader.platform": "esp32s3"})`. It takes
   precedence over the recognised chip.
-- **ESP-IDF ELF files** analyze like firmware images: sections in the
+- **ESP-IDF ELF files** analyze like firmware images. On the C6, H2 and
+  C5, whose code and data share one flash window, ESP-IDF (v5.x and v6.1)
+  starts the rodata's PT_LOAD at the code's address with the zeros of
+  `.flash_rodata_dummy`, a `NOLOAD` placeholder the size of the code, and
+  Binary Ninja maps that PT_LOAD over the code's: the code is mapped from
+  the file again, and placeholder sections (also the S3's `.ext_ram.dummy`
+  over `.flash.rodata`) are trimmed off the code and data they overlap,
+  so that these are not writable to analysis. Sections in the
   chip's flash data (`.flash.rodata`, which ESP-IDF marks writable) are made
   read-only data, so jump tables and constants in them resolve; the mask
   ROM's functions and data are named from the ELF's `ABS` symbols, and from
@@ -863,7 +870,9 @@ without `-mlongcalls`, ESP-IDF style with `-ffunction-sections`, and
 lists their relocations with objdump: the test checks every
 `R_XTENSA_SLOT0_OP` and `R_XTENSA_32` Binary Ninja applies against that
 listing. `tests/data/idf_*.elf`, built from `tests/data/idf_features.c` by
-`scripts/build_idf_elfs.sh`, are laid out like ESP-IDF applications and
+`scripts/build_idf_elfs.sh`, are laid out like ESP-IDF applications (`idf_esp32c6.elf`
+with the C6's `.flash_rodata_dummy` over its code, `idf_esp32s3.elf` with the
+S3's `.ext_ram.dummy` over its rodata) and
 call into the mask ROM: the test checks the ELF fix-ups and the ROM types
 (the arguments of ROM calls and libgcc helpers, a ROM structure's fields,
 that reopening a database changes nothing, and that a database typed from

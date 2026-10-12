@@ -1,11 +1,17 @@
 /* Laid out like an ESP-IDF app: `.flash.rodata` is writable (WA) and in a
  * read-write PT_LOAD, and ROM functions and data are absolute symbols, as in
- * esp_rom's esp32s3.rom*.ld. */
+ * esp_rom's esp32s3.rom*.ld.
+ *
+ * As in ESP-IDF's esp32s3/sections.ld.in (v6.1), `.ext_ram.dummy`, a
+ * NOLOAD placeholder for the flash rodata in the PSRAM address space it
+ * shares, overlaps `.flash.rodata`, in a PT_LOAD of its own before the
+ * rodata's. The page is 4 KiB here (ESP-IDF's is 64 KiB). */
 ENTRY(start)
-PHDRS { irom PT_LOAD FLAGS(5); drom PT_LOAD FLAGS(6); dram PT_LOAD FLAGS(6); }
+PHDRS { irom PT_LOAD FLAGS(5); extram PT_LOAD FLAGS(6); drom PT_LOAD FLAGS(6); dram PT_LOAD FLAGS(6); }
 SECTIONS {
   .flash.text 0x42000020 : { *(.literal .text .literal.* .text.*) } :irom
   .flash.rodata 0x3c000020 : { *(.flash.rodata_writable) *(.rodata .rodata.* .srodata*) } :drom
+  .ext_ram.dummy 0x3c000020 (NOLOAD) : { . = ALIGN(. + SIZEOF(.flash.rodata), 0x1000); } :extram
   .dram0.data 0x3fc88000 : { *(.data .data.* .sdata*) *(.bss .bss.* COMMON) } :dram
 }
 PROVIDE ( ets_printf = 0x400005d0 );
