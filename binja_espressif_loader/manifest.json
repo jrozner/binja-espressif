@@ -1,7 +1,34 @@
 {
   "schema": 1,
-  "version": "0.1.0",
+  "version": "0.1.0-rc.4",
   "repository": "jrozner/binja-espressif",
-  "build": null,
-  "assets": []
+  "build": {
+    "commit": "1bddd19cf515b84614430577438c0433e27b6569",
+    "run_id": 38291962774,
+    "api": "dev",
+    "api_source": "git+https://github.com/Vector35/binaryninja-api.git?rev=f15f46d6517159243a6907674dcc1170f10fb0d3#f15f46d6517159243a6907674dcc1170f10fb0d3"
+  },
+  "assets": [
+    {
+      "name": "binja_espressif-abi189-linux-x86_64.so",
+      "platform": "linux-x86_64",
+      "abi": 189,
+      "sha256": "0573f4c3bc85b54a4acc728e1277efc594bac28047cf3abace8d2320ab381514",
+      "size": 4150528
+    },
+    {
+      "name": "binja_espressif-abi189-macos-universal.dylib",
+      "platform": "macos-universal",
+      "abi": 189,
+      "sha256": "5b626cc14300e785d1aef814d332ebf180ab9eda2fa332cb9520a761375b5f96",
+      "size": 7500592
+    },
+    {
+      "name": "binja_espressif-abi189-windows-x86_64.dll",
+      "platform": "windows-x86_64",
+      "abi": 189,
+      "sha256": "6370f5f0663025e17bd84bb8d7441d936339979071446764bd3badb8b23ac730",
+      "size": 3259392
+    }
+  ]
 }
