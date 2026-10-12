@@ -190,8 +190,9 @@ It provides:
   right arguments and results (`__udivdi3(a, b)` on two `uint64_t`s rather
   than four registers, `ets_delay_us(n)`, `memset(&buf, c, n)`) and ROM
   data shows its fields (`rom_spiflash_legacy_data->chip.chip_size`). Every
-  chip but the ESP8266 has a type library, generated from ESP-IDF v5.4.1's
-  ROM headers (`components/esp_rom`), newlib's headers for the C library
+  chip but the ESP8266 has a type library, generated from ESP-IDF v6.1's
+  ROM headers (`components/esp_rom`, and the heap component's for the ROM's
+  TLSF and multi_heap functions), newlib's headers for the C library
   functions in the ROM, and the libgcc helpers' standard prototypes
   (`scripts/rom_types_extra.h`), and embedded in the plugin; it is unpacked
   to `<user directory>/espressif/rom_types/` at startup. The ROM's code is
@@ -204,19 +205,19 @@ It provides:
   specific ones (the ESP32 v3.0 ROM's Secure Boot v2 API) only for images
   that require that revision. All of the ROM functions that ESP-IDF's
   `hello_world` calls are typed (ESP32 and ESP32-C3); of all the names in
-  the ROM tables, from 14% (ESP32-C2) to 66% (ESP32-H2) are, as most of
+  the ROM tables, from 15% (ESP32-C2) to 62% (ESP32-H2) are, as most of
   the rest (Bluetooth, Wi-Fi and PHY internals) have no public header:
 
   | Chip     | Typed ROM functions | Variables | Library |
   |----------|---------------------|-----------|---------|
-  | ESP32    | 455 of 1736 (26%)   | 11        | 26 KiB  |
-  | ESP32-S2 | 440 of 863 (51%)    | 4         | 26 KiB  |
-  | ESP32-S3 | 465 of 1967 (24%)   | 7         | 30 KiB  |
-  | ESP32-C2 | 365 of 2544 (14%)   | 6         | 25 KiB  |
-  | ESP32-C3 | 388 of 1908 (20%)   | 6         | 27 KiB  |
-  | ESP32-C6 | 376 of 1117 (34%)   | 6         | 26 KiB  |
-  | ESP32-H2 | 363 of 553 (66%)    | 6         | 25 KiB  |
-  | ESP32-C5 | 381 of 1338 (28%)   | 6         | 26 KiB  |
+  | ESP32    | 471 of 1777 (27%)   | 11        | 27 KiB  |
+  | ESP32-S2 | 458 of 884 (52%)    | 4         | 26 KiB  |
+  | ESP32-S3 | 486 of 2035 (24%)   | 7         | 31 KiB  |
+  | ESP32-C2 | 388 of 2621 (15%)   | 6         | 26 KiB  |
+  | ESP32-C3 | 393 of 1916 (21%)   | 6         | 27 KiB  |
+  | ESP32-C6 | 396 of 1209 (33%)   | 6         | 27 KiB  |
+  | ESP32-H2 | 383 of 621 (62%)    | 6         | 25 KiB  |
+  | ESP32-C5 | 407 of 1411 (29%)   | 6         | 27 KiB  |
 
   Databases keep the types; a database saved before this feature existed is
   not retyped when reopened.
@@ -575,25 +576,33 @@ every crate links a stub core library instead of Binary Ninja's.
 
 The ROM symbol tables in `view/espressif/data/rom_symbols/` (one text file
 per chip, embedded in the plugin; `view/espressif/src/rom_symbols.rs`
-describes the format) are generated from the ROM linker scripts by
-`scripts/gen_rom_symbols.py` (see its header for the sources). The ROM type
-libraries in `view/espressif/data/rom_types/` are generated, offline, by
-`scripts/gen_rom_types.py`, which runs headless Binary Ninja with a plugin
-build (for the chip platforms) and parses the headers of the ESP-IDF version
-named in it, copied out of the `espressif/idf` docker image by
-`scripts/fetch_rom_type_headers.sh`:
+describes the format) are generated from the ROM linker scripts of ESP-IDF
+v6.1 by `scripts/gen_rom_symbols.py` (see its header for the sources and
+commands); the Xtensa chips' keep the names ESP-IDF v5.3 gave and v6.1
+dropped or renamed (`gpio_matrix_out`, now `rom_gpio_matrix_out`). The ROM
+type libraries in `view/espressif/data/rom_types/` are generated, offline,
+by `scripts/gen_rom_types.py`, which runs headless Binary Ninja with a
+plugin build (for the chip platforms) and parses the headers of the ESP-IDF
+version named in it, copied out of the `espressif/idf` docker image by
+`scripts/fetch_rom_type_headers.sh`; the names that earlier releases'
+linker scripts give the same ROM functions, which firmware built with them
+carries, are typed too (`--older`):
 
 ```sh
 cargo build --release
 scripts/fetch_rom_type_headers.sh /tmp/rom-headers
-scripts/gen_rom_types.py /tmp/rom-headers esp32 esp32s2 esp32s3 esp32c2 esp32c3 esp32c6 esp32h2 esp32c5
+scripts/fetch_rom_type_headers.sh /tmp/rom-headers-v5.5.5 v5.5.5
+scripts/fetch_rom_type_headers.sh /tmp/rom-headers-v5.4.1 v5.4.1
+scripts/gen_rom_types.py --older /tmp/rom-headers-v5.5.5 --older /tmp/rom-headers-v5.4.1 \
+    /tmp/rom-headers esp32 esp32s2 esp32s3 esp32c2 esp32c3 esp32c6 esp32h2 esp32c5
 cargo build --release   # embeds the new libraries
 ```
 
 Each library records the ESP-IDF version and the list of headers it was
 made from in its metadata (`espressif.idf_version`, `espressif.headers`):
 the chip's `components/esp_rom/<chip>/include/<chip>/rom/*.h`, esp_rom's
-chip-neutral `components/esp_rom/include/*.h`, `xtensa/xtruntime.h` and
+chip-neutral `components/esp_rom/include/*.h`, the heap component's
+`rom_patch_tlsf.h` and `rom_patch_multi_heap.h`, `xtensa/xtruntime.h` and
 `xtensa/hal.h` (Xtensa) or `riscv/interrupt.h` (RISC-V), newlib's
 `string.h`, `strings.h`, `stdio.h`, `stdlib.h`, `ctype.h`, `time.h`,
 `sys/unistd.h`, `sys/_default_fcntl.h`, `sys/lock.h`, `reent.h`,
@@ -915,7 +924,7 @@ The
 mask ROM symbol tables are derived from ESP-IDF's ROM linker scripts
 (Apache-2.0, Espressif) and the ESP8266 RTOS and NONOS SDKs' (Apache-2.0
 and the Espressif MIT License). The ROM type libraries in `view/espressif/data/rom_types/`
-are derived from ESP-IDF v5.4.1's headers (Apache-2.0, Espressif) and from
+are derived from ESP-IDF v6.1's headers (Apache-2.0, Espressif) and from
 newlib's headers as shipped with Espressif's toolchains (BSD-style licenses,
 see newlib's `COPYING.NEWLIB`). The mask ROM images are not part of the
 plugin: they are downloaded, with your consent, from
