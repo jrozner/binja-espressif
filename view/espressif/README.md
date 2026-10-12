@@ -28,8 +28,9 @@ the `arch_xtensa` plugin's Xtensa architectures, and Binary Ninja's
 The `xtensa` decoder crate finds `entry` instructions when the view scans
 code for functions.
 
-See the [repository README](../../README.md) for how to use it and what it
-does and does not do.
+See the [repository README](../../README.md) for how to use it, and
+[docs/reference.md](../../docs/reference.md) for what it does and does not
+do in detail.
 
 ## Building
 

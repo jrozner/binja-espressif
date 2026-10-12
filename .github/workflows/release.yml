@@ -35,7 +35,7 @@
 # v0.2.0-rc.1) goes through the same two runs, and its publish run must have
 # the prerelease input set (and a final version's must not): the release is
 # then marked as a pre-release and not as latest, so it is not what
-# releases/latest returns. See "Testing a release privately" in the README.
+# releases/latest returns. See docs/releasing.md.
 #
 # Assets, one per platform and core ABI:
 #

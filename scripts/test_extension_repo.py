@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Writes a static one-plugin extension repository for a release, to test
 what the extension manager installs before the plugin is listed on
-extensions.binary.ninja. See "Testing a release privately" in the README.
+extensions.binary.ninja. See "Testing a release privately" in docs/releasing.md.
 
   scripts/test_extension_repo.py v0.1.0-rc.1 --github OWNER/REPO[:BRANCH] [-o DIR]
   scripts/test_extension_repo.py v0.1.0-rc.1 --base-url URL [-o DIR]

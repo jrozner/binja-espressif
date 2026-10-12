@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Release tooling for the loader's manifest (binja_espressif_loader/manifest.json).
 
-Used by .github/workflows/release.yml; see "Releasing" in the README.
+Used by .github/workflows/release.yml; see docs/releasing.md.
 
   generate DIST --version V --repository R --commit C --run-id N --api dev|stable [--api-source S]
       Prints the manifest for the libraries in DIST (the build run's
