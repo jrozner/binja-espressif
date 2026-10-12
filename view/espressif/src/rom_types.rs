@@ -57,18 +57,18 @@ use binaryninja::segment::SegmentFlags;
 use binaryninja::symbol::{SymbolBuilder, SymbolType};
 use binaryninja::types::{Type, TypeClass, TypeLibrary};
 
-use crate::espressif::image::RegionKind;
-use crate::espressif::rom_images::{Found, RomElf};
-use crate::espressif::{Chip, cache, rom_download, rom_status};
+use crate::image::RegionKind;
+use crate::rom_images::{Found, RomElf};
+use crate::{Chip, cache, rom_download, rom_status};
 
-static ESP32: &[u8] = include_bytes!("../../data/rom_types/esp32.bntl");
-static ESP32S2: &[u8] = include_bytes!("../../data/rom_types/esp32s2.bntl");
-static ESP32S3: &[u8] = include_bytes!("../../data/rom_types/esp32s3.bntl");
-static ESP32C2: &[u8] = include_bytes!("../../data/rom_types/esp32c2.bntl");
-static ESP32C3: &[u8] = include_bytes!("../../data/rom_types/esp32c3.bntl");
-static ESP32C6: &[u8] = include_bytes!("../../data/rom_types/esp32c6.bntl");
-static ESP32H2: &[u8] = include_bytes!("../../data/rom_types/esp32h2.bntl");
-static ESP32C5: &[u8] = include_bytes!("../../data/rom_types/esp32c5.bntl");
+static ESP32: &[u8] = include_bytes!("../data/rom_types/esp32.bntl");
+static ESP32S2: &[u8] = include_bytes!("../data/rom_types/esp32s2.bntl");
+static ESP32S3: &[u8] = include_bytes!("../data/rom_types/esp32s3.bntl");
+static ESP32C2: &[u8] = include_bytes!("../data/rom_types/esp32c2.bntl");
+static ESP32C3: &[u8] = include_bytes!("../data/rom_types/esp32c3.bntl");
+static ESP32C6: &[u8] = include_bytes!("../data/rom_types/esp32c6.bntl");
+static ESP32H2: &[u8] = include_bytes!("../data/rom_types/esp32h2.bntl");
+static ESP32C5: &[u8] = include_bytes!("../data/rom_types/esp32c5.bntl");
 
 /// The prefix of the names of the memory regions that map the ROM's code.
 const REGION_PREFIX: &str = "espressif.rom";
@@ -445,7 +445,7 @@ pub const DATA_REGION: &str = "espressif.rom.data";
 /// with an image: zeros would read as the constants' values. The region is
 /// read-only data, and spans the image's data there, not the whole alias.
 ///
-/// [`RegionKind::RomData`]: crate::espressif::image::RegionKind::RomData
+/// [`RegionKind::RomData`]: crate::image::RegionKind::RomData
 pub fn add_rom_data_region(view: &BinaryView, chip: Chip, elf: &RomElf) -> bool {
     let mut map = view.memory_map();
     if map.get_region(DATA_REGION).is_some() {

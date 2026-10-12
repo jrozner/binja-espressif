@@ -108,7 +108,7 @@ It provides:
   and executable and the flash window read-only, as code.
 - **Peripheral registers from SVD**: Espressif's SVD files for the ESP32,
   ESP32-S2, ESP32-S3, ESP32-C2, ESP32-C3, ESP32-C6, ESP32-H2 and ESP32-C5
-  (Apache-2.0, see [svd/README.md](svd/README.md)) are bundled and applied
+  (Apache-2.0, see [view/espressif/svd/README.md](view/espressif/svd/README.md)) are bundled and applied
   automatically to ESP
   firmware images and ELF files by Binary Ninja's SVD loader, naming and typing every
   peripheral register (`UART0.INT_CLR.RXFIFO_FULL_INT_CLR = 9`). An SVD file chosen in *Open with
@@ -247,7 +247,7 @@ It provides:
   Images**.
 
   **Downloading** happens only with your consent, from the esp-rom-elfs
-  release pinned in `src/espressif/rom_images.rs` (20260528, 4.9 MB),
+  release pinned in `view/espressif/src/rom_images.rs` (20260528, 4.9 MB),
   over HTTPS through Binary Ninja's download provider (its proxy settings
   apply). In the UI it never holds up loading a file (the ROM region holds
   zeros meanwhile):
@@ -463,9 +463,9 @@ binaryninja-api's `vendor/bindiff` submodule has paths longer than 260
 characters, which cargo refuses to check out otherwise. The release build
 sets it, and a short `CARGO_HOME`, for the same reason.
 
-`build.rs` compresses the SVD files in `svd/` into the plugin. They are
+`build.rs` compresses the SVD files in `view/espressif/svd/` into the plugin. They are
 vendored, each pinned to an upstream commit with its SHA-256 in
-`svd/SOURCES`; `scripts/fetch_svds.sh` downloads them again and checks them
+`view/espressif/svd/SOURCES`; `scripts/fetch_svds.sh` downloads them again and checks them
 (to pick up a newer file, change its commit there and run the script with
 `--update`).
 
@@ -496,11 +496,11 @@ next to an installed `binja_xtensa-native.so`; remove that first.
 
 ### Regenerating the ROM tables and types
 
-The ROM symbol tables in `data/rom_symbols/` (one text file per chip,
-embedded in the plugin; `src/espressif/rom_symbols.rs` describes the format)
+The ROM symbol tables in `view/espressif/data/rom_symbols/` (one text file per chip,
+embedded in the plugin; `view/espressif/src/rom_symbols.rs` describes the format)
 are generated from the ROM linker scripts by `scripts/gen_rom_symbols.py`
 (see its header for the sources). The ROM type
-libraries in `data/rom_types/` are generated, offline, by
+libraries in `view/espressif/data/rom_types/` are generated, offline, by
 `scripts/gen_rom_types.py`, which runs headless Binary Ninja with a plugin
 build (for the chip platforms) and parses the headers of the ESP-IDF version
 named in it, copied out of the `espressif/idf` docker image by
@@ -745,7 +745,7 @@ done.
 ## Testing
 
 ```sh
-cargo test -p binja-xtensa -p arch_xtensa --lib --no-default-features    # image formats, partitions, loops, intrinsics, patching, relocations
+cargo test -p arch_xtensa -p arch_riscv_ilp32 -p view_espressif -p binja-xtensa --lib --no-default-features    # image formats, partitions, loops, intrinsics, patching, relocations
 cargo test --release -p arch_xtensa --features liftcheck --lib liftcheck::lift_sweep    # lifts ~1.5M encodings through the real core
 cargo build --release && tests/test_headless.py
 tests/test_loader.py                      # the Python loader and release tooling
@@ -819,17 +819,17 @@ folder means nothing is installed.
 
 ## License
 
-MIT, see [LICENSE](LICENSE). The Espressif SVD files in `svd/`, embedded in
+MIT, see [LICENSE](LICENSE). The Espressif SVD files in `view/espressif/svd/`, embedded in
 the plugin, are licensed under Apache-2.0 by Espressif
-([svd/LICENSE](svd/LICENSE)); they come unmodified from
+([view/espressif/svd/LICENSE](view/espressif/svd/LICENSE)); they come unmodified from
 [espressif/svd](https://github.com/espressif/svd) and, for the ESP32-C5,
 from [espressif/esp-bist](https://github.com/espressif/esp-bist) (that file
 carries Espressif's Apache-2.0 license text; the rest of esp-bist is
 LGPL-3.0 and is not used), at the commits listed in
-[svd/SOURCES](svd/SOURCES). The
+[view/espressif/svd/SOURCES](view/espressif/svd/SOURCES). The
 mask ROM symbol tables are derived from ESP-IDF's ROM linker scripts
 (Apache-2.0, Espressif) and the ESP8266 RTOS and NONOS SDKs' (Apache-2.0
-and the Espressif MIT License). The ROM type libraries in `data/rom_types/`
+and the Espressif MIT License). The ROM type libraries in `view/espressif/data/rom_types/`
 are derived from ESP-IDF v5.4.1's headers (Apache-2.0, Espressif) and from
 newlib's headers as shipped with Espressif's toolchains (BSD-style licenses,
 see newlib's `COPYING.NEWLIB`). The mask ROM images are not part of the

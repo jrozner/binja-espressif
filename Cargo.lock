@@ -18,6 +18,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "arch_riscv_ilp32"
+version = "0.1.0"
+dependencies = [
+ "binaryninja",
+ "binaryninjacore-sys",
+ "tracing",
+]
+
+[[package]]
 name = "arch_xtensa"
 version = "0.1.0"
 dependencies = [
@@ -76,14 +85,11 @@ dependencies = [
 name = "binja-xtensa"
 version = "0.1.0"
 dependencies = [
+ "arch_riscv_ilp32",
  "arch_xtensa",
  "binaryninja",
  "binaryninjacore-sys",
- "flate2",
- "serde_json",
- "sha2",
- "tracing",
- "xtensa",
+ "view_espressif",
 ]
 
 [[package]]
@@ -617,6 +623,19 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "view_espressif"
+version = "0.1.0"
+dependencies = [
+ "binaryninja",
+ "binaryninjacore-sys",
+ "flate2",
+ "serde_json",
+ "sha2",
+ "tracing",
+ "xtensa",
+]
 
 [[package]]
 name = "windows-link"

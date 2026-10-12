@@ -25,7 +25,7 @@ use binaryninja::binary_view::{BinaryView, CustomBinaryViewType};
 use binaryninja::settings::{QueryOptions, Settings, SettingsScope};
 use binaryninja::workflow::{Activity, AnalysisContext, Workflow, activity};
 
-use crate::espressif::{Chip, cache};
+use crate::{Chip, cache};
 
 /// The SVD loader's analysis step and setting.
 const SVD_LOADER: &str = "analysis.svd.loader";
@@ -96,7 +96,7 @@ pub fn register_activity() {
     let select = Activity::new_with_action(config, |ctx: &AnalysisContext| {
         let view = ctx.view();
         let view_type = view.view_type();
-        if view_type != crate::espressif::view::EspViewType::NAME && view_type != "ELF" {
+        if view_type != crate::view::EspViewType::NAME && view_type != "ELF" {
             return;
         }
         let Some(platform) = view.default_platform() else {

@@ -36,7 +36,7 @@ jobs:
       # The liftcheck feature's lift sweep needs a licensed Binary Ninja
       # core, so it is only linted (below), not run.
       - name: Test
-        run: cargo test -p binja-xtensa -p arch_xtensa --no-default-features --lib
+        run: cargo test -p binja-xtensa -p arch_xtensa -p arch_riscv_ilp32 -p view_espressif --no-default-features --lib
 
       # The plugins in arch/ and view/ also build on their own, exporting
       # their own entry points. A workspace build has their `bundled` feature
@@ -44,8 +44,10 @@ jobs:
       # one alone.
       - name: Build the plugins on their own
         run: |
-          cargo build -p arch_xtensa --no-default-features
-          nm -D --defined-only target/debug/libarch_xtensa.so | grep -w CorePluginInit
+          for plugin in arch_xtensa arch_riscv_ilp32 view_espressif; do
+            cargo build -p "$plugin" --no-default-features
+            nm -D --defined-only "target/debug/lib$plugin.so" | grep -w CorePluginInit
+          done
 
   # The decoder (xtensa/) on its own, also on its minimum supported Rust
   # version (rust-version in xtensa/Cargo.toml). The exhaustive tests take
@@ -119,7 +121,9 @@ jobs:
         run: |
           cargo clippy --workspace --no-default-features --all-targets -- -D warnings
           cargo clippy -p arch_xtensa --no-default-features --features liftcheck --all-targets -- -D warnings
-          cargo clippy -p arch_xtensa --no-default-features --all-targets -- -D warnings
+          for plugin in arch_xtensa arch_riscv_ilp32 view_espressif; do
+            cargo clippy -p "$plugin" --no-default-features --all-targets -- -D warnings
+          done
 
   # The Python loader (binja_xtensa_loader/), the release manifest tooling
   # and scripts/fetch_rom_elfs.py; standard library only, no Binary Ninja
@@ -168,4 +172,4 @@ jobs:
         run: cargo clippy --workspace --no-default-features --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test -p binja-xtensa -p arch_xtensa --no-default-features --lib
+        run: cargo test -p binja-xtensa -p arch_xtensa -p arch_riscv_ilp32 -p view_espressif --no-default-features --lib

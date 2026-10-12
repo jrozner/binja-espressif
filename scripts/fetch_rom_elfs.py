@@ -2,7 +2,7 @@
 """Downloads Espressif's ROM ELF files for binja-xtensa, without Binary Ninja.
 
 Fetches the esp-rom-elfs release the plugin pins (its tag, URL, size and
-SHA-256 are read from src/espressif/rom_images.rs, the one place they are
+SHA-256 are read from view/espressif/src/rom_images.rs, the one place they are
 kept), checks the archive's size and SHA-256, and unpacks only the ROM ELF
 files of the chips the plugin supports, under names made from the chip and
 revision, by the same rules as the plugin (nothing in a directory, no links,
@@ -34,13 +34,13 @@ import sys
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SOURCE = os.path.join(ROOT, "src", "espressif", "rom_images.rs")
+SOURCE = os.path.join(ROOT, "view", "espressif", "src", "rom_images.rs")
 
-# The chips the plugin supports (Chip::platform_name in src/espressif/mod.rs;
+# The chips the plugin supports (Chip::platform_name in view/espressif/src/lib.rs;
 # tests/test_fetch_rom_elfs.py checks they agree).
 CHIPS = ("esp8266", "esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3", "esp32c6", "esp32h2", "esp32c5")
 
-# The limits of src/espressif/rom_images.rs and rom_download.rs.
+# The limits of view/espressif/src/rom_images.rs and rom_download.rs.
 MAX_DOWNLOAD = 64 << 20
 MAX_ARCHIVE = 64 << 20
 MAX_MEMBER = 16 << 20

@@ -1,21 +1,27 @@
-//! Espressif's chips: their firmware image formats, memory maps, ROM
-//! symbols and peripheral registers, and the binary view that loads their
-//! firmware. Each chip's code is analyzed with the architecture of its CPU
-//! core, looked up by name.
+//! Binary Ninja plugin for Espressif's chips: their firmware image formats,
+//! memory maps, ROM symbols, types and images, and peripheral registers; the
+//! `ESP` binary view that loads their firmware, the flash dump container,
+//! fix-ups and chip recognition for their ELF files, and a platform per
+//! chip.
+//!
+//! Each chip's code is analyzed with the architecture of its CPU core,
+//! looked up by name: the Xtensa architectures of the `arch_xtensa` plugin,
+//! and Binary Ninja's `rv32gc` with the `ilp32` calling convention of the
+//! `arch_riscv_ilp32` plugin. No Rust type is shared with either.
 
-pub mod cache;
-pub mod container;
-pub mod elf;
-pub mod image;
-pub mod riscv;
-pub mod rom_download;
-pub mod rom_images;
-pub mod rom_status;
-pub mod rom_symbols;
-pub mod rom_types;
-pub mod svd;
-pub mod view;
-pub mod xtensa;
+mod cache;
+mod container;
+mod elf;
+mod image;
+mod riscv;
+mod rom_download;
+mod rom_images;
+mod rom_status;
+mod rom_symbols;
+mod rom_types;
+mod svd;
+mod view;
+mod xtensa;
 
 use std::ffi::CString;
 
@@ -32,10 +38,10 @@ use binaryninjacore_sys::{
     BNRegisterPlatformCallingConvention,
 };
 
-use crate::espressif::image::{Region, RegionKind};
-use crate::espressif::riscv::RiscVCore;
-use crate::espressif::rom_images::RomOf;
-use crate::espressif::xtensa::XtensaCore;
+use crate::image::{Region, RegionKind};
+use crate::riscv::RiscVCore;
+use crate::rom_images::RomOf;
+use crate::xtensa::XtensaCore;
 
 /// The CPU core of a chip, which decides the architecture its code is
 /// analyzed with.
@@ -771,7 +777,8 @@ fn add_calling_convention(platform: &str, arch: &str, cc: &str) {
 /// Registers the chip platforms, the mask ROM type libraries (and the
 /// recognizer for the ROM's functions), the ESP firmware view, the SVD settings
 /// and activity, the flash dump container transform, the ELF fix-ups, and the recognizers for Xtensa and RISC-V
-/// ELF files. The architectures must already be registered.
+/// ELF files. The architectures (and the `ilp32` convention) must already be
+/// registered.
 pub fn register() {
     register_platforms();
     rom_types::register_libraries();
@@ -798,6 +805,36 @@ pub fn register() {
             );
         }
     }
+}
+
+/// The plugin's entry point when it is built on its own (without the
+/// `bundled` feature, which leaves it to the plugin that links this crate).
+#[cfg(not(feature = "bundled"))]
+#[unsafe(no_mangle)]
+#[allow(non_snake_case)]
+pub extern "C" fn CorePluginInit() -> bool {
+    binaryninja::tracing_init!("Espressif");
+    register();
+    true
+}
+
+/// See [`CorePluginInit`].
+#[cfg(not(feature = "bundled"))]
+#[unsafe(no_mangle)]
+#[allow(non_snake_case)]
+pub extern "C" fn CorePluginDependencies() {
+    plugin_dependencies();
+}
+
+/// Declares the plugins this one needs loaded first.
+pub fn plugin_dependencies() {
+    // The architectures its chips' code is analyzed with.
+    binaryninja::add_optional_plugin_dependency("arch_xtensa");
+    binaryninja::add_optional_plugin_dependency("arch_riscv");
+    binaryninja::add_optional_plugin_dependency("arch_riscv_ilp32");
+    binaryninja::add_optional_plugin_dependency("view_elf");
+    // The SVD file selection step is inserted before the SVD loader's step.
+    binaryninja::add_optional_plugin_dependency("svd_ninja");
 }
 
 #[cfg(test)]

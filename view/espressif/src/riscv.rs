@@ -18,7 +18,8 @@ use binaryninjacore_sys::{
 pub const ARCH_NAME: &str = "rv32gc";
 
 /// The name of the soft-float calling convention the chip platforms
-/// default to (registered on [`ARCH_NAME`] by `crate::riscv`).
+/// default to (registered on [`ARCH_NAME`] by the `arch_riscv_ilp32`
+/// plugin).
 pub const ILP32: &str = "ilp32";
 
 /// A supported core configuration. All of them decode with `rv32gc`; the

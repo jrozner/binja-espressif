@@ -3,7 +3,7 @@
  * writable `.flash.rodata`, calls to mask ROM functions that resolve to
  * `ABS` symbols, and reads of ROM data. ROM_DATA names a ROM data symbol
  * of the chip (see scripts/build_idf_elfs.sh). The ROM calls and the ROM
- * flash chip structure are for the ROM types (src/espressif/rom_types.rs). */
+ * flash chip structure are for the ROM types (view/espressif/src/rom_types.rs). */
 
 typedef unsigned int size_t;
 typedef unsigned int uint32_t;

@@ -15,8 +15,8 @@ use binaryninja::settings::Settings;
 use binaryninja::symbol::{SymbolBuilder, SymbolType};
 use binaryninja::types::{MemberAccess, MemberScope, StructureBuilder, Type};
 
-use crate::espressif::image::{self, Firmware, RegionKind, Segment};
-use crate::espressif::{Chip, container, riscv, rom_download, rom_types};
+use crate::image::{self, Firmware, RegionKind, Segment};
+use crate::{Chip, container, riscv, rom_download, rom_types};
 
 pub struct EspViewType;
 
@@ -325,7 +325,7 @@ impl EspView {
 
     /// Seeds functions, and names them where possible, from what the chip's
     /// CPU core finds in the image's code segments (see
-    /// [`crate::espressif::Cpu::scan_code`]).
+    /// [`crate::Cpu::scan_code`]).
     fn add_scanned_functions(&self, view: &BinaryView, platform: &Platform) {
         let cpu = self.chip().cpu();
         let mut found = 0;

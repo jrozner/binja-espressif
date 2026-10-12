@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Downloads the SVD files vendored in svd/ (and Espressif's license for them)
-# from the repository and commit svd/SOURCES pins each to, and checks them
+# Downloads the SVD files vendored in view/espressif/svd/ (and Espressif's license for them)
+# from the repository and commit view/espressif/svd/SOURCES pins each to, and checks them
 # against the SHA-256 recorded there.
 #
 # espressif/svd is no longer maintained and has no ESP32-C5 file; the C5's
 # comes from espressif/esp-bist (the file carries Espressif's Apache-2.0
 # license text; the rest of that repository is LGPL-3.0 and is not used).
-# To move a file to a newer commit, edit its line in svd/SOURCES, run this
+# To move a file to a newer commit, edit its line in view/espressif/svd/SOURCES, run this
 # with --update to print the new SHA-256s, record them, and review the diff.
 #
 # Usage: scripts/fetch_svds.sh [--update] [FILE...]
-#   FILE      only these files of svd/SOURCES (default: all)
+#   FILE      only these files of view/espressif/svd/SOURCES (default: all)
 #   --update  report SHA-256 mismatches instead of failing on them
 set -euo pipefail
 
@@ -19,7 +19,7 @@ if [ "${1-}" = --update ]; then
     update=1
     shift
 fi
-dir=$(cd "$(dirname "$0")/../svd" && pwd)
+dir=$(cd "$(dirname "$0")/../view/espressif/svd" && pwd)
 
 sha256() { (sha256sum "$1" 2>/dev/null || shasum -a 256 "$1") | cut -d' ' -f1; }
 
@@ -44,7 +44,7 @@ while read -r file repo commit path sha; do
             status=1
             continue
         fi
-        echo "$file: new SHA-256 $actual (record it in svd/SOURCES)"
+        echo "$file: new SHA-256 $actual (record it in view/espressif/svd/SOURCES)"
     fi
     case "$file" in
         *.svd)
@@ -59,7 +59,7 @@ while read -r file repo commit path sha; do
     echo "$file: $url"
 done < "$dir/SOURCES"
 if [ $# -gt 0 ] && [ "$found" -ne $# ]; then
-    echo "not all of $* are in svd/SOURCES" >&2
+    echo "not all of $* are in view/espressif/svd/SOURCES" >&2
     status=1
 fi
 exit $status

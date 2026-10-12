@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Generates data/rom_symbols/<chip>.txt, the ROM symbol tables the plugin
-embeds (see src/espressif/rom_symbols.rs for the format), from the ROM (and
+"""Generates view/espressif/data/rom_symbols/<chip>.txt, the ROM symbol tables the plugin
+embeds (see view/espressif/src/rom_symbols.rs for the format), from the ROM (and
 ESP8266 peripheral) linker scripts.
 
 The mask ROM of each chip is not part of a firmware image, but firmware calls
@@ -14,7 +14,7 @@ Ninja's SVD loader applies with types and register fields. The ESP8266 has
 no official SVD, so its peripheral blocks are named from its linker script.
 
 Usage: scripts/gen_rom_symbols.py [--rom-elfs ELFDIR] DIR SOURCE CHIP...
-  Regenerates data/rom_symbols/<chip>.txt for each CHIP; the other chips'
+  Regenerates view/espressif/data/rom_symbols/<chip>.txt for each CHIP; the other chips'
   files stay as they are. SOURCE describes where the linker scripts come
   from (e.g. "ESP-IDF v5.3") and is recorded in the file. DIR/<chip>/*.ld (or DIR/<chip>/ld/*.ld, so DIR can be
   esp-idf's components/esp_rom) are the files from esp-idf
@@ -72,7 +72,7 @@ import sys
 
 PAT = re.compile(r"^\s*(?:PROVIDE\s*\(\s*)?([A-Za-z_.$][\w.$]*)\s*=\s*(0x[0-9a-fA-F]+)\s*\)?\s*;", re.M)
 
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "rom_symbols")
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "view", "espressif", "data", "rom_symbols")
 
 # The supported chips.
 CHIPS = ["esp8266", "esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3", "esp32c6", "esp32h2", "esp32c5"]

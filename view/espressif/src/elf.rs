@@ -31,9 +31,9 @@ use binaryninja::section::{Section, SectionBuilder, Semantics};
 use binaryninja::symbol::{SymbolBuilder, SymbolType};
 use binaryninja::workflow::{Activity, AnalysisContext, Workflow, activity};
 
-use crate::espressif::image::{self, RegionKind};
-use crate::espressif::rom_images::{self, RomElf, RomOf};
-use crate::espressif::{Chip, Cpu, riscv, rom_types};
+use crate::image::{self, RegionKind};
+use crate::rom_images::{self, RomElf, RomOf};
+use crate::{Chip, Cpu, riscv, rom_types};
 
 /// The first step of module analysis, which the fix-ups run before.
 pub const FIRST_STEP: &str = "core.module.loadDebugInfo";
