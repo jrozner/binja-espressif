@@ -165,7 +165,11 @@ containing only this plugin and checks ELF loading, chip detection, calling
 conventions, call-site arguments, loop recovery, lifting semantics,
 patching, and the ESP view (including partition selection and malformed
 images) and the flash dump container on images and flash dumps synthesized
-from `tests/data/*.elf`.
+from `tests/data/*.elf`. It also reopens databases of the RISC-V chips'
+files and checks they restore their platforms, calling conventions, global
+pointer values and types, and log no missing architecture but Binary
+Ninja's own for the global pointer (see
+[reference.md](reference.md#limitations)).
 
 - Those ELFs are built from `tests/data/corpus.c` by
   `scripts/build_test_elfs.sh` with Espressif's GCC, which also builds the
