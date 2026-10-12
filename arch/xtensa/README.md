@@ -35,9 +35,8 @@ This crate is built two ways:
 
 - On its own, as Binary Ninja's own Rust plugins are: `cargo build --release
   -p arch_xtensa` builds `libarch_xtensa.so` (`.dylib`, `arch_xtensa.dll`),
-  which exports `CorePluginInit` and can be copied into the user plugin
-  folder. `CMakeLists.txt` builds it with `bn_add_rust_crate` from the
-  binaryninja-api tree.
+  which exports `CorePluginInit`. `CMakeLists.txt` builds it with
+  `bn_add_rust_crate` from the binaryninja-api tree.
 - Bundled into the plugin the release ships (`binja-espressif`, the repository
   root), which links it as a Rust library with the `bundled` feature (no
   entry points of its own) and calls `register()`.
