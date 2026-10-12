@@ -1326,6 +1326,68 @@ def check_rom_types_saved(chip, chip_id, image=None):
 for chip, chip_id in ROM_TYPED_CHIPS.items():
     check_rom_types_saved(chip, chip_id)
 
+
+def check_rom_types_updated(chip, chip_id, image):
+    """A database typed from an earlier ROM type library (or one with
+    another GUID) is brought up to date with the plugin's when it is
+    reopened: a database names the library, but keeps the prototypes and
+    types it imported. Simulated here by changing what the library gave the
+    database and removing the record of the library it was typed from."""
+    elf = os.path.join(DATA, f"idf_{chip}.elf")
+    bv = load_bytes(elf_to_image(elf, chip_id), ".bin") if image else bn.load(elf)
+    label = f"idf_{chip}{' image' if image else '.elf'} typed from an earlier library"
+    platform = bv.platform
+    def recorded(b):
+        return {f.start: str(b.lookup_imported_object_library(f.start, platform)[1]) for f in rom_functions(b)
+                if b.lookup_imported_object_library(f.start, platform)}
+    def prototypes(b):
+        return {f.start: str(f.type) for f in rom_functions(b) if f.start in records}
+    records = recorded(bv)
+    types = prototypes(bv)
+    memset = func(bv, "memset")
+    ets_status = bv.get_type_by_name("ETS_STATUS")
+    removed = next(f for f in rom_functions(bv) if f.start in records and f.name != "memset")
+    removed_name = removed.name
+    # A ROM variable the user retyped.
+    variable = next(v for v in bv.data_vars.values() if bv.lookup_imported_object_library(v.address, platform))
+    variable_type = str(variable.type)
+    check("espressif.rom.typeLibrary" in bv.metadata, f"{label}: records the library it is typed from")
+    bv.remove_metadata("espressif.rom.typeLibrary")
+    memset.type = bn.Type.function(bn.Type.int(4), [])
+    bv.define_type(bv.get_type_id("ETS_STATUS"), "ETS_STATUS", bn.Type.int(4))
+    bv.remove_function(removed)
+    bv.define_user_data_var(variable.address, bn.Type.int(2))
+    bv.update_analysis_and_wait()
+    check(bv.get_function_at(removed.start) is None and str(func(bv, "memset").type) != types[memset.start],
+          f"{label}: changed before it is saved")
+    db = os.path.join(user_dir, f"rom_types_update_{chip}{'_image' if image else ''}.bndb")
+    bv.create_database(db)
+    bv.file.close()
+    for reopen in ("reopened", "reopened again"):
+        bv = bn.load(db)
+        bv.update_analysis_and_wait()
+        changed = {a: (t, str(bv.get_function_at(a) and bv.get_function_at(a).type)) for a, t in types.items()
+                   if bv.get_function_at(a) is None or str(bv.get_function_at(a).type) != t}
+        check(not changed, f"{label} {reopen}: the library's prototypes ({list(changed.items())[:3]})")
+        f = bv.get_function_at(removed.start)
+        check(f is not None and f.name == removed_name, f"{label} {reopen}: {removed_name} is typed again")
+        check(recorded(bv) == records, f"{label} {reopen}: imported from the library ({len(recorded(bv))} of {len(records)})")
+        check(str(bv.get_type_by_name("ETS_STATUS")) == str(ets_status), f"{label} {reopen}: ETS_STATUS is the library's")
+        var = bv.get_data_var_at(variable.address)
+        check(var is not None and str(var.type) == variable_type,
+              f"{label} {reopen}: the variable at {variable.address:#x} is the library's {variable_type} ({var and var.type})")
+        check([l.name for l in bv.type_libraries] == [f"espressif-rom-{chip}"], f"{label} {reopen}: lists the library")
+        if chip in ("esp32", "esp32s2", "esp32s3"):
+            call0 = [f.name for f in rom_functions(bv) if f.calling_convention.name == "call0"]
+            check(not call0, f"{label} {reopen}: no typed ROM function is call0 ({call0[:5]})")
+        bv.file.save_auto_snapshot()
+        bv.file.close()
+
+
+for chip, chip_id in (("esp32", 0), ("esp32c6", 13)):
+    for image in (False, True):
+        check_rom_types_updated(chip, chip_id, image)
+
 # The ESP32 v3.0 ROM's Secure Boot v2 API is typed only for images that
 # require v3.0.
 elf = os.path.join(DATA, "idf_esp32.elf")

@@ -7,18 +7,25 @@ The plugin embeds the libraries and types the ROM functions an image or ELF
 calls with them (see view/espressif/src/rom_types.rs), so that their call sites
 decompile with the right arguments and return values.
 
-Usage: scripts/gen_rom_types.py [--plugin LIB] HEADERS CHIP...
+Usage: scripts/gen_rom_types.py [--plugin LIB] [--older OLD]... HEADERS CHIP...
   HEADERS is the directory scripts/fetch_rom_type_headers.sh fills from the
   espressif/idf docker image: ESP-IDF's components (headers and ROM linker
   scripts), the toolchains' newlib headers and each chip's default
   sdkconfig.h. LIB is the plugin build that registers the chip platforms
   (default: target/release/libbinja_xtensa.so). Runs Binary Ninja from
   ~/binaryninja (or $BN_INSTALL_DIR) with a temporary user directory, as
-  tests/test_headless.py does.
+  tests/test_headless.py does. Each OLD is an earlier ESP-IDF release's
+  tree (fetch_rom_type_headers.sh DIR VERSION, or a checkout), of which
+  only the ROM linker scripts and esp_idf_version.h are read.
 
-  The libraries were generated from ESP-IDF v5.4.1 (IDF_VERSION below):
+  The libraries were generated from ESP-IDF v6.1 (IDF_VERSION below), with
+  the names of v5.5.5 and v5.4.1 (the version they were generated from
+  before):
     scripts/fetch_rom_type_headers.sh ../rom-headers
-    scripts/gen_rom_types.py ../rom-headers esp32 esp32s2 esp32s3 \\
+    scripts/fetch_rom_type_headers.sh ../rom-headers-v5.5.5 v5.5.5
+    scripts/fetch_rom_type_headers.sh ../rom-headers-v5.4.1 v5.4.1
+    scripts/gen_rom_types.py --older ../rom-headers-v5.5.5 \\
+        --older ../rom-headers-v5.4.1 ../rom-headers esp32 esp32s2 esp32s3 \\
         esp32c2 esp32c3 esp32c6 esp32h2 esp32c5
 
 What goes into a chip's library:
@@ -27,21 +34,27 @@ What goes into a chip's library:
   since Binary Ninja's parser only returns the declarations of the main
   file, and the results merged; the first declaration of a name wins. They
   are the chip's components/esp_rom/<chip>/include/<chip>/rom/*.h, esp_rom's
-  chip-neutral headers, the Xtensa runtime's or the RISC-V interrupt API's
+  chip-neutral headers, the heap component's for the ROM's TLSF and
+  multi_heap functions, the Xtensa runtime's or the RISC-V interrupt API's
   headers, newlib's headers for the C library functions the ROM provides,
   and scripts/rom_types_extra.h for the libgcc helpers and the few others
   no installed header declares. The parser is given the chip's target
   triple (without it the RISC-V platforms parse as i386 and lay out 64-bit
   fields wrongly), newlib's headers in place of the host's, the chip's
-  default sdkconfig.h, and the include directories of an ESP-IDF build.
+  default sdkconfig.h (configured for newlib), and the include directories
+  of an ESP-IDF build.
 * Names: every name of a ROM function or variable of the chip that has a
   declaration: those of view/espressif/data/rom_symbols/<chip>.txt (of any chip revision),
   those of the ESP-IDF version's ROM linker scripts and its esp_rom API
-  aliases (`esp_rom_printf = ets_printf`), which ELF files carry. Names
-  without a declaration take that of another name at the same address, and
-  a `<name>_rom` ROM function the prototype of `<name>` (ESP-IDF wraps those
-  in inline functions of the plain name). Variables declared as arrays of
-  unknown size are left out: the parser makes them pointers.
+  aliases (`esp_rom_printf = ets_printf`), which ELF files carry, and those
+  the older releases' (--older) give the same addresses, which ELF files
+  built with them carry (see rom_names). Names without a declaration take
+  that of `rom_<name>` (ESP-IDF v6 renamed the ROM's gpio_matrix_out
+  rom_gpio_matrix_out) or of another name at the same address; a
+  `<name>_rom` or `_rom_<name>` ROM function takes the prototype of
+  `<name>` (ESP-IDF wraps those in functions of the plain name). Variables
+  declared as arrays of unknown size are left out: the parser makes them
+  pointers.
 * Every named type the objects use, recursively.
 
 The output is not byte-for-byte reproducible (Binary Ninja serializes the
@@ -65,7 +78,7 @@ OUT = os.path.join(ROOT, "view", "espressif", "data", "rom_types")
 ROM_SYMBOLS = os.path.join(ROOT, "view", "espressif", "data", "rom_symbols")
 EXTRA = os.path.join(ROOT, "scripts", "rom_types_extra.h")
 
-IDF_VERSION = "v5.4.1"
+IDF_VERSION = "v6.1"
 
 CHIPS = ["esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3", "esp32c6", "esp32h2", "esp32c5"]
 XTENSA = {"esp32", "esp32s2", "esp32s3"}
@@ -88,6 +101,11 @@ NEWLIB_HEADERS = ["string.h", "strings.h", "stdio.h", "stdlib.h", "ctype.h", "ti
 # (_xtos_set_intlevel, xthal_*), relative to components/xtensa/include.
 XTENSA_HEADERS = ["xtensa/xtruntime.h", "xtensa/hal.h"]
 
+# The declarations of the ROMs' heap (TLSF and multi_heap) functions,
+# relative to components: esp_rom's esp_rom_tlsf.h and esp_rom_multi_heap.h
+# until ESP-IDF v6.0.
+HEAP_HEADERS = ["heap/rom_patches/include/rom_patch_tlsf.h", "heap/rom_patches/include/rom_patch_multi_heap.h"]
+
 # The RISC-V interrupt controller API, which the RISC-V ROMs implement
 # (riscv/ld/rom.api.ld), relative to components/riscv/include.
 RISCV_HEADERS = ["riscv/interrupt.h"]
@@ -95,12 +113,33 @@ RISCV_HEADERS = ["riscv/interrupt.h"]
 # Lines removed from a header parsed as the main file: includes that lead
 # back to the header itself, which `#pragma once` does not stop for the
 # main file, so its types would be defined twice.
-SOURCE_FIXUPS = {"riscv/include/riscv/interrupt.h": ['#include "esp_private/interrupt_deprecated.h"']}
+SOURCE_FIXUPS = {}
+
+# Headers replaced, wherever they are included, by a copy without the lines
+# that match the pattern (and parsed without them as the main file):
+# esp_rom_spiflash.h includes the chip's rom/spi_flash.h (and
+# rom/opi_flash.h), which includes esp_rom_spiflash.h, so either would
+# include itself as the main file. The copies go in a directory searched
+# before the others.
+SHADOWED_HEADERS = {"esp_rom/include/esp_rom_spiflash.h": r'^#include "esp32\w*/rom/(spi|opi)_flash\.h"$'}
 
 # Kconfig values the parser is given in place of the default sdkconfig's, so
 # that the headers declare the functions of the later revisions' ROMs too
 # (the loader only uses those for images that require such a revision).
 CONFIG_OVERRIDES = {"esp32": {"CONFIG_ESP32_REV_MIN_FULL": "300"}}
+
+# The ROM scripts that ESP-IDF v6 moved out of components/esp_rom, as
+# globs relative to its components directory (as in gen_rom_symbols.py).
+MOVED_SCRIPTS = ["esp_hal_*/{chip}/rom.*.ld", "heap/port/{chip}/ld/{chip}.rom.*.ld"]
+
+# The first ESP-IDF release whose ROM linker scripts describe the chip's
+# ROM as the ROM symbol file does, for the chips whose earlier releases
+# describe another: names are taken from older releases (--older) only from
+# these on. ESP-IDF v5.4 supported the ESP32-C5's revision 0 engineering
+# samples, whose ROM has other functions at some of the production (v1.0)
+# ROM's addresses (sscanf where it has _printf_common); v5.5 the production
+# ROM.
+OLDER_MIN_VERSION = {"esp32c5": (5, 5)}
 
 # esp_rom headers that are not about the ROM, or that need code the parser
 # cannot see.
@@ -108,7 +147,8 @@ SKIP_HEADERS = {"esp_rom_libc_stubs.h"}
 
 
 def sdkconfig_dir(idf, chip, work):
-    """A directory with the chip's sdkconfig.h, with CONFIG_OVERRIDES."""
+    """A directory with the chip's sdkconfig.h, with CONFIG_OVERRIDES, and the
+    copies of SHADOWED_HEADERS."""
     text = open(os.path.join(idf, "sdkconfig", chip, "sdkconfig.h")).read()
     for name, value in CONFIG_OVERRIDES.get(chip, {}).items():
         text, n = re.subn(rf"^#define {name} .*$", f"#define {name} {value}", text, flags=re.M)
@@ -118,14 +158,26 @@ def sdkconfig_dir(idf, chip, work):
     os.makedirs(d, exist_ok=True)
     with open(os.path.join(d, "sdkconfig.h"), "w") as f:
         f.write(text)
+    for label in SHADOWED_HEADERS:
+        with open(os.path.join(d, os.path.basename(label)), "w") as f:
+            f.write(shadowed(idf, label))
     return d
+
+
+def shadowed(idf, label):
+    """The header's source without the lines SHADOWED_HEADERS removes."""
+    text = open(os.path.join(idf, "components", label)).read()
+    text, n = re.subn(SHADOWED_HEADERS[label] + r"\n", "", text, flags=re.M)
+    if n == 0:
+        sys.exit(f"{label}: no line matches {SHADOWED_HEADERS[label]}")
+    return text
 
 
 def include_dirs(idf, chip, work):
     c = os.path.join(idf, "components")
     dirs = [
         sdkconfig_dir(idf, chip, work),
-        f"{c}/newlib/platform_include",
+        f"{c}/esp_libc/platform_include",
         f"{c}/esp_rom/{chip}/include/{chip}/rom", f"{c}/esp_rom/{chip}/include/{chip}",
         f"{c}/esp_rom/{chip}/include", f"{c}/esp_rom/{chip}", f"{c}/esp_rom/include",
         f"{c}/soc/{chip}/include", f"{c}/soc/{chip}/register", f"{c}/soc/include",
@@ -139,6 +191,10 @@ def include_dirs(idf, chip, work):
         f"{c}/efuse/include", f"{c}/efuse/{chip}/include", f"{c}/spi_flash/include",
         f"{c}/bootloader_support/include",
     ]
+    # ESP-IDF v6 moved the HAL's peripheral headers (hal/uart_ll.h, ...)
+    # into esp_hal_<peripheral> components.
+    for hal in sorted(glob.glob(f"{c}/esp_hal_*")):
+        dirs += [f"{hal}/{chip}/include", f"{hal}/include"]
     if chip in XTENSA:
         dirs += [f"{c}/xtensa/include", f"{c}/xtensa/{chip}/include", f"{c}/freertos/config/xtensa/include",
                  f"{c}/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos"]
@@ -171,6 +227,8 @@ def headers(idf, chip):
     for path in sorted(glob.glob(f"{c}/include/*.h")):
         if os.path.basename(path) not in SKIP_HEADERS:
             out.append((path, os.path.relpath(path, os.path.join(idf, "components"))))
+    for h in HEAP_HEADERS:
+        out.append((os.path.join(idf, "components", h), h))
     arch, arch_headers = ("xtensa", XTENSA_HEADERS) if chip in XTENSA else ("riscv", RISCV_HEADERS)
     for h in arch_headers:
         out.append((os.path.join(idf, "components", arch, "include", h), f"{arch}/include/{h}"))
@@ -207,26 +265,30 @@ LD_SYMBOL = re.compile(r"^\s*(?:PROVIDE\s*\(\s*)?([A-Za-z_][\w$]*)\s*=\s*(0x[0-9
 
 def ld_symbols(path):
     """The `name = 0xaddress;` and `name = other_name;` assignments of a
-    linker script, as (name, address or name)."""
+    linker script, as (name, address or name). A script that sets every name
+    to one address is a placeholder (esp32s3.rom.ble_*.ld, see
+    gen_rom_symbols.py) and gives none."""
     text = re.sub(r"/\*.*?\*/", "", open(path).read(), flags=re.S)
-    return [(name, int(value, 16) if value.startswith("0x") else value) for name, value in LD_SYMBOL.findall(text)]
+    syms = [(name, int(value, 16) if value.startswith("0x") else value) for name, value in LD_SYMBOL.findall(text)]
+    if len(syms) > 1 and len({value for _, value in syms}) == 1 and isinstance(syms[0][1], int):
+        return []
+    return syms
 
 
-def rom_names(idf, chip, table):
-    """{name: address} of every name of the chip's ROM functions and data:
-    those of its ROM symbol file, then those of the ESP-IDF version's ROM linker
-    scripts (which may name more, or name them differently: ELF files carry
-    those), then the esp_rom API aliases (`PROVIDE ( esp_rom_printf =
-    ets_printf );`, in <chip>.rom.api.ld and, on the RISC-V chips,
-    riscv/ld/rom.api.ld)."""
-    names = dict(table)
+def idf_names(idf, chip, names):
+    """Adds to names ({name: address}) those of an ESP-IDF tree's ROM linker
+    scripts, with the ones ESP-IDF v6 moved out of esp_rom (MOVED_SCRIPTS),
+    then its esp_rom API aliases (`PROVIDE ( esp_rom_printf = ets_printf );`,
+    in <chip>.rom.api.ld and, on the RISC-V chips, riscv/ld/rom.api.ld)."""
     ld = os.path.join(idf, "components", "esp_rom", chip, "ld")
     api = [os.path.join(ld, f"{chip}.rom.api.ld")]
     if chip not in XTENSA:
         api.append(os.path.join(idf, "components", "riscv", "ld", "rom.api.ld"))
-    for f in sorted(os.listdir(ld)):
-        path = os.path.join(ld, f)
-        if f.endswith(".ld") and path not in api:
+    paths = [os.path.join(ld, f) for f in sorted(os.listdir(ld))]
+    for pattern in MOVED_SCRIPTS:
+        paths += sorted(glob.glob(os.path.join(idf, "components", pattern.format(chip=chip))))
+    for path in paths:
+        if path.endswith(".ld") and path not in api:
             for name, addr in ld_symbols(path):
                 if isinstance(addr, int) and addr:
                     names.setdefault(name, addr)
@@ -236,6 +298,31 @@ def rom_names(idf, chip, table):
                 addr = target if isinstance(target, int) else names.get(target)
                 if addr:
                     names.setdefault(name, addr)
+    return names
+
+
+def idf_version(idf):
+    """(major, minor) of an ESP-IDF tree, from esp_idf_version.h."""
+    text = open(os.path.join(idf, "components", "esp_common", "include", "esp_idf_version.h")).read()
+    return tuple(int(re.search(rf"#define ESP_IDF_VERSION_{part}\s+(\d+)", text).group(1)) for part in ("MAJOR", "MINOR"))
+
+
+def rom_names(idf, chip, table, older=()):
+    """{name: address} of every name of the chip's ROM functions and data:
+    those of its ROM symbol file, then those of the ESP-IDF version's ROM linker
+    scripts and API aliases (which may name more, or name them differently:
+    ELF files carry those; see idf_names), then the other names that earlier
+    ESP-IDF releases (`older`) give the addresses these name: ELF files built
+    with those releases carry them (gpio_matrix_out, now rom_gpio_matrix_out;
+    esp_rom_regi2c_read, an alias of the ROM's rom_i2c_readReg until v6.0)."""
+    names = idf_names(idf, chip, dict(table))
+    named = set(names.values())
+    for old in older:
+        if idf_version(old) < OLDER_MIN_VERSION.get(chip, (0, 0)):
+            continue
+        for name, addr in idf_names(old, chip, {}).items():
+            if name not in names and addr in named:
+                names[name] = addr
     return names
 
 
@@ -268,7 +355,7 @@ def parse_chip(bn, idf, chip, verbose):
         if not os.path.exists(path):
             print(f"  {chip}: no {label}", file=sys.stderr)
             continue
-        source = open(path).read()
+        source = shadowed(idf, label) if label in SHADOWED_HEADERS else open(path).read()
         for line in SOURCE_FIXUPS.get(label, []):
             if line not in source:
                 sys.exit(f"{label}: no '{line}' to remove")
@@ -334,8 +421,9 @@ def referenced_types(bn, objects, types):
 def assign(names, code, functions, variables):
     """The library's objects, {name: (kind, type, declared as)}: the ROM's
     names (see rom_names) that have a declaration, or whose alias has one.
-    The aliases of a name are the other names at its address, and for
-    `<name>_rom`, `<name>`. Names in the ROM's code are functions."""
+    The aliases of a name are `<name>` for `<name>_rom` and `_rom_<name>`,
+    `rom_<name>`, and the other names at its address. Names in the ROM's
+    code are functions."""
     at = {}
     for name, addr in names.items():
         at.setdefault(addr, []).append(name)
@@ -345,7 +433,8 @@ def assign(names, code, functions, variables):
         is_function = any(s <= addr < e for s, e in code)
         decls = functions if is_function else variables
         others = sorted(n for n in at[addr] if n != name)
-        candidates = [name] + ([name[:-4]] if name.endswith("_rom") else []) + others
+        candidates = ([name] + ([name[:-4]] if name.endswith("_rom") else [])
+                      + ([name[5:]] if name.startswith("_rom_") else []) + [f"rom_{name}"] + others)
         via = next((n for n in candidates if n in decls), None)
         if via is not None:
             objects[name] = ("function" if is_function else "data", decls[via], via)
@@ -375,12 +464,17 @@ def main():
     ap.add_argument("--plugin", default=os.path.join(ROOT, "target", "release", "libbinja_xtensa.so"))
     ap.add_argument("--verbose", action="store_true", help="print the parser's errors for headers that parse")
     ap.add_argument("--dump", help="write each chip's prototypes, as text, to this directory")
+    ap.add_argument("--older", action="append", default=[], metavar="HEADERS",
+                    help="an earlier ESP-IDF release's headers, for the names its ROM linker scripts give")
     ap.add_argument("headers")
     ap.add_argument("chips", nargs="+")
     args = ap.parse_args()
     for chip in args.chips:
         if chip not in CHIPS:
             sys.exit(f"unknown chip {chip} (one of {', '.join(CHIPS)})")
+    want = tuple(int(n) for n in IDF_VERSION.lstrip("v").split(".")[:2])
+    if idf_version(args.headers) != want:
+        sys.exit(f"{args.headers} is ESP-IDF {idf_version(args.headers)}, not {IDF_VERSION}")
     bn = setup_binaryninja(os.path.abspath(args.plugin))
     tables = rom_tables()
     os.makedirs(OUT, exist_ok=True)
@@ -389,7 +483,7 @@ def main():
             sys.exit(f"platform {chip} is not registered: is {args.plugin} the plugin?")
         functions, variables, types, used = parse_chip(bn, args.headers, chip, args.verbose)
         table, code = tables[chip]
-        objects = assign(rom_names(args.headers, chip, table), code, functions, variables)
+        objects = assign(rom_names(args.headers, chip, table, args.older), code, functions, variables)
         lib = build_library(bn, chip, objects, types, used)
         path = os.path.join(OUT, f"{chip}.bntl")
         lib.write_to_file(path)

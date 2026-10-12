@@ -38,6 +38,12 @@
 //! put. The types are applied when a file is first loaded; the ELF fix-ups
 //! apply them again on finalization, which finds them all there, and a
 //! database keeps them (see [`apply`]).
+//!
+//! A database keeps the types it was saved with, and only names the library
+//! (by name and GUID): reopened with a plugin whose library differs, it
+//! would keep the earlier prototypes and types and leave the ROM functions
+//! the library newly types untyped. [`update_database`] brings it up to
+//! date, once per library.
 
 use std::collections::{HashMap, HashSet};
 
@@ -56,6 +62,7 @@ use binaryninja::rc::Ref;
 use binaryninja::segment::SegmentFlags;
 use binaryninja::symbol::{SymbolBuilder, SymbolType};
 use binaryninja::types::{Type, TypeClass, TypeLibrary};
+use sha2::{Digest, Sha256};
 
 use crate::image::RegionKind;
 use crate::rom_images::{Found, RomElf};
@@ -173,6 +180,32 @@ fn library(chip: Chip) -> Option<Ref<TypeLibrary>> {
     }
     lib.register();
     Some(lib)
+}
+
+/// The view metadata that names the ROM type library contents (see
+/// [`library_version`]) the view's ROM functions and variables were typed
+/// from.
+const TYPES_METADATA: &str = "espressif.rom.typeLibrary";
+
+/// What identifies the contents of the chip's ROM type library: a digest of
+/// the embedded file. gen_rom_types.py does not write the same bytes twice,
+/// so a regenerated library always counts as a new one, even if its
+/// contents are the same; [`update_database`] then has nothing to change.
+fn library_version(chip: Chip) -> Option<String> {
+    let digest = Sha256::digest(chip.rom_type_library()?);
+    Some(digest[..16].iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Records that the view is typed from the chip's ROM type library as
+/// embedded in this build.
+fn record_library_version(view: &BinaryView, chip: Chip) {
+    if let Some(version) = library_version(chip) {
+        view.store_metadata(
+            TYPES_METADATA,
+            version.as_str(),
+            MetadataStoreFlags::PERSISTENT,
+        );
+    }
 }
 
 /// The view metadata that names the ROM image the ROM code regions hold;
@@ -358,27 +391,10 @@ fn use_image(view: &BinaryView, chip: Chip, elf: &RomElf) {
         .collect();
     let mut pinned = 0;
     for (name, func) in &typed {
-        if pin_rom_function(view, &lib, func, name, name) {
+        if pin_rom_function(view, &lib, func, name, name, false) {
             pinned += 1;
         }
-        let Some((imp_name, imp)) = elf.implementation(func.start() as u32) else {
-            continue;
-        };
-        let imp = imp as u64;
-        if view
-            .function_at(&platform, imp)
-            .is_some_and(|f| f.has_user_type())
-        {
-            continue;
-        }
-        let Some(ty) = view.import_type_library_object(name.as_str(), Some(&lib)) else {
-            continue;
-        };
-        let sym = SymbolBuilder::new(SymbolType::Function, imp_name, imp).create();
-        view.define_auto_symbol_with_type(&sym, &platform, &*ty);
-        if let Some(f) = view.function_at(&platform, imp)
-            && pin_rom_function(view, &lib, &f, name, imp_name)
-        {
+        if pin_implementation(view, &lib, &platform, elf, func.start(), name, false) {
             pinned += 1;
         }
     }
@@ -392,6 +408,40 @@ fn use_image(view: &BinaryView, chip: Chip, elf: &RomElf) {
         "pinned {pinned} typed {} ROM functions, named {named} others and created {created} functions from the ROM image",
         chip.display_name()
     );
+}
+
+/// Gives the function a ROM function at `addr` is implemented by, if it is
+/// a jump table entry (see [`RomElf::implementation`]), the prototype
+/// `name` and its own name, pinned (see [`pin_rom_function`]), unless it
+/// has a type the user gave it and not `force`. Returns whether it pinned
+/// them.
+fn pin_implementation(
+    view: &BinaryView,
+    lib: &TypeLibrary,
+    platform: &Platform,
+    elf: &RomElf,
+    addr: u64,
+    name: &str,
+    force: bool,
+) -> bool {
+    let Some((imp_name, imp)) = elf.implementation(addr as u32) else {
+        return false;
+    };
+    let imp = imp as u64;
+    if !force
+        && view
+            .function_at(platform, imp)
+            .is_some_and(|f| f.has_user_type())
+    {
+        return false;
+    }
+    let Some(ty) = view.import_type_library_object(name, Some(lib)) else {
+        return false;
+    };
+    let sym = SymbolBuilder::new(SymbolType::Function, imp_name, imp).create();
+    view.define_auto_symbol_with_type(&sym, platform, &*ty);
+    view.function_at(platform, imp)
+        .is_some_and(|f| pin_rom_function(view, lib, &f, name, imp_name, force))
 }
 
 /// Names each function the ROM image's symbol table names, where the view
@@ -599,23 +649,24 @@ impl FunctionRecognizer for RomRecognizer {
 ///   unused vanish from HLIL.
 ///
 /// `name` names the prototype; `symbol` is the function's name, and its
-/// kind is kept. A type the user gave the function is kept as it is.
-/// Returns whether it pinned them.
+/// kind is kept. A type the user gave the function is kept as it is, unless
+/// `force` (see [`update_database`]). Returns whether it pinned them.
 fn pin_rom_function(
     view: &BinaryView,
     lib: &TypeLibrary,
     func: &Function,
     name: &str,
     symbol: &str,
+    force: bool,
 ) -> bool {
     let Some(ty) = view.import_type_library_object(name, Some(lib)) else {
         return false;
     };
     // A type the user gave the function stays, with all it says (its
     // calling convention, say), and nothing is pinned unless it has the
-    // library's prototype. (A database reopened from a view without a ROM
-    // image reports the library's type as a user type.)
-    let user = func.has_user_type().then(|| func.function_type());
+    // library's prototype. (A reopened database reports every function's
+    // type as the user's.)
+    let user = (func.has_user_type() && !force).then(|| func.function_type());
     if user.as_ref().is_some_and(|u| !same_prototype(u, &ty)) {
         return false;
     }
@@ -703,13 +754,27 @@ pub fn register_recognizer() {
 /// jumps to. Each is recorded as imported from the ROM type library, which
 /// tells the Xtensa architecture to leave its convention and clobbers alone.
 pub fn type_rom_elf(view: &BinaryView, chip: Chip, elf: &RomElf) {
-    // A database keeps them (see backfill_rom_elf_imports).
+    // A database keeps them (see backfill_rom_elf_imports and
+    // update_database).
     if view.file().is_database_backed() {
         return;
     }
     let (Some(platform), Some(lib)) = (view.default_platform(), library(chip)) else {
         return;
     };
+    pin_rom_elf_functions(view, chip, elf, &lib, &platform, false);
+}
+
+/// [`type_rom_elf`]'s work, which [`update_database`] does again with
+/// `force` (see [`pin_rom_function`]). Returns how many functions it pinned.
+fn pin_rom_elf_functions(
+    view: &BinaryView,
+    chip: Chip,
+    elf: &RomElf,
+    lib: &TypeLibrary,
+    platform: &Platform,
+    force: bool,
+) -> usize {
     // Before any function is analyzed: the recognizers then treat the
     // pinned functions as the ROM API they are (see rom_function_name).
     if !is_own_rom_elf(view, chip) {
@@ -742,29 +807,29 @@ pub fn type_rom_elf(view: &BinaryView, chip: Chip, elf: &RomElf) {
         |addr| names_at(addr).into_iter().next(),
     );
     if functions.is_empty() {
-        return;
+        return 0;
     }
     if view.type_library_by_name(&lib.name()).is_none() {
-        view.add_type_library(&lib);
+        view.add_type_library(lib);
     }
     let function_at = |addr: u64| {
-        view.function_at(&platform, addr)
-            .or_else(|| view.add_auto_function_ext(addr, &platform, None, false))
+        view.function_at(platform, addr)
+            .or_else(|| view.add_auto_function_ext(addr, platform, None, false))
     };
     let mut pinned = 0;
     for (name, addr) in &functions {
         let Some(func) = function_at(*addr as u64) else {
             continue;
         };
-        if pin_rom_function(view, &lib, &func, name, name) {
-            view.record_imported_object_library(&lib, name.as_str(), *addr as u64, &platform);
+        if pin_rom_function(view, lib, &func, name, name, force) {
+            view.record_imported_object_library(lib, name.as_str(), *addr as u64, platform);
             pinned += 1;
         }
         if let Some((imp_name, imp)) = elf.implementation(*addr)
             && let Some(imp) = function_at(imp as u64)
-            && pin_rom_function(view, &lib, &imp, name, imp_name)
+            && pin_rom_function(view, lib, &imp, name, imp_name, force)
         {
-            view.record_imported_object_library(&lib, name.as_str(), imp.start(), &platform);
+            view.record_imported_object_library(lib, name.as_str(), imp.start(), platform);
             pinned += 1;
         }
     }
@@ -773,10 +838,12 @@ pub fn type_rom_elf(view: &BinaryView, chip: Chip, elf: &RomElf) {
         true,
         MetadataStoreFlags::PERSISTENT,
     );
+    record_library_version(view, chip);
     tracing::info!(
         "typed {pinned} functions of the {} ROM ELF file",
         chip.display_name()
     );
+    pinned
 }
 
 /// The view metadata that marks a view of the chip's ROM ELF file (see
@@ -872,6 +939,7 @@ pub fn apply<'a>(view: &BinaryView, chip: Chip, symbols: impl IntoIterator<Item 
     let Some(lib) = library(chip) else {
         return;
     };
+    record_library_version(view, chip);
     let objects: HashMap<String, TypeClass> = lib
         .named_objects()
         .iter()
@@ -947,6 +1015,291 @@ pub fn apply<'a>(view: &BinaryView, chip: Chip, symbols: impl IntoIterator<Item 
     }
 }
 
+/// Brings a database typed from an earlier ROM type library (one saved by
+/// an earlier build of the plugin) up to date with the chip's library, once:
+/// it runs when the database is first analyzed with a library it was not
+/// typed from (see [`TYPES_METADATA`]), at the start of its first analysis,
+/// when its symbols, functions, types and metadata have been restored.
+///
+/// A database does not store the library, only its name, its GUID and
+/// which of its objects and types the view imported. Reopened, the view
+/// finds the library registered under that GUID (this build's), but keeps
+/// the prototypes and types it imported from the earlier one, and
+/// [`apply`] types nothing in a database. So:
+///
+/// * The library is added to the view if the view does not list it (its
+///   GUID changed, say).
+/// * The types imported from the library that it now defines differently
+///   take its definition. Those imported under an earlier GUID, which the
+///   view no longer finds the library of, are imported again under this
+///   one; importing them as they are would add duplicates (`__uint32_t_1`).
+/// * The ROM table's names the view has no symbol for yet are defined, as
+///   the view's loading defines them (an ELF file's fix-ups do not run
+///   again for a database).
+/// * The ROM functions and variables are typed as [`apply`] types them
+///   ([`pick_typed`] over the ROM symbols the view has), in the ROM code
+///   regions the database keeps: the ones not typed yet get the library's
+///   prototype, and the typed ones whose prototype changed get the new one.
+///   Each is recorded as imported from the library, whatever it was
+///   recorded as before. A variable the user defined is left alone, unless
+///   it is recorded as imported from the library.
+/// * With a ROM image in the regions, their prototypes are pinned and the
+///   functions the jump table entries among them jump to are typed, as
+///   [`use_image`] does. The chip's ROM ELF file is typed again as
+///   [`type_rom_elf`] types it.
+///
+/// The database cannot tell a prototype or type the user edited from the
+/// one the library gave it (a reopened database reports every function's
+/// type as the user's), so an edited one that the new library changes is
+/// replaced, once.
+pub fn update_database(view: &BinaryView, chip: Chip) {
+    if !view.file().is_database_backed() {
+        return;
+    }
+    let Some(version) = library_version(chip) else {
+        return;
+    };
+    if view.get_metadata::<String>(TYPES_METADATA).as_deref() == Some(version.as_str()) {
+        return;
+    }
+    let (Some(platform), Some(lib)) = (view.default_platform(), library(chip)) else {
+        return;
+    };
+    // Typed at all: a database saved before the ROM types existed has none
+    // of these, and is left alone.
+    let own_rom_elf = is_own_rom_elf(view, chip);
+    let map = view.memory_map();
+    let has_region =
+        (0..chip.rom_code_ranges().len()).any(|i| map.get_region(&region_name(i)).is_some());
+    if !own_rom_elf && !has_region && view.type_library_by_name(&lib.name()).is_none() {
+        return;
+    }
+    if view.type_library_by_name(&lib.name()).is_none() {
+        view.add_type_library(&lib);
+    }
+    let types = update_imported_types(view, &lib);
+    let typed = if own_rom_elf {
+        crate::elf::own_rom_elf(view, chip).map_or(0, |elf| {
+            pin_rom_elf_functions(view, chip, &elf, &lib, &platform, true)
+        })
+    } else {
+        retype(view, chip, &lib, &platform)
+    };
+    record_library_version(view, chip);
+    tracing::info!(
+        "updated the database to the {} ROM type library: {types} types and {typed} functions and variables",
+        chip.display_name()
+    );
+}
+
+/// Updates the types the view imported from `lib` (see [`update_database`])
+/// and returns how many it changed.
+fn update_imported_types(view: &BinaryView, lib: &TypeLibrary) -> usize {
+    let guid = lib.guid();
+    let mut changed = 0;
+    let mut stale = Vec::new();
+    for t in view.types().iter() {
+        let Some(new) = lib.get_named_type(t.name.clone()) else {
+            continue;
+        };
+        let Some(id) = view.type_id_by_name(t.name.clone()) else {
+            continue;
+        };
+        // A library's types are imported with the ID `<GUID>:["<name>"]`.
+        let Some(source) = id.split_once(":[").map(|(g, _)| g) else {
+            continue;
+        };
+        if source == guid {
+            if *t.ty != *new {
+                view.define_auto_type_with_id(t.name.clone(), &id, &new);
+                changed += 1;
+            }
+        } else if is_guid(source) && view.lookup_imported_type_library(t.name.clone()).is_none() {
+            stale.push((t.name.clone(), id));
+        }
+    }
+    // All at once: importing one imports the types it uses.
+    for (_, id) in &stale {
+        view.undefine_auto_type(id);
+    }
+    for (name, _) in stale {
+        view.import_type_library_type(name, Some(lib));
+        changed += 1;
+    }
+    changed
+}
+
+/// Is `s` a GUID (`8-4-4-4-12` hex digits)?
+fn is_guid(s: &str) -> bool {
+    let groups: Vec<&str> = s.split('-').collect();
+    groups.iter().map(|g| g.len()).eq([8, 4, 4, 4, 12])
+        && groups
+            .iter()
+            .all(|g| g.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// Types the ROM functions and variables of a database from `lib` (see
+/// [`update_database`]) and returns how many it typed or retyped.
+fn retype(view: &BinaryView, chip: Chip, lib: &TypeLibrary, platform: &Platform) -> usize {
+    let objects: HashMap<String, TypeClass> = lib
+        .named_objects()
+        .iter()
+        .map(|o| (o.name.to_string(), o.ty.type_class()))
+        .collect();
+    define_missing_rom_symbols(view, chip);
+    let symbols = view_rom_symbols(view, chip);
+    let (functions, data): (Vec<_>, Vec<_>) = symbols
+        .iter()
+        .map(|(name, addr)| (name.as_str(), *addr))
+        .partition(|&(_, addr)| chip.is_rom_function(addr));
+    let shown = |addr: u32| {
+        view.symbol_by_address(addr as u64)
+            .map(|s| s.raw_name().to_string_lossy().into_owned())
+    };
+    let functions = pick_typed(
+        functions,
+        |name| objects.get(name) == Some(&TypeClass::FunctionTypeClass),
+        shown,
+    );
+    let data = pick_typed(
+        data,
+        |name| {
+            objects
+                .get(name)
+                .is_some_and(|&c| c != TypeClass::FunctionTypeClass)
+        },
+        shown,
+    );
+    let recorded = |addr: u64, name: &str| {
+        view.lookup_imported_object_library(addr, platform)
+            .is_some_and(|(l, n)| l.guid() == lib.guid() && n.to_string() == name)
+    };
+    // A ROM image's typed functions have their prototypes pinned.
+    let image = held_image(view)
+        .and_then(|_| rom_download::rom_image(view, chip))
+        .filter(|found| holds_image(view, chip, &found.elf));
+    let mut typed = 0;
+    for (name, addr) in &functions {
+        let addr = *addr as u64;
+        if !in_rom_region(view, addr) {
+            continue;
+        }
+        if let Some(found) = &image {
+            let func = view
+                .function_at(platform, addr)
+                .or_else(|| view.add_auto_function_ext(addr, platform, None, false));
+            if let Some(func) = func
+                && pin_rom_function(view, lib, &func, name, name, true)
+            {
+                pin_implementation(view, lib, platform, &found.elf, addr, name, true);
+                if !recorded(addr, name) {
+                    view.record_imported_object_library(lib, name.as_str(), addr, platform);
+                }
+                typed += 1;
+            }
+            continue;
+        }
+        let Some(ty) = view.import_type_library_object(name.as_str(), Some(lib)) else {
+            continue;
+        };
+        match view.function_at(platform, addr) {
+            Some(func) => {
+                if *func.function_type() != *ty {
+                    if func.has_user_type() {
+                        func.set_user_type(&ty);
+                    } else {
+                        func.set_auto_type(&ty);
+                    }
+                } else if recorded(addr, name) {
+                    continue;
+                }
+            }
+            None => {
+                let sym =
+                    SymbolBuilder::new(SymbolType::ImportedFunction, name.as_str(), addr).create();
+                view.define_auto_symbol_with_type(&sym, platform, &*ty);
+            }
+        }
+        view.record_imported_object_library(lib, name.as_str(), addr, platform);
+        typed += 1;
+    }
+    for (name, addr) in &data {
+        let addr = *addr as u64;
+        let Some(ty) = view.import_type_library_object(name.as_str(), Some(lib)) else {
+            continue;
+        };
+        match view.data_variable_at_address(addr) {
+            Some(var) if *var.ty.contents == *ty && recorded(addr, name) => continue,
+            // The user's, typed from the library before.
+            Some(var) if !var.auto_discovered => {
+                let imported = view
+                    .lookup_imported_object_library(addr, platform)
+                    .is_some_and(|(l, _)| l.name() == lib.name());
+                if !imported {
+                    continue;
+                }
+                view.define_user_data_var(addr, &*ty);
+            }
+            _ => view.define_auto_data_var(addr, &*ty),
+        }
+        view.record_imported_object_library(lib, name.as_str(), addr, platform);
+        typed += 1;
+    }
+    typed
+}
+
+/// Defines the ROM table's names that the view has no symbol for, at
+/// addresses without one: an ESP image's revision's (see
+/// [`Chip::rom_symbols_for_revision`]), or for an ELF file, every
+/// revision's, as the ELF fix-ups define them.
+fn define_missing_rom_symbols(view: &BinaryView, chip: Chip) {
+    let names: Vec<(&str, u32)> = if view.view_type() == "ELF" {
+        chip.rom_symbols().0.to_vec()
+    } else {
+        chip.rom_symbols_for_revision(rom_download::min_revision(view))
+            .copied()
+            .collect()
+    };
+    for (name, addr) in names {
+        let addr64 = addr as u64;
+        if view.symbol_by_address(addr64).is_some() || view.symbol_by_raw_name(name).is_some() {
+            continue;
+        }
+        let kind = if chip.is_rom_function(addr) {
+            SymbolType::ImportedFunction
+        } else {
+            SymbolType::Data
+        };
+        view.define_auto_symbol(&SymbolBuilder::new(kind, name, addr64).create());
+    }
+}
+
+/// The ROM symbols the view has, by preference as [`apply`] takes them:
+/// the ROM tables' (of any revision; an image's view only has its
+/// revision's), then the view's other imported functions in the ROM's code
+/// (the esp_rom API aliases an ELF file names).
+fn view_rom_symbols(view: &BinaryView, chip: Chip) -> Vec<(String, u32)> {
+    let (table, revisions) = chip.rom_symbols();
+    let tables = std::iter::once(table).chain(revisions.iter().map(|&(_, t)| t));
+    let mut symbols: Vec<(String, u32)> = tables
+        .flatten()
+        .filter(|&&(name, addr)| {
+            view.symbol_by_raw_name(name)
+                .is_some_and(|s| s.address() == addr as u64)
+        })
+        .map(|&(name, addr)| (name.to_string(), addr))
+        .collect();
+    for (start, end) in chip.rom_code_ranges() {
+        for s in view.symbols_in_range(start as u64..end as u64).iter() {
+            if s.sym_type() == SymbolType::ImportedFunction {
+                let name = s.raw_name().to_string_lossy().into_owned();
+                symbols.push((name, s.address() as u32));
+            }
+        }
+    }
+    symbols
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -960,6 +1313,15 @@ mod tests {
                 assert!(lib.starts_with(b"BNT"), "{chip:?} is not a type library");
             }
         }
+    }
+
+    #[test]
+    fn guids() {
+        assert!(is_guid("1853a62d-97e5-58ef-bc7b-9cdd1465f7b2"));
+        assert!(!is_guid("SVD"));
+        assert!(!is_guid("1853a62d-97e5-58ef-bc7b-9cdd1465f7b"));
+        assert!(!is_guid("1853a62d-97e5-58ef-bc7b9cdd1465f7b2"));
+        assert!(!is_guid("1853a62g-97e5-58ef-bc7b-9cdd1465f7b2"));
     }
 
     #[test]

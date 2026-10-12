@@ -97,6 +97,12 @@ fn apply(view: &BinaryView, chip: Chip) {
     }
 }
 
+/// The chip's ROM, if the view is the chip's ROM ELF file.
+pub fn own_rom_elf(view: &BinaryView, chip: Chip) -> Option<RomElf> {
+    let raw = view.parent_view()?;
+    own_rom(view, chip, &raw.read_vec(0, raw.len() as usize))
+}
+
 /// The chip's ROM, if the file is the chip's ROM ELF file (see
 /// [`rom_images::recognize`]). Only a view with a segment in the ROM's code,
 /// which firmware never has, is checked.
