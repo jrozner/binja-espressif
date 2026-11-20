@@ -58,8 +58,8 @@ Between releases, `main`'s manifest stays that of the last release; if
    `plugin.json`'s `minimumbinaryninjaversion` in the build commit to the
    oldest Binary Ninja build the libraries load in (the extension manager
    hides the plugin from older ones): for the dev API, the first dev build
-   whose core accepts the pinned revision's core ABI (10874 for ABI 189,
-   which those builds accept as 188-189); for stable, the stable build
+   whose core accepts the pinned revision's core ABI (11155 for ABI 194,
+   which those builds accept as 193-194); for stable, the stable build
    number (10601 for 6.0).
 
    It builds the dispatched commit for Linux, Windows and macOS, uploads

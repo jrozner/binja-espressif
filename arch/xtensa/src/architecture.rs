@@ -138,10 +138,6 @@ impl Architecture for Xtensa {
         self.max_instr_len()
     }
 
-    fn associated_arch_by_addr(&self, _addr: u64) -> CoreArchitecture {
-        self.handle
-    }
-
     fn instruction_info(&self, data: &[u8], addr: u64) -> Option<InstructionInfo> {
         guard("instruction_info", addr, || {
             let insn = self.decode(data, addr)?;
