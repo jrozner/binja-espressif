@@ -101,7 +101,7 @@ into the plugin (see [SVD files](#svd-files)).
 A native plugin loads only in a Binary Ninja whose core ABI matches the API
 it was built against (`BN_MINIMUM_CORE_ABI_VERSION` to
 `BN_CURRENT_CORE_ABI_VERSION` in `binaryninjacore.h`): a build for a 6.0
-stable core (ABI 187) is refused by a 6.1 dev core (ABI 188-189), and the
+stable core (ABI 187) is refused by a 6.1 dev core (ABI 193-194), and the
 other way round. `Cargo.toml` on `main` pins a `dev` revision of the API,
 so a plain `cargo build` (like a release build) is for a dev Binary Ninja.
 

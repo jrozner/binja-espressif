@@ -529,9 +529,17 @@ folder.
   firmware is linked statically), the FLIX slot relocations
   (`R_XTENSA_SLOTn_OP`/`ALT` for slots 1 and up, and `SLOT0_ALT`) and
   `const16` operands are not applied; Espressif's cores have neither FLIX
-  nor `const16`. Binary Ninja's DWARF import rejects the Xtensa relocations
-  of an object's debug sections, so objects built with `-g` load without
-  their debug information.
+  nor `const16`.
+- **Debug information in objects.** Binary Ninja's DWARF import rejects the
+  Xtensa relocations of an object's debug sections in builds older than its
+  `object` 0.41 update (binaryninja-api 73acda81f, on dev since 2026-11-19),
+  so there objects built with `-g` load without their debug information.
+  Newer builds read it, but place the object's functions and data variables
+  at offsets into their sections rather than where the view put those
+  sections (Vector35/binaryninja-api#8729), so they land too low by the size
+  of `.literal` and anything else laid out before them. RISC-V objects built
+  with `-g` load without their debug information
+  (Vector35/binaryninja-api#8730).
 - **ESP8266 ROM types.** Its ROM functions are named but not typed: the
   ESP-IDF docker image the type libraries are made from has no ESP8266 SDK
   headers.
