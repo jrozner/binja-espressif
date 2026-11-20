@@ -91,6 +91,7 @@ pub fn register() {
         }
     }
     calling_convention::register_call0_step();
+    lift::register_retw_step();
 
     // EM_XTENSA says nothing about the core configuration: ELF files get
     // the most common one's architecture, the ESP32's, and a platform

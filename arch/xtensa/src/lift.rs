@@ -2,13 +2,21 @@
 
 use std::collections::HashMap;
 
-use binaryninja::low_level_il::expression::ValueExpr;
+use binaryninja::low_level_il::expression::{
+    ExpressionHandler, LowLevelILExpressionKind, ValueExpr,
+};
+use binaryninja::low_level_il::instruction::{
+    InstructionHandler, LowLevelILInstructionKind, LowLevelInstructionIndex,
+};
 use binaryninja::low_level_il::lifting::LowLevelILLabel;
 use binaryninja::low_level_il::{
-    LowLevelILMutableExpression, LowLevelILMutableFunction, LowLevelILTempRegister,
+    LowLevelILMutableExpression, LowLevelILMutableFunction, LowLevelILRegisterKind,
+    LowLevelILTempRegister,
 };
+use binaryninja::workflow::{Activity, AnalysisContext, Workflow, activity};
 use xtensa_isa::{Instruction, Isa, Opcode as O, Operand};
 
+use crate::Core;
 use crate::flag::Flag;
 use crate::intrinsic::{self, Input, Intrinsic, SysAccess, operand_reg};
 use crate::loops::Loops;
@@ -243,6 +251,110 @@ pub struct Lifter<'a> {
     pub intrinsics: &'a HashMap<u32, Intrinsic>,
     pub loops: Option<&'a Loops>,
     pub insn: &'a Instruction,
+}
+
+/// The temporary in which `entry` keeps the caller's stack pointer for
+/// `retw` to restore.
+///
+/// On the processor, `retw` rotates the register window back, and the
+/// caller finds its own `a1` again: the callee's `entry` lowered only the
+/// callee's copy. The IL has one `a1`, so without the restore the callee
+/// would return with `a1` lowered by its frame, the core would take that
+/// for the callee popping its own frame off the stack (a stack adjustment
+/// of -32 for `entry a1, 32`), and every windowed call would lower the
+/// caller's `a1` by the callee's frame, which moves the caller's stack
+/// accesses after the call to the wrong slots. Restoring `a1` from what it
+/// was at `entry` gives the callee no stack adjustment, which is what the
+/// windowed ABI guarantees.
+///
+/// The other temporaries live within one instruction and start at 0; this
+/// one lives from `entry` to every `retw` of the function, so its number
+/// must be one no other instruction uses. A function without `entry` (one
+/// analysed from somewhere in its middle, or a stub called with `call8`)
+/// would read it undefined; [`RETW_STEP`] removes the restore there.
+const CALLER_SP: u32 = 0x100;
+
+/// The analysis step that removes the `retw` restores of `a1` (see
+/// [`CALLER_SP`]) from the functions in which no `entry` saved it.
+///
+/// Read undefined, the temporary is an input of the function, and the core
+/// cannot tell where the stack pointer is when it returns: it no longer
+/// infers what the function clobbers and returns from its code, but falls
+/// back to the calling convention's (for a `call0` stub, `a2..a11`, with a
+/// result in `a2`), so the function's callers gain results they do not
+/// have. Without the restore, such a function returns with `a1` as it
+/// found it.
+///
+/// It runs in every analysis of a function, right after lifting, as the
+/// IL the core derives the rest from is the lifted IL. The lifter itself
+/// cannot leave the restore out: it lifts one instruction at a time, and
+/// does not know whether the function starts with `entry`.
+const RETW_STEP: &str = "xtensa.function.unsavedStackPointer";
+/// The step [`RETW_STEP`] runs after.
+const LIFT_STEP: &str = "core.function.generateLiftedIL";
+
+/// Registers [`RETW_STEP`].
+pub fn register_retw_step() {
+    let config = activity::Config::action(
+        RETW_STEP,
+        "Xtensa retw without entry",
+        "Removes the restore of a1 at retw from the functions on the windowed Xtensa cores that have no entry to save it.",
+    );
+    // The action must not capture anything: `Activity::new_with_action`
+    // keeps a pointer to the closure, which it does not keep alive.
+    let step = Activity::new_with_action(config, |ctx: &AnalysisContext| {
+        let name = ctx.function().arch().name();
+        if !Core::ALL
+            .iter()
+            .any(|core| core.windowed() && core.arch_name() == name)
+        {
+            return;
+        }
+        // SAFETY: the lifted IL is not used elsewhere while this step runs;
+        // it is changed here and handed back to the analysis.
+        let Some(llil) = (unsafe { ctx.lifted_il_function() }) else {
+            return;
+        };
+        if remove_unsaved_restores(&llil) {
+            ctx.set_lifted_il_function(&llil.finalized());
+        }
+    });
+    let registered = Workflow::cloned("core.function.metaAnalysis")
+        .ok_or(())
+        .and_then(|w| w.activity_after(&step, LIFT_STEP))
+        .and_then(|w| w.register());
+    if registered.is_err() {
+        tracing::error!("cannot register the Xtensa retw step");
+    }
+}
+
+/// Replaces the `a1 = CALLER_SP` instructions of `llil` with `nop`s if
+/// nothing in it sets [`CALLER_SP`]. Returns whether it changed anything.
+fn remove_unsaved_restores(llil: &Il) -> bool {
+    let caller_sp = LowLevelILRegisterKind::Temp(temp(CALLER_SP));
+    let mut restores = Vec::new();
+    for i in 0..llil.instruction_count() {
+        let Some(insn) = llil.instruction_from_index(LowLevelInstructionIndex(i)) else {
+            continue;
+        };
+        let LowLevelILInstructionKind::SetReg(op) = insn.kind() else {
+            continue;
+        };
+        if op.dest_reg() == caller_sp {
+            return false;
+        }
+        if let LowLevelILExpressionKind::Reg(src) = op.source_expr().kind()
+            && src.source_reg() == caller_sp
+        {
+            restores.push(insn.expr_idx());
+        }
+    }
+    for &expr in &restores {
+        // SAFETY: `expr` is an instruction of `llil`, and a `nop` is a valid
+        // instruction anywhere.
+        unsafe { llil.replace_expression(expr, llil.nop()) };
+    }
+    !restores.is_empty()
 }
 
 fn temp(n: u32) -> LowLevelILTempRegister {
@@ -898,6 +1010,8 @@ impl<'a> Lifter<'a> {
                 // a10/a11, which are our a2/a3 (see cc.rs).
                 self.set(Reg::A(10), self.reg(Reg::A(2)));
                 self.set(Reg::A(11), self.reg(Reg::A(3)));
+                // And its own stack pointer, which `entry` saved.
+                self.set(Reg::A(1), self.get_temp(CALLER_SP, 4));
                 il.ret(self.reg(Reg::A(0))).append();
             }
             O::Entry => {
@@ -909,6 +1023,7 @@ impl<'a> Lifter<'a> {
                 }
                 let sp = self.a(0);
                 let frame = self.imm(1) as i64;
+                self.set_temp(CALLER_SP, 4, self.reg(Reg::A(1)));
                 self.set(sp, il.sub(4, self.reg(sp), self.c(frame)).build());
                 self.mark_save_area(frame);
             }
