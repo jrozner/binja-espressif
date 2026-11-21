@@ -88,6 +88,11 @@ Assembling is not supported on the Xtensa architectures.
   word of the save areas into an unused temporary for this (`temp0 =
   var_20` in the MLIL); the read is not one the processor makes, and dead
   code elimination leaves it out of the HLIL.
+- **Windowed returns**: `entry` keeps the caller's `a1` in a temporary
+  (`temp256` in the LLIL) and `retw` restores it, as the window rotation
+  does on the processor, so a windowed callee has no stack adjustment and
+  the caller's stack accesses after a call keep their offsets. In a
+  function with no `entry` to save it, the restore is left out.
 - **Patching** on the Xtensa architectures: converting to nops (`nop`,
   `nop.n`), never branch, invert branch (every conditional branch, narrow
   `beqz.n`/`bnez.n` included) and always branch (a 3-byte branch becomes a

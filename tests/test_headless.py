@@ -106,6 +106,13 @@ def check_program(bv, chip, label):
     fp = "fp" if label == "ELF" else f"data_{symbols[chip]['fp']:x}"
     for call in ["(1, 2, 3)", "(1, 2, 3, 4, 5, 6, 7, 8)", f"{fp}(4, 5, 6)", f"({sink}, 1, 2)"]:
         check(call in text, f"{label}: start calls ...{call}")
+    # The window rotation gives the caller its own a1 back, so a windowed
+    # callee does not move its caller's stack pointer.
+    check(add3 is not None and add3.stack_adjustment.value == 0,
+          f"{label}: add3 has no stack adjustment: {add3.stack_adjustment if add3 else None}")
+    adjusting = [hex(i.address) for i in start.llil.instructions
+                 if i.operation.name == "LLIL_CALL_STACK_ADJUST"] if start else None
+    check(adjusting == [], f"{label}: no call in start adjusts the stack: {adjusting}")
 
     sum_ = bv.get_function_at(symbols[chip]["sum"])
     if chip in ("esp32", "esp32s3"):
@@ -825,6 +832,42 @@ check(out is not None and str(out.type) == "uint32_t", f"the topmost local keeps
 text = hlil_text(f)
 check(text.count("\n") == 2 and "sub_20(0, &out)" in text and "return out" in text and "var_" not in text,
       f"nothing of the save area in the HLIL: {text!r}")
+check(callee.stack_adjustment.value == 0, f"the callee has no stack adjustment: {callee.stack_adjustment}")
+bv.file.close()
+# retw restores the a1 that entry saved. In a function that allocates on
+# the stack with movsp, too; and one without entry (a stub called with
+# call8) has nothing to restore, and returns with a1 as it found it.
+frame_code = bytes.fromhex(
+    "366100"  # entry a1, 48
+    "e50100"  # call8 0x20
+    "a50300"  # call8 0x40
+    "2801"    # l32i.n a2, a1, 0
+    "1df0"    # retw.n
+).ljust(0x20, b"\0") + bytes.fromhex(
+    "364100"  # entry a1, 32
+    "1c09"    # movi.n a9, 16
+    "9081c0"  # sub a8, a1, a9
+    "101800"  # movsp a1, a8
+    "2901"    # s32i.n a2, a1, 0
+    "1df0"    # retw.n
+).ljust(0x20, b"\0") + bytes.fromhex(
+    "2903"    # s32i.n a2, a3, 0
+    "1df0"    # retw.n
+)
+bv = bn.BinaryView.new(frame_code)
+bv.platform = esp32_platform
+bv.arch = esp32_platform.arch
+alloca = bv.create_user_function(0x20, esp32_platform)
+stub = bv.create_user_function(0x40, esp32_platform)
+f = bv.create_user_function(0, esp32_platform)
+bv.update_analysis_and_wait()
+check(alloca.stack_adjustment.value == 0, f"movsp: no stack adjustment: {alloca.stack_adjustment}")
+check(stub.stack_adjustment.value == 0, f"no entry: no stack adjustment: {stub.stack_adjustment}")
+clobbered = sorted(stub.clobbered_regs.regs)
+check(clobbered == ["a0", "a10", "a11"], f"no entry: clobbers what it writes: {clobbered}")
+adjusting = [hex(i.address) for i in f.llil.instructions if i.operation.name == "LLIL_CALL_STACK_ADJUST"]
+check(adjusting == [], f"no call adjusts the stack: {adjusting}")
+bv.file.close()
 
 print("RISC-V images:")
 

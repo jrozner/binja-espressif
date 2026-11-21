@@ -39,7 +39,7 @@ dependencies = [
 [[package]]
 name = "binaryninja"
 version = "0.1.0"
-source = "git+https://github.com/Vector35/binaryninja-api.git?rev=e028343d0e13e7f4fe64e38f301467d7c9b9a79e#e028343d0e13e7f4fe64e38f301467d7c9b9a79e"
+source = "git+https://github.com/Vector35/binaryninja-api.git?rev=ef96c083621d6c5aa1d440fa03685e49b53349b3#ef96c083621d6c5aa1d440fa03685e49b53349b3"
 dependencies = [
  "binaryninjacore-sys",
  "bitflags",
@@ -54,7 +54,7 @@ dependencies = [
 [[package]]
 name = "binaryninjacore-sys"
 version = "0.1.0"
-source = "git+https://github.com/Vector35/binaryninja-api.git?rev=e028343d0e13e7f4fe64e38f301467d7c9b9a79e#e028343d0e13e7f4fe64e38f301467d7c9b9a79e"
+source = "git+https://github.com/Vector35/binaryninja-api.git?rev=ef96c083621d6c5aa1d440fa03685e49b53349b3#ef96c083621d6c5aa1d440fa03685e49b53349b3"
 dependencies = [
  "bindgen",
  "cmake",
